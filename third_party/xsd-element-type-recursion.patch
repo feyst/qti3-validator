@@ -1,0 +1,385 @@
+diff --git a/ARCHITECTURE.md b/ARCHITECTURE.md
+index 8d6fed47..2806c372 100644
+--- a/ARCHITECTURE.md
++++ b/ARCHITECTURE.md
+@@ -524,7 +524,9 @@ Compilation flow:
+    Source loading, graph planning, and component resolution consume one aggregate
+    dependency-work budget. Component references also enter a bounded active
+    expansion stack; cache hits remain charged, while cycles retain their specific
+-   schema diagnostics. Once every effective target namespace is known, the compiler indexes one
++   schema diagnostics. Only derivation forms a complex-type cycle: a complex
++   type reached through an element declaration while its base compiles,
++   named or anonymous, is registered and completed as soon as that base is. Once every effective target namespace is known, the compiler indexes one
+    declaration representative for each content fingerprint and effective
+    namespace while retaining every source occurrence for resolver traversal and
+    graph validation. It compiles schema components and populates a compiler-owned
+diff --git a/element_type_recursion_test.go b/element_type_recursion_test.go
+new file mode 100644
+index 00000000..45c4bb17
+--- /dev/null
++++ b/element_type_recursion_test.go
+@@ -0,0 +1,75 @@
++package xsd_test
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/jacoelho/xsd"
++)
++
++// A named type derived from a base can be reached through element
++// declarations while that base is still being compiled. That is recursion
++// through elements, not a derivation cycle, and must compile.
++func TestCompileExtensionReachedThroughBaseContent(t *testing.T) {
++	schema := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="urn:t" targetNamespace="urn:t" elementFormDefault="qualified">
++  <xs:complexType name="Base"><xs:sequence><xs:element name="prompt" type="Prompt" minOccurs="0"/></xs:sequence></xs:complexType>
++  <xs:complexType name="Prompt" mixed="true"><xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element ref="object"/></xs:choice></xs:complexType>
++  <xs:complexType name="Drawing"><xs:complexContent><xs:extension base="Base"><xs:sequence><xs:element ref="object"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType>
++  <xs:complexType name="Object" mixed="true"><xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element name="drawing" type="Drawing"/></xs:choice></xs:complexType>
++  <xs:complexType name="DerivedDrawing"><xs:complexContent><xs:extension base="Drawing"><xs:attribute name="a" type="xs:string"/></xs:extension></xs:complexContent></xs:complexType>
++  <xs:element name="object" type="Object"/>
++  <xs:element name="root" type="DerivedDrawing"/>
++</xs:schema>`
++	engine, err := xsd.Compile(xsd.Bytes("schema.xsd", []byte(schema)))
++	if err != nil {
++		t.Fatalf("compile: %v", err)
++	}
++	valid := `<root xmlns="urn:t" a="x"><prompt>p<object><drawing><object/></drawing></object></prompt><object/></root>`
++	if err := engine.Validate(strings.NewReader(valid)); err != nil {
++		t.Fatalf("valid document: %v", err)
++	}
++	for _, doc := range []string{
++		`<root xmlns="urn:t"><prompt/></root>`,
++		`<root xmlns="urn:t"><object><drawing/></object></root>`,
++	} {
++		if err := engine.Validate(strings.NewReader(doc)); err == nil {
++			t.Fatalf("%s: want validation error", doc)
++		}
++	}
++}
++
++func TestCompileRejectsDerivationCycleThroughElementReference(t *testing.T) {
++	schema := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
++  <xs:complexType name="A"><xs:sequence><xs:element name="b" type="B"/></xs:sequence></xs:complexType>
++  <xs:complexType name="B"><xs:complexContent><xs:extension base="C"/></xs:complexContent></xs:complexType>
++  <xs:complexType name="C"><xs:complexContent><xs:extension base="B"/></xs:complexContent></xs:complexType>
++  <xs:element name="root" type="A"/>
++</xs:schema>`
++	if _, err := xsd.Compile(xsd.Bytes("schema.xsd", []byte(schema))); err == nil {
++		t.Fatal("want cyclic derivation error")
++	}
++}
++
++// An anonymous type reached the same way is deferred by the same mechanism.
++func TestCompileAnonymousExtensionReachedThroughBaseContent(t *testing.T) {
++	schema := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="urn:t" targetNamespace="urn:t" elementFormDefault="qualified">
++  <xs:complexType name="Base"><xs:sequence><xs:element name="prompt" type="Prompt" minOccurs="0"/></xs:sequence></xs:complexType>
++  <xs:complexType name="Prompt" mixed="true"><xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element ref="object"/></xs:choice></xs:complexType>
++  <xs:element name="object">
++    <xs:complexType mixed="true"><xs:choice minOccurs="0" maxOccurs="unbounded">
++      <xs:element name="drawing"><xs:complexType><xs:complexContent><xs:extension base="Base"><xs:attribute name="a" type="xs:string" use="required"/></xs:extension></xs:complexContent></xs:complexType></xs:element>
++    </xs:choice></xs:complexType>
++  </xs:element>
++  <xs:element name="root" type="Base"/>
++</xs:schema>`
++	engine, err := xsd.Compile(xsd.Bytes("schema.xsd", []byte(schema)))
++	if err != nil {
++		t.Fatalf("compile: %v", err)
++	}
++	if err := engine.Validate(strings.NewReader(`<root xmlns="urn:t"><prompt><object><drawing a="x"><prompt/></drawing></object></prompt></root>`)); err != nil {
++		t.Fatalf("valid document: %v", err)
++	}
++	if err := engine.Validate(strings.NewReader(`<root xmlns="urn:t"><prompt><object><drawing/></object></prompt></root>`)); err == nil {
++		t.Fatal("missing required attribute: want validation error")
++	}
++}
+diff --git a/internal/schema/compile_complex.go b/internal/schema/compile_complex.go
+index b865dc3d..5e1f2ef6 100644
+--- a/internal/schema/compile_complex.go
++++ b/internal/schema/compile_complex.go
+@@ -2,6 +2,7 @@ package schema
+ 
+ import (
+ 	"fmt"
++	"slices"
+ 
+ 	"github.com/jacoelho/xsd/internal/vocab"
+ 	"github.com/jacoelho/xsd/xsderrors"
+@@ -26,11 +27,16 @@ func validateComplexTypeScope(scope complexTypeScope) error {
+ 	}
+ }
+ 
++// compileComplexByQName returns a named complex type with its definition
++// complete, as a derivation base requires.
+ func (c *compiler) compileComplexByQName(q QName) (ComplexTypeID, error) {
+ 	label := c.rt.formatName(q)
+ 	if err := c.rejectComplexTypeCycle(q, label); err != nil {
+ 		return NoComplexType, err
+ 	}
++	if i := c.deferredComplexIndex(q); i >= 0 {
++		return c.completeRequestedDeferredComplex(i)
++	}
+ 	raw, exists := c.complexComponents[q]
+ 	var source *schemaNode
+ 	if exists {
+@@ -64,9 +70,93 @@ func (c *compiler) compileComplexByQName(q QName) (ComplexTypeID, error) {
+ 	if err := c.completeGlobalComplexType(raw, q, id, &ct); err != nil {
+ 		return NoComplexType, err
+ 	}
++	return id, c.drainDeferredComplex()
++}
++
++// compileComplexReference returns a named complex type used as the type of an
++// element declaration. Such a reference needs only the type's identity, so a
++// type whose base is still compiling is registered and deferred.
++func (c *compiler) compileComplexReference(q QName) (ComplexTypeID, error) {
++	if id, ok := c.complexDone[q]; ok {
++		return id, nil
++	}
++	raw, exists := c.complexComponents[q]
++	if !exists {
++		return c.compileComplexByQName(q)
++	}
++	base, deferCompletion, err := c.compilingComplexBase(raw.sourceNode(), raw.ctx)
++	if err != nil || !deferCompletion {
++		return c.compileComplexByQName(q)
++	}
++	if spendErr := c.spendComponentDependency(raw.sourceNode()); spendErr != nil {
++		return NoComplexType, spendErr
++	}
++	id, err := c.registerGlobalComplexType(q, ComplexType{Name: q, Content: NoContentModel, Attrs: NoAttributeUseSet, TextType: NoSimpleType, Base: ComplexRef(c.rt.builtinIDs().AnyType)})
++	if err != nil {
++		return NoComplexType, err
++	}
++	c.complexDone[q] = id
++	c.deferredComplex = append(c.deferredComplex, deferredComplex{
++		name: q, id: id, base: base, scope: complexTypeScopeGlobal, raw: raw,
++	})
+ 	return id, nil
+ }
+ 
++// completeRequestedDeferredComplex completes a deferred named type that is
++// needed as a derivation base. Its own base must be complete by now;
++// otherwise the two types derive from each other.
++func (c *compiler) completeRequestedDeferredComplex(i int) (ComplexTypeID, error) {
++	item := c.deferredComplex[i]
++	if err := c.rejectComplexTypeCycle(item.base, c.rt.formatName(item.base)); err != nil {
++		return NoComplexType, err
++	}
++	c.deferredComplex = slices.Delete(c.deferredComplex, i, i+1)
++	return item.id, c.completeDeferredComplex(item)
++}
++
++func (c *compiler) deferredComplexIndex(q QName) int {
++	return slices.IndexFunc(c.deferredComplex, func(d deferredComplex) bool {
++		return d.scope == complexTypeScopeGlobal && d.name == q
++	})
++}
++
++// drainDeferredComplex completes every deferred type whose base is no longer
++// compiling, including types that become ready while others complete.
++func (c *compiler) drainDeferredComplex() error {
++	for {
++		i := slices.IndexFunc(c.deferredComplex, func(d deferredComplex) bool {
++			return !c.compilingComplex[d.base]
++		})
++		if i < 0 {
++			return nil
++		}
++		item := c.deferredComplex[i]
++		c.deferredComplex = slices.Delete(c.deferredComplex, i, i+1)
++		if err := c.completeDeferredComplex(item); err != nil {
++			return err
++		}
++	}
++}
++
++func (c *compiler) completeDeferredComplex(item deferredComplex) error {
++	if item.scope == complexTypeScopeAnonymous {
++		_, err := c.completeAnonymousComplex(item.id, item.name, item.node, item.ctx)
++		return err
++	}
++	leave, err := c.enterComponent(item.raw.sourceNode())
++	if err != nil {
++		return err
++	}
++	defer leave()
++	c.compilingComplex[item.name] = true
++	defer delete(c.compilingComplex, item.name)
++	ct, err := c.compileComplexType(item.raw.sourceNode(), item.raw.ctx, item.name, complexTypeScopeGlobal)
++	if err != nil {
++		return err
++	}
++	return c.completeGlobalComplexType(item.raw, item.name, item.id, &ct)
++}
++
+ func (c *compiler) rejectComplexTypeCycle(q QName, label string) error {
+ 	if !c.compilingComplex[q] {
+ 		return nil
+@@ -101,7 +191,10 @@ func (c *compiler) compileAnonymousComplex(n *schemaNode, ctx *schemaContext) (C
+ 	if err := checkLocalComplexTypeAttributes(n); err != nil {
+ 		return NoComplexType, err
+ 	}
+-	deferCompletion, err := c.shouldDeferAnonymousComplex(n, ctx)
++	if err := checkComplexTypeChildren(n); err != nil {
++		return NoComplexType, err
++	}
++	base, deferCompletion, err := c.compilingComplexBase(n, ctx)
+ 	if err != nil {
+ 		return NoComplexType, err
+ 	}
+@@ -114,11 +207,8 @@ func (c *compiler) compileAnonymousComplex(n *schemaNode, ctx *schemaContext) (C
+ 		return NoComplexType, err
+ 	}
+ 	if deferCompletion {
+-		c.deferredAnonymousComplex = append(c.deferredAnonymousComplex, deferredAnonymousComplex{
+-			node: n,
+-			ctx:  ctx,
+-			name: q,
+-			id:   id,
++		c.deferredComplex = append(c.deferredComplex, deferredComplex{
++			name: q, id: id, base: base, scope: complexTypeScopeAnonymous, node: n, ctx: ctx,
+ 		})
+ 		return id, nil
+ 	}
+@@ -145,54 +235,32 @@ func (c *compiler) completeAnonymousComplex(id ComplexTypeID, q QName, n *schema
+ 	return id, nil
+ }
+ 
+-func (c *compiler) drainDeferredAnonymousComplex() error {
+-	for len(c.deferredAnonymousComplex) != 0 {
+-		pending := c.deferredAnonymousComplex
+-		c.deferredAnonymousComplex = nil
+-		for _, item := range pending {
+-			if _, err := c.completeAnonymousComplex(item.id, item.name, item.node, item.ctx); err != nil {
+-				return err
+-			}
+-		}
+-	}
+-	return nil
+-}
+-
+-func (c *compiler) shouldDeferAnonymousComplex(n *schemaNode, ctx *schemaContext) (bool, error) {
+-	if err := checkComplexTypeChildren(n); err != nil {
+-		return false, err
+-	}
++// compilingComplexBase reports the derivation base of a complex type
++// definition when that base is currently compiling.
++func (c *compiler) compilingComplexBase(n *schemaNode, ctx *schemaContext) (QName, bool, error) {
++	container := vocab.XSDElemComplexContent
++	var kind ContentDerivationKind
++	var node *schemaNode
+ 	if cc := n.firstXS(vocab.XSDElemComplexContent); cc != nil {
+-		return c.shouldDeferComplexContent(cc, ctx)
+-	}
+-	if sc := n.firstXS(vocab.XSDElemSimpleContent); sc != nil {
+-		return c.shouldDeferSimpleContent(sc, ctx)
+-	}
+-	return false, nil
+-}
+-
+-func (c *compiler) shouldDeferComplexContent(n *schemaNode, ctx *schemaContext) (bool, error) {
+-	source, err := checkComplexContentSyntax(n)
+-	if err != nil {
+-		return false, err
+-	}
+-	base, err := c.contentDerivationBaseQName(vocab.XSDElemComplexContent, source.kind, source.node, ctx)
+-	if err != nil {
+-		return false, err
+-	}
+-	return c.compilingComplex[base], nil
+-}
+-
+-func (c *compiler) shouldDeferSimpleContent(n *schemaNode, ctx *schemaContext) (bool, error) {
+-	source, err := checkSimpleContentSyntax(n)
+-	if err != nil {
+-		return false, err
++		source, err := checkComplexContentSyntax(cc)
++		if err != nil {
++			return QName{}, false, err
++		}
++		kind, node = source.kind, source.node
++	} else if sc := n.firstXS(vocab.XSDElemSimpleContent); sc != nil {
++		source, err := checkSimpleContentSyntax(sc)
++		if err != nil {
++			return QName{}, false, err
++		}
++		container, kind, node = vocab.XSDElemSimpleContent, source.kind, source.node
++	} else {
++		return QName{}, false, nil
+ 	}
+-	base, err := c.contentDerivationBaseQName(vocab.XSDElemSimpleContent, source.kind, source.node, ctx)
++	base, err := c.contentDerivationBaseQName(container, kind, node, ctx)
+ 	if err != nil {
+-		return false, err
++		return QName{}, false, err
+ 	}
+-	return c.compilingComplex[base], nil
++	return base, c.compilingComplex[base], nil
+ }
+ 
+ func schemaBoolAttrDefault(n *schemaNode, name string, def bool) (bool, error) {
+diff --git a/internal/schema/compile_substitution.go b/internal/schema/compile_substitution.go
+index 836fa907..92d579b1 100644
+--- a/internal/schema/compile_substitution.go
++++ b/internal/schema/compile_substitution.go
+@@ -241,7 +241,7 @@ func (c *compiler) resolveTypeQName(q QName) (TypeID, error) {
+ 		return SimpleRef(id), nil
+ 	}
+ 	if _, ok := c.complexComponents[q]; ok {
+-		id, err := c.compileComplexByQName(q)
++		id, err := c.compileComplexReference(q)
+ 		if err != nil {
+ 			return TypeID{}, err
+ 		}
+diff --git a/internal/schema/compiler.go b/internal/schema/compiler.go
+index 2401f58c..1bccdedf 100644
+--- a/internal/schema/compiler.go
++++ b/internal/schema/compiler.go
+@@ -132,16 +132,25 @@ type compilerBuildState struct {
+ 	localDone                 map[schemaNodeKey]ElementID
+ 	identityDeclared          map[schemaNodeKey]IdentityConstraintID
+ 	simpleListReach           simpleTypeListReachability
+-	deferredAnonymousComplex  []deferredAnonymousComplex
++	deferredComplex           []deferredComplex
+ 	pendingElementConstraints []pendingElementConstraint
+ 	unionMemberEntries        int
+ }
+ 
+-type deferredAnonymousComplex struct {
+-	node *schemaNode
+-	ctx  *schemaContext
+-	name QName
+-	id   ComplexTypeID
++// deferredComplex is a complex type reached through an element declaration
++// while the base it derives from is still compiling. Its ID is registered so
++// the declaration can refer to it; its definition is compiled as soon as the
++// base is complete. Recursion through element declarations is legal XSD; only
++// recursion through derivation is a cycle.
++type deferredComplex struct {
++	// node and ctx define an anonymous type; raw is a global component.
++	node  *schemaNode
++	ctx   *schemaContext
++	raw   schemaComponent
++	name  QName
++	base  QName
++	id    ComplexTypeID
++	scope complexTypeScope
+ }
+ 
+ type compilerCycleState struct {
+@@ -301,9 +310,12 @@ func (c *compiler) compileGlobalElements() error {
+ }
+ 
+ func (c *compiler) finalizeCompiledGlobals() error {
+-	if err := c.drainDeferredAnonymousComplex(); err != nil {
++	if err := c.drainDeferredComplex(); err != nil {
+ 		return err
+ 	}
++	if len(c.deferredComplex) != 0 {
++		return xsderrors.InternalInvariant("deferred complex type left incomplete")
++	}
+ 	if err := c.compileSubstitutions(); err != nil {
+ 		return err
+ 	}

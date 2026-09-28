@@ -1,0 +1,778 @@
+{
+ "fuzz-0017.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of role."
+ ],
+ "fuzz-0020.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of max-choices.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of width."
+ ],
+ "fuzz-0033.xml": [
+  "[RULE GLOBAL ELEMENT (div): Assertion 2] Invalid XML attribute in position 2 with name of min-associations.",
+  "[RULE GLOBAL ELEMENT (h2): Assertion 2] Invalid XML attribute in position 2 with name of identifier.",
+  "[RULE GLOBAL ELEMENT (h2): Assertion 3] Invalid XML attribute in position 3 with name of min-choices.",
+  "[RULE GLOBAL ELEMENT (h2): Assertion 4] Invalid XML attribute in position 4 with name of base-type.",
+  "[RULE GLOBAL ELEMENT (img): Assertion 1] Invalid XML attribute in position 1 with name of mediagroup.",
+  "[RULE GLOBAL ELEMENT (img): Assertion 1] Invalid XML attribute in position 1 with name of title.",
+  "[RULE GLOBAL ELEMENT (img): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE GLOBAL ELEMENT (img): Assertion 3] Invalid XML attribute in position 3 with name of colour.",
+  "[RULE GLOBAL ELEMENT (img): Assertion 3] Invalid XML attribute in position 3 with name of fixed.",
+  "[RULE GLOBAL ELEMENT (img): Assertion 4] Invalid XML attribute in position 4 with name of cardinality.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 1] Invalid XML attribute in position 1 with name of orientation.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 2] Invalid XML attribute in position 2 with name of top.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 4] Invalid XML attribute in position 4 with name of cardinality.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 5] Invalid XML attribute in position 5 with name of templateIdentifier.",
+  "[RULE GLOBAL ELEMENT (table): Assertion 1] Invalid XML attribute in position 1 with name of zzz.",
+  "[RULE GLOBAL ELEMENT (table): Assertion 2] Invalid XML attribute in position 2 with name of upper-bound.",
+  "[RULE GLOBAL ELEMENT (table): Assertion 3] Invalid XML attribute in position 3 with name of min-plays.",
+  "[RULE INTERACTION 11Aa: Assertion 03] A MatchInteraction MUST NOT contain a ChoiceInteraction.The ID for the parent MatchInteraction is:",
+  "[RULE INTERACTION 15Aa: Assertion 16] A DrawingInteraction MUST NOT contain an OrderInteraction.The ID for the parent DrawingInteraction is:",
+  "[RULE INTERACTION 15Ba: Assertion 1] The base-type must have a value of file.The base-type value is:float",
+  "[RULE INTERACTION 16Aa: Assertion 17] An UploadInteraction MUST NOT contain an OrderInteraction.The ID for the parent UploadInteraction is:",
+  "[RULE INTERACTION 16Ba: Assertion 1] The base-type must have a value of file.The base-type value is:float",
+  "[RULE INTERACTION 18Aa: Assertion 16] A GapMatchInteraction MUST NOT contain an OrderInteraction.The ID for the parent GapMatchInteraction is:",
+  "[RULE INTERACTION 19Aa: Assertion 16] A GraphicGapMatchInteraction MUST NOT contain an OrderInteraction.The ID for the parent GraphicGapMatch is:",
+  "[RULE INTERACTION 20Aa: Assertion 16] A CustomInteraction MUST NOT contain an OrderInteraction.The ID for the parent CustomInteraction",
+  "[RULE INTERACTION 3Aa: Assertion 16] An ExtendedTextInteraction MUST NOT contain an OrderInteraction.The ID for the parent ExtendedTextInteraction is:",
+  "[RULE LOCAL ELEMENT (qti-assessment-section-ref): Assertion 1] Invalid XML attribute in position 1 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-assessment-section-ref): Assertion 2] Invalid XML attribute in position 2 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-assessment-section-ref): Assertion 3] Invalid XML attribute in position 3 with name of role.",
+  "[RULE LOCAL ELEMENT (qti-assessment-section-ref): Assertion 4] Invalid XML attribute in position 4 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 1] Invalid XML attribute in position 1 with name of aria-setsize.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 1] Invalid XML attribute in position 1 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 1] Invalid XML attribute in position 1 with name of max-plays.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 1] Invalid XML attribute in position 1 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 1] Invalid XML attribute in position 1 with name of min-strings.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 2] Invalid XML attribute in position 2 with name of aria-relevant.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 2] Invalid XML attribute in position 2 with name of id.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 3] Invalid XML attribute in position 3 with name of aria-rowindex.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 3] Invalid XML attribute in position 3 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 4] Invalid XML attribute in position 4 with name of role.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 1] Invalid XML attribute in position 1 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 2] Invalid XML attribute in position 2 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-card-entry): Assertion 1] Invalid XML attribute in position 1 with name of identifier.",
+  "[RULE LOCAL ELEMENT (qti-card-entry): Assertion 2] Invalid XML attribute in position 2 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-card-entry): Assertion 3] Invalid XML attribute in position 3 with name of mastery-value.",
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 1] Invalid XML attribute in position 1 with name of href.",
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 3] Invalid XML attribute in position 3 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-drawing-interaction): Assertion 1] Invalid XML attribute in position 1 with name of match-group.",
+  "[RULE LOCAL ELEMENT (qti-drawing-interaction): Assertion 2] Invalid XML attribute in position 2 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-drawing-interaction): Assertion 3] Invalid XML attribute in position 3 with name of max-choices.",
+  "[RULE LOCAL ELEMENT (qti-extended-text-interaction): Assertion 1] Invalid XML attribute in position 1 with name of show-hide.",
+  "[RULE LOCAL ELEMENT (qti-extended-text-interaction): Assertion 2] Invalid XML attribute in position 2 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-extended-text-interaction): Assertion 4] Invalid XML attribute in position 4 with name of templateIdentifier.",
+  "[RULE LOCAL ELEMENT (qti-feedback-block): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-feedback-block): Assertion 3] Invalid XML attribute in position 3 with name of max-choices.",
+  "[RULE LOCAL ELEMENT (qti-feedback-inline): Assertion 1] Invalid XML attribute in position 1 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-feedback-inline): Assertion 2] Invalid XML attribute in position 2 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-feedback-inline): Assertion 2] Invalid XML attribute in position 2 with name of response-identifier.",
+  "[RULE LOCAL ELEMENT (qti-feedback-inline): Assertion 4] Invalid XML attribute in position 4 with name of normal-minimum.",
+  "[RULE LOCAL ELEMENT (qti-feedback-inline): Assertion 5] Invalid XML attribute in position 5 with name of response-identifier.",
+  "[RULE LOCAL ELEMENT (qti-gap): Assertion 1] Invalid XML attribute in position 1 with name of match-max.",
+  "[RULE LOCAL ELEMENT (qti-gap): Assertion 2] Invalid XML attribute in position 2 with name of response-identifier.",
+  "[RULE LOCAL ELEMENT (qti-gap-match-interaction): Assertion 1] Invalid XML attribute in position 1 with name of object-label.",
+  "[RULE LOCAL ELEMENT (qti-gap-match-interaction): Assertion 2] Invalid XML attribute in position 2 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-graphic-gap-match-interaction): Assertion 2] Invalid XML attribute in position 2 with name of mastery-value.",
+  "[RULE LOCAL ELEMENT (qti-graphic-gap-match-interaction): Assertion 3] Invalid XML attribute in position 3 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-graphic-gap-match-interaction): Assertion 4] Invalid XML attribute in position 4 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-hottext): Assertion 1] Invalid XML attribute in position 1 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-html-content): Assertion 1] Invalid XML attribute in position 1 with name of aria-rowcount.",
+  "[RULE LOCAL ELEMENT (qti-html-content): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-html-content): Assertion 2] Invalid XML attribute in position 2 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-html-content): Assertion 2] Invalid XML attribute in position 2 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-inline-choice): Assertion 1] Invalid XML attribute in position 1 with name of hotspot-label.",
+  "[RULE LOCAL ELEMENT (qti-inline-choice): Assertion 2] Invalid XML attribute in position 2 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-label): Assertion 1] Invalid XML attribute in position 1 with name of view.",
+  "[RULE LOCAL ELEMENT (qti-match-interaction): Assertion 1] Invalid XML attribute in position 1 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-match-interaction): Assertion 3] Invalid XML attribute in position 3 with name of xsi:schemaLocation.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 1] Invalid XML attribute in position 1 with name of rowspan.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 2] Invalid XML attribute in position 2 with name of keep-together.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 1] Invalid XML attribute in position 1 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 2] Invalid XML attribute in position 2 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 4] Invalid XML attribute in position 4 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-portable-custom-interaction): Assertion 1] Invalid XML attribute in position 1 with name of identifier.",
+  "[RULE LOCAL ELEMENT (qti-portable-custom-interaction): Assertion 2] Invalid XML attribute in position 2 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-position-object-stage): Assertion 1] Invalid XML attribute in position 1 with name of outcome-identifier.",
+  "[RULE LOCAL ELEMENT (qti-position-object-stage): Assertion 2] Invalid XML attribute in position 2 with name of identifier.",
+  "[RULE LOCAL ELEMENT (qti-rubric-block): Assertion 1] Invalid XML attribute in position 1 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-rubric-block): Assertion 2] Invalid XML attribute in position 2 with name of default.",
+  "[RULE LOCAL ELEMENT (qti-rubric-block): Assertion 3] Invalid XML attribute in position 3 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-simple-associable-choice): Assertion 1] Invalid XML attribute in position 1 with name of response-identifier.",
+  "[RULE LOCAL ELEMENT (qti-simple-associable-choice): Assertion 2] Invalid XML attribute in position 2 with name of submission-mode.",
+  "[RULE LOCAL ELEMENT (qti-simple-choice): Assertion 1] Invalid XML attribute in position 1 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-test-feedback): Assertion 1] Invalid XML attribute in position 1 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-test-feedback): Assertion 2] Invalid XML attribute in position 2 with name of placeholder-text.",
+  "[RULE LOCAL ELEMENT (qti-test-feedback): Assertion 3] Invalid XML attribute in position 3 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 1] Invalid XML attribute in position 1 with name of count-attempt.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 1] Invalid XML attribute in position 1 with name of match-min.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 2] Invalid XML attribute in position 2 with name of templateIdentifier.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 3] Invalid XML attribute in position 3 with name of aria-multiline.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 3] Invalid XML attribute in position 3 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 4] Invalid XML attribute in position 4 with name of min-associations.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of lang.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of max-choices.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 4] Invalid XML attribute in position 4 with name of top.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 5] Invalid XML attribute in position 5 with name of upper-bound.",
+  "[RULE ROOT ELEMENT (qti-assessment-stimulus): Assertion 1] Invalid XML attribute in position 1 with name of aria-live.",
+  "[RULE ROOT ELEMENT (qti-assessment-stimulus): Assertion 2] Invalid XML attribute in position 2 with name of response-identifier.",
+  "[RULE ROOT ELEMENT (qti-assessment-stimulus): Assertion 3] Invalid XML attribute in position 3 with name of mastery-value.",
+  "[RULE ROOT ELEMENT (qti-assessment-test): Assertion 1] Invalid XML attribute in position 1 with name of aria-multiline.",
+  "[RULE ROOT ELEMENT (qti-assessment-test): Assertion 2] Invalid XML attribute in position 2 with name of cardinality."
+ ],
+ "fuzz-0049.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of aria-atomic."
+ ],
+ "fuzz-0081.xml": [
+  "[RULE GLOBAL ELEMENT (h1): Assertion 2] Invalid XML attribute in position 2 with name of expected-lines.",
+  "[RULE GLOBAL ELEMENT (h2): Assertion 2] Invalid XML attribute in position 2 with name of min-choices.",
+  "[RULE GLOBAL ELEMENT (h2): Assertion 3] Invalid XML attribute in position 3 with name of max-associations.",
+  "[RULE GLOBAL ELEMENT (p): Assertion 1] Invalid XML attribute in position 1 with name of templateIdentifier.",
+  "[RULE GLOBAL ELEMENT (p): Assertion 2] Invalid XML attribute in position 2 with name of base-type.",
+  "[RULE GLOBAL ELEMENT (p): Assertion 5] Invalid XML attribute in position 5 with name of min-associations.",
+  "[RULE INTERACTION 10Aa: Assertion 06] A GraphicAssociateInteraction MUST NOT contain an EndAttemptInteraction.The ID for the parent GraphicAssociateInteraction is:",
+  "[RULE INTERACTION 10Aa: Assertion 19] A GraphicAssociateInteraction MUST NOT contain a SelectPointInteraction.The ID for the parent GraphicAssociateInteraction is:",
+  "[RULE INTERACTION 15Aa: Assertion 05] A DrawingInteraction MUST NOT contain an EndAttemptInteraction.The ID for the parent DrawingInteraction is:",
+  "[RULE INTERACTION 15Ba: Assertion 1] The base-type must have a value of file.The base-type value is:",
+  "[RULE INTERACTION 17Ba: Assertion 1] The base-type must have a value of boolean.The base-type value is:",
+  "[RULE INTERACTION 17Ba: Assertion 1] The base-type must have a value of boolean.The base-type value is:",
+  "[RULE INTERACTION 17Ba: Assertion 1] The base-type must have a value of boolean.The base-type value is:",
+  "[RULE INTERACTION 20Aa: Assertion 16] A CustomInteraction MUST NOT contain an OrderInteraction.The ID for the parent CustomInteraction",
+  "[RULE INTERACTION 2Aa: Assertion 05] A ChoiceInteraction MUST NOT contain an EndAttemptInteraction.The ID for the parent ChoiceInteraction is:",
+  "[RULE INTERACTION 9Aa: Assertion 06] A HottextInteraction MUST NOT contain an EndAttemptInteraction.The ID for the parent HottextInteraction is:",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 1] Invalid XML attribute in position 1 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 2] Invalid XML attribute in position 2 with name of role.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 2] Invalid XML attribute in position 2 with name of aria-selected.",
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 1] Invalid XML attribute in position 1 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 2] Invalid XML attribute in position 2 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-custom-interaction): Assertion 1] Invalid XML attribute in position 1 with name of min-associations.",
+  "[RULE LOCAL ELEMENT (qti-end-attempt-interaction): Assertion 1] Invalid XML attribute in position 1 with name of alt.",
+  "[RULE LOCAL ELEMENT (qti-end-attempt-interaction): Assertion 1] Invalid XML attribute in position 1 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-end-attempt-interaction): Assertion 4] Invalid XML attribute in position 4 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-graphic-associate-interaction): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-graphic-associate-interaction): Assertion 1] Invalid XML attribute in position 1 with name of identifier.",
+  "[RULE LOCAL ELEMENT (qti-graphic-associate-interaction): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-interaction): Assertion 1] Invalid XML attribute in position 1 with name of navigation-mode.",
+  "[RULE LOCAL ELEMENT (qti-label): Assertion 3] Invalid XML attribute in position 3 with name of max-plays.",
+  "[RULE LOCAL ELEMENT (qti-label): Assertion 4] Invalid XML attribute in position 4 with name of time-dependent.",
+  "[RULE LOCAL ELEMENT (qti-match-interaction): Assertion 1] Invalid XML attribute in position 1 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-match-interaction): Assertion 2] Invalid XML attribute in position 2 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 1] Invalid XML attribute in position 1 with name of aria-keyshorts.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 2] Invalid XML attribute in position 2 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 3] Invalid XML attribute in position 3 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 1] Invalid XML attribute in position 1 with name of identifier.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 2] Invalid XML attribute in position 2 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 3] Invalid XML attribute in position 3 with name of time-dependent.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 4] Invalid XML attribute in position 4 with name of xsi:schemaLocation.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 5] Invalid XML attribute in position 5 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-position-object-stage): Assertion 1] Invalid XML attribute in position 1 with name of identifier.",
+  "[RULE LOCAL ELEMENT (qti-position-object-stage): Assertion 2] Invalid XML attribute in position 2 with name of match-min.",
+  "[RULE LOCAL ELEMENT (qti-prompt): Assertion 1] Invalid XML attribute in position 1 with name of response-identifier.",
+  "[RULE LOCAL ELEMENT (qti-prompt): Assertion 4] Invalid XML attribute in position 4 with name of show-hide.",
+  "[RULE LOCAL ELEMENT (qti-prompt): Assertion 5] Invalid XML attribute in position 5 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-select-point-interaction): Assertion 4] Invalid XML attribute in position 4 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-simple-associable-choice): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-simple-associable-choice): Assertion 3] Invalid XML attribute in position 3 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-template-block): Assertion 1] Invalid XML attribute in position 1 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-template-block): Assertion 2] Invalid XML attribute in position 2 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-template-block): Assertion 3] Invalid XML attribute in position 3 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-template-block): Assertion 4] Invalid XML attribute in position 4 with name of min-associations.",
+  "[RULE LOCAL ELEMENT (qti-template-block): Assertion 5] Invalid XML attribute in position 5 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 1] Invalid XML attribute in position 1 with name of colspan.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 2] Invalid XML attribute in position 2 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 2] Invalid XML attribute in position 2 with name of match-max.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 2] Invalid XML attribute in position 2 with name of match-max.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 3] Invalid XML attribute in position 3 with name of left.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 3] Invalid XML attribute in position 3 with name of min-associations.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 4] Invalid XML attribute in position 4 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 5] Invalid XML attribute in position 5 with name of max-associations.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of role.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 2] Invalid XML attribute in position 2 with name of colour."
+ ],
+ "fuzz-0119.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of aria-rowindex.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of min-associations."
+ ],
+ "fuzz-0131.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of colour."
+ ],
+ "fuzz-0195.xml": [
+  "[RULE INTERACTION 19Ba: Assertion 1] The base-type must have a value of directedPair.The base-type value is:file",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of width.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of controls."
+ ],
+ "fuzz-0209.xml": [
+  "[RULE LOCAL ELEMENT (qti-gap-img): Assertion 1] Invalid XML attribute in position 1 with name of longdesc."
+ ],
+ "fuzz-0231.xml": [],
+ "fuzz-0239.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of mastery-value.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of upper-bound."
+ ],
+ "fuzz-0256.xml": [
+  "[RULE LOCAL ELEMENT (qti-simple-choice): Assertion 2] Invalid XML attribute in position 2 with name of max-choices.",
+  "[RULE LOCAL ELEMENT (qti-simple-choice): Assertion 3] Invalid XML attribute in position 3 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-simple-choice): Assertion 4] Invalid XML attribute in position 4 with name of min-associations."
+ ],
+ "fuzz-0269.xml": [
+  "[RULE LOCAL ELEMENT (qti-graphic-associate-interaction): Assertion 2] Invalid XML attribute in position 2 with name of match-min."
+ ],
+ "fuzz-0272.xml": [
+  "[RULE LOCAL ELEMENT (qti-assessment-section-ref): Assertion 1] Invalid XML attribute in position 1 with name of role.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 1] Invalid XML attribute in position 1 with name of match-min."
+ ],
+ "fuzz-0282.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of min-choices.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of max-plays."
+ ],
+ "fuzz-0291.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of custom-interaction-type-identifier."
+ ],
+ "fuzz-0306.xml": [],
+ "fuzz-0314.xml": [
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 2] Invalid XML attribute in position 2 with name of align.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of upper-bound.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of dir."
+ ],
+ "fuzz-0318.xml": [],
+ "fuzz-0319.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of role.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of aria-level."
+ ],
+ "fuzz-0325.xml": [
+  "[RULE INTERACTION 20Bb: Assertion 1] The 'qti-template-variable' does NOT have a value defined by a 'qti-template-declaration' in the parent AssessmentItem.The PCI identifier is [ ] for invalid context variable [ ]",
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 1] Invalid XML attribute in position 1 with name of abbr.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 2] Invalid XML attribute in position 2 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-template-block): Assertion 2] Invalid XML attribute in position 2 with name of rowspan.",
+  "[RULE LOCAL ELEMENT (qti-template-block): Assertion 3] Invalid XML attribute in position 3 with name of max-choices.",
+  "[RULE LOCAL ELEMENT (qti-template-block): Assertion 5] Invalid XML attribute in position 5 with name of autoplay.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 1] Invalid XML attribute in position 1 with name of loop."
+ ],
+ "fuzz-0331.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of max-plays."
+ ],
+ "fuzz-0376.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of role."
+ ],
+ "fuzz-0379.xml": [],
+ "fuzz-0384.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of max-plays."
+ ],
+ "fuzz-0424.xml": [],
+ "fuzz-0429.xml": [
+  "[RULE LOCAL ELEMENT (qti-simple-match-set): Assertion 1] Invalid XML attribute in position 1 with name of xml:lang.",
+  "[RULE LOCAL ELEMENT (qti-simple-match-set): Assertion 2] Invalid XML attribute in position 2 with name of step."
+ ],
+ "fuzz-0485.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of aria-errormessage.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of min-associations.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of min-choices."
+ ],
+ "fuzz-0505.xml": [
+  "[RULE LOCAL ELEMENT (qti-gap-text): Assertion 1] Invalid XML attribute in position 1 with name of max-choices.",
+  "[RULE LOCAL ELEMENT (qti-prompt): Assertion 1] Invalid XML attribute in position 1 with name of visible."
+ ],
+ "fuzz-0514.xml": [
+  "[RULE INTERACTION 16Ba: Assertion 1] The base-type must have a value of file.The base-type value is:",
+  "[RULE LOCAL ELEMENT (qti-upload-interaction): Assertion 2] Invalid XML attribute in position 2 with name of identifier."
+ ],
+ "fuzz-0575.xml": [
+  "[RULE GLOBAL ELEMENT (h1): Assertion 2] Invalid XML attribute in position 2 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 2] Invalid XML attribute in position 2 with name of min-strings.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of aria-live."
+ ],
+ "fuzz-0586.xml": [
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 1] Invalid XML attribute in position 1 with name of abbr.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 1] Invalid XML attribute in position 1 with name of navigation-mode.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 3] Invalid XML attribute in position 3 with name of string-identifier."
+ ],
+ "fuzz-0605.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of controls."
+ ],
+ "fuzz-0639.xml": [
+  "[RULE LOCAL ELEMENT (qti-template-block): Assertion 4] Invalid XML attribute in position 4 with name of max-associations.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of min-choices."
+ ],
+ "fuzz-0668.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of base-type.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of cardinality."
+ ],
+ "fuzz-0679.xml": [
+  "[RULE LOCAL ELEMENT (qti-custom-interaction): Assertion 1] Invalid XML attribute in position 1 with name of max-strings.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of normal-maximum."
+ ],
+ "fuzz-0722.xml": [
+  "[RULE LOCAL ELEMENT (qti-extended-text-interaction): Assertion 1] Invalid XML attribute in position 1 with name of mastery-value.",
+  "[RULE LOCAL ELEMENT (qti-extended-text-interaction): Assertion 2] Invalid XML attribute in position 2 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-extended-text-interaction): Assertion 3] Invalid XML attribute in position 3 with name of normal-minimum."
+ ],
+ "fuzz-0740.xml": [],
+ "fuzz-0751.xml": [],
+ "fuzz-0754.xml": [
+  "[RULE LOCAL ELEMENT (qti-inline-choice-interaction): Assertion 4] Invalid XML attribute in position 4 with name of expected-lines."
+ ],
+ "fuzz-0758.xml": [
+  "[RULE LOCAL ELEMENT (qti-slider-interaction): Assertion 1] Invalid XML attribute in position 1 with name of mastery-value."
+ ],
+ "fuzz-0768.xml": [
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of cardinality."
+ ],
+ "fuzz-0795.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of role.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of min-plays.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 4] Invalid XML attribute in position 4 with name of min-choices."
+ ],
+ "fuzz-0797.xml": [],
+ "fuzz-0804.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of max-associations.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of base-type.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of aria-posinset."
+ ],
+ "fuzz-0820.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of lower-bound.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of aria-rowcount."
+ ],
+ "fuzz-0828.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of role."
+ ],
+ "fuzz-0837.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of base-type."
+ ],
+ "fuzz-0845.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of string-identifier.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of role."
+ ],
+ "fuzz-0852.xml": [
+  "[RULE LOCAL ELEMENT (qti-feedback-block): Assertion 1] Invalid XML attribute in position 1 with name of max-plays.",
+  "[RULE LOCAL ELEMENT (qti-gap-text): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of templateIdentifier."
+ ],
+ "fuzz-0872.xml": [
+  "[RULE ARIA ROLE 1b: Assertion 1] The 'h1' tag may have an ARIA role value of 'heading' or 'tab' or 'presentation' only.The invalid ARIA role value is:button",
+  "[RULE GLOBAL ELEMENT (h1): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE GLOBAL ELEMENT (h1): Assertion 2] Invalid XML attribute in position 2 with name of zzz.",
+  "[RULE GLOBAL ELEMENT (h1): Assertion 3] Invalid XML attribute in position 3 with name of templateIdentifier.",
+  "[RULE LOCAL ELEMENT (qti-gap): Assertion 1] Invalid XML attribute in position 1 with name of longdesc.",
+  "[RULE LOCAL ELEMENT (qti-position-object-stage): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-position-object-stage): Assertion 2] Invalid XML attribute in position 2 with name of cardinality."
+ ],
+ "fuzz-0894.xml": [
+  "[RULE GLOBAL ELEMENT (source): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE INTERACTION 10Aa: Assertion 16] A GraphicAssociateInteraction MUST NOT contain a OrderInteraction.The ID for the parent GraphicAssociateInteraction is:",
+  "[RULE INTERACTION 10Aa: Assertion 17] A GraphicAssociateInteraction MUST NOT contain a PortableCustomInteraction.The ID for the parent GraphicAssociateInteraction is:",
+  "[RULE INTERACTION 20Ab: Assertion 17] A PortableCustomInteraction MUST NOT contain an OrderInteraction.The ID for the parent PortableCustomInteraction is:",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 1] Invalid XML attribute in position 1 with name of role.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 2] Invalid XML attribute in position 2 with name of visible.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 3] Invalid XML attribute in position 3 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 4] Invalid XML attribute in position 4 with name of xml:lang.",
+  "[RULE LOCAL ELEMENT (qti-associable-hotspot): Assertion 1] Invalid XML attribute in position 1 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-gap-text): Assertion 1] Invalid XML attribute in position 1 with name of templateIdentifier.",
+  "[RULE LOCAL ELEMENT (qti-gap-text): Assertion 2] Invalid XML attribute in position 2 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-gap-text): Assertion 3] Invalid XML attribute in position 3 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-gap-text): Assertion 4] Invalid XML attribute in position 4 with name of controls.",
+  "[RULE LOCAL ELEMENT (qti-graphic-associate-interaction): Assertion 2] Invalid XML attribute in position 2 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-graphic-associate-interaction): Assertion 3] Invalid XML attribute in position 3 with name of object-label.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 2] Invalid XML attribute in position 2 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 3] Invalid XML attribute in position 3 with name of mastery-value.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-interaction): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-portable-custom-interaction): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-portable-custom-interaction): Assertion 2] Invalid XML attribute in position 2 with name of match-min.",
+  "[RULE LOCAL ELEMENT (qti-portable-custom-interaction): Assertion 3] Invalid XML attribute in position 3 with name of mastery-value.",
+  "[RULE LOCAL ELEMENT (qti-prompt): Assertion 1] Invalid XML attribute in position 1 with name of placeholder-text.",
+  "[RULE LOCAL ELEMENT (qti-prompt): Assertion 2] Invalid XML attribute in position 2 with name of max-plays.",
+  "[RULE LOCAL ELEMENT (qti-prompt): Assertion 3] Invalid XML attribute in position 3 with name of tool-version.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 1] Invalid XML attribute in position 1 with name of srcset.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 2] Invalid XML attribute in position 2 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 4] Invalid XML attribute in position 4 with name of base-type."
+ ],
+ "fuzz-0988.xml": [
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 1] Invalid XML attribute in position 1 with name of dir.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 2] Invalid XML attribute in position 2 with name of cardinality."
+ ],
+ "fuzz-0995.xml": [
+  "[RULE GLOBAL ELEMENT (div): Assertion 1] Invalid XML attribute in position 1 with name of lower-bound.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 1] Invalid XML attribute in position 1 with name of src."
+ ],
+ "fuzz-0999.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of match-min."
+ ],
+ "fuzz-1027.xml": [
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 1] Invalid XML attribute in position 1 with name of aria-selected.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 2] Invalid XML attribute in position 2 with name of templateIdentifier."
+ ],
+ "fuzz-1062.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of upper-bound.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of role.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of cardinality."
+ ],
+ "fuzz-1073.xml": [
+  "[RULE LOCAL ELEMENT (qti-match-interaction): Assertion 2] Invalid XML attribute in position 2 with name of step-label.",
+  "[RULE LOCAL ELEMENT (qti-match-interaction): Assertion 3] Invalid XML attribute in position 3 with name of min-plays.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of match-min."
+ ],
+ "fuzz-1087.xml": [],
+ "fuzz-1090.xml": [
+  "[RULE GLOBAL ELEMENT (div): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE GLOBAL ELEMENT (div): Assertion 2] Invalid XML attribute in position 2 with name of identifier.",
+  "[RULE GLOBAL ELEMENT (div): Assertion 3] Invalid XML attribute in position 3 with name of tool-version.",
+  "[RULE GLOBAL ELEMENT (div): Assertion 4] Invalid XML attribute in position 4 with name of normal-minimum.",
+  "[RULE GLOBAL ELEMENT (h1): Assertion 1] Invalid XML attribute in position 1 with name of min-associations.",
+  "[RULE GLOBAL ELEMENT (h1): Assertion 3] Invalid XML attribute in position 3 with name of upper-bound.",
+  "[RULE GLOBAL ELEMENT (p): Assertion 1] Invalid XML attribute in position 1 with name of colour.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 1] Invalid XML attribute in position 1 with name of mastery-value.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 2] Invalid XML attribute in position 2 with name of lower-bound.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 3] Invalid XML attribute in position 3 with name of base-type.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 4] Invalid XML attribute in position 4 with name of srclang.",
+  "[RULE GLOBAL ELEMENT (table): Assertion 1] Invalid XML attribute in position 1 with name of colour.",
+  "[RULE GLOBAL ELEMENT (table): Assertion 1] Invalid XML attribute in position 1 with name of max-plays.",
+  "[RULE GLOBAL ELEMENT (table): Assertion 3] Invalid XML attribute in position 3 with name of zzz.",
+  "[RULE INTERACTION 13Aa: Assertion 03] A MediaInteraction MUST NOT contain a ChoiceInteraction.The ID for the parent MediaInteraction is:",
+  "[RULE INTERACTION 15Aa: Assertion 03] A DrawingInteraction MUST NOT contain a ChoiceInteraction.The ID for the parent DrawingInteraction is:",
+  "[RULE INTERACTION 15Ba: Assertion 1] The base-type must have a value of file.The base-type value is:identifier",
+  "[RULE INTERACTION 15Ba: Assertion 1] The base-type must have a value of file.The base-type value is:identifier",
+  "[RULE INTERACTION 18Aa: Assertion 03] A GapMatchInteraction MUST NOT contain a ChoiceInteraction.The ID for the parent GapMatchInteraction is:",
+  "[RULE INTERACTION 18Ba: Assertion 1] The base-type must have a value of directedPair.The base-type value is:identifier",
+  "[RULE INTERACTION 20Aa: Assertion 03] A CustomInteraction MUST NOT contain a ChoiceInteraction.The ID for the parent CustomInteraction",
+  "[RULE INTERACTION 5Aa: Assertion 03] A GraphicOrderInteraction MUST NOT contain a ChoiceInteraction.The ID for the parent GraphicOrderInteraction is:",
+  "[RULE LOCAL ELEMENT (qti-assessment-stimulus-ref): Assertion 1] Invalid XML attribute in position 1 with name of count-attempt.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 2] Invalid XML attribute in position 2 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 3] Invalid XML attribute in position 3 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 4] Invalid XML attribute in position 4 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-card-entry): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 2] Invalid XML attribute in position 2 with name of view.",
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 3] Invalid XML attribute in position 3 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 4] Invalid XML attribute in position 4 with name of outcome-identifier.",
+  "[RULE LOCAL ELEMENT (qti-drawing-interaction): Assertion 1] Invalid XML attribute in position 1 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-drawing-interaction): Assertion 3] Invalid XML attribute in position 3 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-drawing-interaction): Assertion 4] Invalid XML attribute in position 4 with name of min-associations.",
+  "[RULE LOCAL ELEMENT (qti-graphic-order-interaction): Assertion 1] Invalid XML attribute in position 1 with name of mediagroup.",
+  "[RULE LOCAL ELEMENT (qti-graphic-order-interaction): Assertion 2] Invalid XML attribute in position 2 with name of loop.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 1] Invalid XML attribute in position 1 with name of format.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 2] Invalid XML attribute in position 2 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-interaction): Assertion 1] Invalid XML attribute in position 1 with name of min-strings.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-interaction): Assertion 2] Invalid XML attribute in position 2 with name of match-max.",
+  "[RULE LOCAL ELEMENT (qti-inline-choice-interaction): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-inline-choice-interaction): Assertion 2] Invalid XML attribute in position 2 with name of match-min.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 1] Invalid XML attribute in position 1 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 3] Invalid XML attribute in position 3 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 1] Invalid XML attribute in position 1 with name of response-identifier.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 2] Invalid XML attribute in position 2 with name of role.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 3] Invalid XML attribute in position 3 with name of templateIdentifier.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 4] Invalid XML attribute in position 4 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 1] Invalid XML attribute in position 1 with name of mastery-value.",
+  "[RULE LOCAL ELEMENT (qti-prompt): Assertion 2] Invalid XML attribute in position 2 with name of match-group.",
+  "[RULE LOCAL ELEMENT (qti-rubric-block): Assertion 1] Invalid XML attribute in position 1 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-rubric-block): Assertion 1] Invalid XML attribute in position 1 with name of time-dependent.",
+  "[RULE LOCAL ELEMENT (qti-rubric-block): Assertion 2] Invalid XML attribute in position 2 with name of custom-interaction-type-identifier.",
+  "[RULE LOCAL ELEMENT (qti-simple-associable-choice): Assertion 2] Invalid XML attribute in position 2 with name of span.",
+  "[RULE LOCAL ELEMENT (qti-simple-associable-choice): Assertion 4] Invalid XML attribute in position 4 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-simple-match-set): Assertion 1] Invalid XML attribute in position 1 with name of aria-modal.",
+  "[RULE LOCAL ELEMENT (qti-simple-match-set): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of aria-placeholder.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of match-max.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 1] Invalid XML attribute in position 1 with name of max-associations.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 2] Invalid XML attribute in position 2 with name of aria-describedby.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 2] Invalid XML attribute in position 2 with name of autostart.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 2] Invalid XML attribute in position 2 with name of role.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 3] Invalid XML attribute in position 3 with name of normal-maximum.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 3] Invalid XML attribute in position 3 with name of upper-bound.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 4] Invalid XML attribute in position 4 with name of default.",
+  "[RULE ROOT ELEMENT (qti-assessment-test): Assertion 1] Invalid XML attribute in position 1 with name of step.",
+  "[RULE ROOT ELEMENT (qti-assessment-test): Assertion 2] Invalid XML attribute in position 2 with name of templateIdentifier.",
+  "[RULE ROOT ELEMENT (qti-assessment-test): Assertion 3] Invalid XML attribute in position 3 with name of upper-bound.",
+  "[RULE RUBRICBLOCK 1: Assertion 1] The property qti-rubric-block MUST NOT be a child of a qti-rubric-block property i.e. nesting of rubric blocks is not permitted.The identifier for the parent object is:",
+  "[RULE SPECIFIC CLASS OUTCOMEDEC 1: Assertion 2] The mastery-value attribute value must not be greater than the normal-maximum value.The mastery-value value is:2"
+ ],
+ "fuzz-1091.xml": [
+  "[RULE LOCAL ELEMENT (qti-gap-img): Assertion 1] Invalid XML attribute in position 1 with name of normal-maximum.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of preload."
+ ],
+ "fuzz-1094.xml": [],
+ "fuzz-1142.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of min-plays.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of min-choices."
+ ],
+ "fuzz-1170.xml": [
+  "[RULE LOCAL ELEMENT (qti-simple-match-set): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-simple-match-set): Assertion 2] Invalid XML attribute in position 2 with name of min-associations.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of aria-pressed."
+ ],
+ "fuzz-1177.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of upper-bound.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of response-identifier."
+ ],
+ "fuzz-1186.xml": [
+  "[RULE INTERACTION 4Aa: Assertion 12] A HotspotInteraction MUST NOT contain a HottextInteraction.The ID for the parent HospotInteraction is:",
+  "[RULE LOCAL ELEMENT (qti-hottext-interaction): Assertion 1] Invalid XML attribute in position 1 with name of identifier.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of role."
+ ],
+ "fuzz-1231.xml": [
+  "[RULE GLOBAL ELEMENT (span): Assertion 1] Invalid XML attribute in position 1 with name of response-identifier.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of max-plays."
+ ],
+ "fuzz-1266.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of mediagroup."
+ ],
+ "fuzz-1280.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of match-max."
+ ],
+ "fuzz-1294.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of match-min.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of reverse."
+ ],
+ "fuzz-1306.xml": [],
+ "fuzz-1310.xml": [],
+ "fuzz-1342.xml": [
+  "[RULE INTERACTION 20Ab: Assertion 02] A PortableCustomInteraction MUST NOT contain an AssociateInteraction.The ID for the parent PortableCustomInteraction is:",
+  "[RULE LOCAL ELEMENT (qti-portable-custom-interaction): Assertion 2] Invalid XML attribute in position 2 with name of align.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 2] Invalid XML attribute in position 2 with name of base-type."
+ ],
+ "fuzz-1362.xml": [
+  "[RULE GLOBAL ELEMENT (h1): Assertion 1] Invalid XML attribute in position 1 with name of max-plays.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 1] Invalid XML attribute in position 1 with name of min-associations.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of align."
+ ],
+ "fuzz-1365.xml": [
+  "[RULE INTERACTION 18Ba: Assertion 1] The base-type must have a value of directedPair.The base-type value is:float",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of aria-valuenow."
+ ],
+ "fuzz-1373.xml": [
+  "[RULE LOCAL ELEMENT (qti-match-interaction): Assertion 1] Invalid XML attribute in position 1 with name of view.",
+  "[RULE LOCAL ELEMENT (qti-match-interaction): Assertion 4] Invalid XML attribute in position 4 with name of href."
+ ],
+ "fuzz-1392.xml": [
+  "[RULE INTERACTION 18Ba: Assertion 1] The base-type must have a value of directedPair.The base-type value is:file",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of aria-orientation."
+ ],
+ "fuzz-1406.xml": [
+  "[RULE LOCAL ELEMENT (qti-choice-interaction): Assertion 1] Invalid XML attribute in position 1 with name of templateIdentifier.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of aria-keyshorts."
+ ],
+ "fuzz-1490.xml": [
+  "[RULE LOCAL ELEMENT (qti-associable-hotspot): Assertion 1] Invalid XML attribute in position 1 with name of min-associations.",
+  "[RULE LOCAL ELEMENT (qti-associable-hotspot): Assertion 2] Invalid XML attribute in position 2 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-associable-hotspot): Assertion 4] Invalid XML attribute in position 4 with name of string-identifier."
+ ],
+ "fuzz-1499.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of match-min.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of normal-maximum."
+ ],
+ "fuzz-1516.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of role.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of response-identifier."
+ ],
+ "fuzz-1551.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of expected-lines.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of normal-minimum.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of sizes."
+ ],
+ "fuzz-1588.xml": [
+  "[RULE GLOBAL ELEMENT (img): Assertion 1] Invalid XML attribute in position 1 with name of match-min.",
+  "[RULE GLOBAL ELEMENT (img): Assertion 2] Invalid XML attribute in position 2 with name of base-type."
+ ],
+ "fuzz-1591.xml": [
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 2] Invalid XML attribute in position 2 with name of base-type."
+ ],
+ "fuzz-1609.xml": [
+  "[RULE LOCAL ELEMENT (qti-position-object-interaction): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-position-object-interaction): Assertion 4] Invalid XML attribute in position 4 with name of colour.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of role."
+ ],
+ "fuzz-1632.xml": [],
+ "fuzz-1666.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of alt.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of mastery-value.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of min-associations."
+ ],
+ "fuzz-1672.xml": [
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 1] Invalid XML attribute in position 1 with name of match-max.",
+  "[RULE LOCAL ELEMENT (qti-hotspot-choice): Assertion 3] Invalid XML attribute in position 3 with name of templateIdentifier.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of min-plays."
+ ],
+ "fuzz-1694.xml": [
+  "[RULE LOCAL ELEMENT (qti-gap-text): Assertion 1] Invalid XML attribute in position 1 with name of title.",
+  "[RULE LOCAL ELEMENT (qti-gap-text): Assertion 2] Invalid XML attribute in position 2 with name of templateIdentifier."
+ ],
+ "fuzz-1698.xml": [
+  "[RULE 2 SPECIFIC CLASS RESPONSEDEC: Assertion 1] The value of the cardinality attribute for the response variable is inconsistent with the value of the max-choices attribute for the associated ChoiceInteraction.The inconsistent response declaration identifier is:",
+  "[RULE 2 SPECIFIC CLASS RESPONSEDEC: Assertion 1] The value of the cardinality attribute for the response variable is inconsistent with the value of the max-choices attribute for the associated ChoiceInteraction.The inconsistent response declaration identifier is:X",
+  "[RULE GLOBAL ELEMENT (h2): Assertion 1] Invalid XML attribute in position 1 with name of min-associations.",
+  "[RULE GLOBAL ELEMENT (h2): Assertion 2] Invalid XML attribute in position 2 with name of mastery-value.",
+  "[RULE GLOBAL ELEMENT (h2): Assertion 3] Invalid XML attribute in position 3 with name of cardinality.",
+  "[RULE GLOBAL ELEMENT (h2): Assertion 4] Invalid XML attribute in position 4 with name of colour.",
+  "[RULE GLOBAL ELEMENT (p): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 1] Invalid XML attribute in position 1 with name of min-associations.",
+  "[RULE INTERACTION 12Aa: Assertion 02] An AssociateInteraction MUST NOT contain a ChoiceInteraction.The ID for the parent AssociateInteraction is:",
+  "[RULE INTERACTION 12Aa: Assertion 13] An AssociateInteraction MUST NOT contain an InlineChoiceInteraction.The ID for the parent AssociateInteraction is:",
+  "[RULE INTERACTION 13Aa: Assertion 07] A MediaInteraction MUST NOT contain an ExtendedTextInteraction.The ID for the parent MediaInteraction is:",
+  "[RULE INTERACTION 14Aa: Assertion 14] A SliderInteraction MUST NOT contain an InlineChoiceInteraction.The ID for the parent SliderInteraction is:",
+  "[RULE INTERACTION 18Aa: Assertion 09] A GapMatchInteraction MUST NOT contain a GraphicGapMatchInteraction.The ID for the parent GapMatchInteraction is:",
+  "[RULE INTERACTION 18Ba: Assertion 1] The base-type must have a value of directedPair.The base-type value is:float",
+  "[RULE INTERACTION 19Ba: Assertion 1] The base-type must have a value of directedPair.The base-type value is:float",
+  "[RULE INTERACTION 20Ab: Assertion 14] A PortableCustomInteraction MUST NOT contain an InlineChoiceInteraction.The ID for the parent PortableCustomInteraction is:",
+  "[RULE INTERACTION 2Aa: Assertion 13] A ChoiceInteraction MUST NOT contain an InlineChoiceInteraction.The ID for the parent ChoiceInteraction is:",
+  "[RULE INTERACTION 2Aa: Assertion 13] A ChoiceInteraction MUST NOT contain an InlineChoiceInteraction.The ID for the parent ChoiceInteraction is:",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 1] Invalid XML attribute in position 1 with name of custom-interaction-type-identifier.",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 1] Invalid XML attribute in position 1 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 2] Invalid XML attribute in position 2 with name of xml:lang.",
+  "[RULE LOCAL ELEMENT (qti-associable-hotspot): Assertion 2] Invalid XML attribute in position 2 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-associable-hotspot): Assertion 3] Invalid XML attribute in position 3 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-associable-hotspot): Assertion 4] Invalid XML attribute in position 4 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 1] Invalid XML attribute in position 1 with name of identifier.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 1] Invalid XML attribute in position 1 with name of templateIdentifier.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 1] Invalid XML attribute in position 1 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 2] Invalid XML attribute in position 2 with name of normal-minimum.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 4] Invalid XML attribute in position 4 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 4] Invalid XML attribute in position 4 with name of view.",
+  "[RULE LOCAL ELEMENT (qti-card-entry): Assertion 1] Invalid XML attribute in position 1 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-card-entry): Assertion 2] Invalid XML attribute in position 2 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-feedback-block): Assertion 1] Invalid XML attribute in position 1 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-feedback-block): Assertion 1] Invalid XML attribute in position 1 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-gap-match-interaction): Assertion 1] Invalid XML attribute in position 1 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-graphic-gap-match-interaction): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-graphic-order-interaction): Assertion 1] Invalid XML attribute in position 1 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-html-content): Assertion 1] Invalid XML attribute in position 1 with name of min-associations.",
+  "[RULE LOCAL ELEMENT (qti-inline-choice): Assertion 1] Invalid XML attribute in position 1 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-inline-choice): Assertion 2] Invalid XML attribute in position 2 with name of orientation.",
+  "[RULE LOCAL ELEMENT (qti-inline-choice-interaction): Assertion 1] Invalid XML attribute in position 1 with name of identifier.",
+  "[RULE LOCAL ELEMENT (qti-inline-choice-interaction): Assertion 4] Invalid XML attribute in position 4 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-label): Assertion 1] Invalid XML attribute in position 1 with name of max-associations.",
+  "[RULE LOCAL ELEMENT (qti-label): Assertion 2] Invalid XML attribute in position 2 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-label): Assertion 3] Invalid XML attribute in position 3 with name of max-choices.",
+  "[RULE LOCAL ELEMENT (qti-label): Assertion 4] Invalid XML attribute in position 4 with name of max-plays.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 1] Invalid XML attribute in position 1 with name of summary.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 2] Invalid XML attribute in position 2 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 3] Invalid XML attribute in position 3 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 1] Invalid XML attribute in position 1 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-modal-feedback): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-portable-custom-interaction): Assertion 1] Invalid XML attribute in position 1 with name of default.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 1] Invalid XML attribute in position 1 with name of type.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 2] Invalid XML attribute in position 2 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-test-part): Assertion 3] Invalid XML attribute in position 3 with name of role.",
+  "[RULE LOCAL ELEMENT (qti-upload-interaction): Assertion 1] Invalid XML attribute in position 1 with name of template-identifier.",
+  "[RULE LOCAL ELEMENT (qti-upload-interaction): Assertion 2] Invalid XML attribute in position 2 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-upload-interaction): Assertion 3] Invalid XML attribute in position 3 with name of lower-bound.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of role.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of headers.",
+  "[RULE ROOT ELEMENT (qti-assessment-section): Assertion 1] Invalid XML attribute in position 1 with name of aria-setsize.",
+  "[RULE ROOT ELEMENT (qti-assessment-stimulus): Assertion 1] Invalid XML attribute in position 1 with name of match-max.",
+  "[RULE ROOT ELEMENT (qti-assessment-stimulus): Assertion 1] Invalid XML attribute in position 1 with name of max-associations.",
+  "[RULE ROOT ELEMENT (qti-assessment-stimulus): Assertion 2] Invalid XML attribute in position 2 with name of response-identifier.",
+  "[RULE ROOT ELEMENT (qti-assessment-stimulus): Assertion 3] Invalid XML attribute in position 3 with name of outcome-identifier."
+ ],
+ "fuzz-1712.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of min-choices.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of role."
+ ],
+ "fuzz-1739.xml": [
+  "[RULE GLOBAL ELEMENT (span): Assertion 1] Invalid XML attribute in position 1 with name of mastery-value.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 4] Invalid XML attribute in position 4 with name of height.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of lang."
+ ],
+ "fuzz-1745.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of aria-flowto."
+ ],
+ "fuzz-1749.xml": [],
+ "fuzz-1781.xml": [
+  "[RULE LOCAL ELEMENT (qti-card-entry): Assertion 1] Invalid XML attribute in position 1 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-card-entry): Assertion 2] Invalid XML attribute in position 2 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-card-entry): Assertion 3] Invalid XML attribute in position 3 with name of string-identifier."
+ ],
+ "fuzz-1799.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of role."
+ ],
+ "fuzz-1805.xml": [
+  "[RULE GLOBAL ELEMENT (span): Assertion 1] Invalid XML attribute in position 1 with name of zzz."
+ ],
+ "fuzz-1839.xml": [
+  "[RULE ARIA ROLE 1a: Assertion 1] The 'source' tag must not have an ARIA role attribute.The ARIA role value is:heading",
+  "[RULE GLOBAL ELEMENT (div): Assertion 2] Invalid XML attribute in position 2 with name of max-plays.",
+  "[RULE GLOBAL ELEMENT (div): Assertion 4] Invalid XML attribute in position 4 with name of min-plays.",
+  "[RULE GLOBAL ELEMENT (p): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE GLOBAL ELEMENT (p): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE GLOBAL ELEMENT (source): Assertion 1] Invalid XML attribute in position 1 with name of response-identifier.",
+  "[RULE GLOBAL ELEMENT (source): Assertion 2] Invalid XML attribute in position 2 with name of match-min.",
+  "[RULE GLOBAL ELEMENT (span): Assertion 1] Invalid XML attribute in position 1 with name of max-plays.",
+  "[RULE INTERACTION 10Aa: Assertion 15] A GraphicAssociateInteraction MUST NOT contain a MediaInteraction.The ID for the parent GraphicAssociateInteraction is:",
+  "[RULE INTERACTION 15Aa: Assertion 07] A DrawingInteraction MUST NOT contain a GapMatchInteraction.The ID for the parent DrawingInteraction is:",
+  "[RULE INTERACTION 15Aa: Assertion 10] A DrawingInteraction MUST NOT contain a GraphicOrderInteraction.The ID for the parent DrawingInteraction is:",
+  "[RULE INTERACTION 15Ba: Assertion 1] The base-type must have a value of file.The base-type value is:",
+  "[RULE INTERACTION 16Ba: Assertion 1] The base-type must have a value of file.The base-type value is:",
+  "[RULE INTERACTION 18Aa: Assertion 10] A GapMatchInteraction MUST NOT contain a GraphicOrderInteraction.The ID for the parent GapMatchInteraction is:",
+  "[RULE INTERACTION 18Ba: Assertion 1] The base-type must have a value of directedPair.The base-type value is:",
+  "[RULE INTERACTION 1Aa: Assertion 11] A TextEntryInteraction MUST NOT contain a GraphicOrderInteraction.The ID for the parent TextEntryInteraction is:",
+  "[RULE INTERACTION 20Ab: Assertion 02] A PortableCustomInteraction MUST NOT contain an AssociateInteraction.The ID for the parent PortableCustomInteraction is:",
+  "[RULE INTERACTION 6Aa: Assertion 16] A PositionObjectInteraction MUST NOT contain a MediaInteraction.The ID for the parent PositionObjectInteraction is:",
+  "[RULE INTERACTION 6Aa: Assertion 17] A PositionObjectInteraction MUST NOT contain an OrderInteraction.The ID for the parent PositionObjectInteraction is:",
+  "[RULE INTERACTION 8Aa: Assertion 10] An OrderInteraction MUST NOT contain a GraphicOrderInteraction.The ID for the parent OrderInteraction is:",
+  "[RULE INTERACTION 8Aa: Assertion 15] An OrderInteraction MUST NOT contain a MediaInteraction.The ID for the parent OrderInteraction is:",
+  "[RULE INTERACTION 8Aa: Assertion 16] An OrderInteraction MUST NOT contain a GapMatchInteraction.The ID for the parent OrderInteraction is:",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 1] Invalid XML attribute in position 1 with name of count-attempt.",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 3] Invalid XML attribute in position 3 with name of mastery-value.",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 4] Invalid XML attribute in position 4 with name of match-min.",
+  "[RULE LOCAL ELEMENT (qti-assessment-item-ref): Assertion 5] Invalid XML attribute in position 5 with name of xml:lang.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 1] Invalid XML attribute in position 1 with name of srclang.",
+  "[RULE LOCAL ELEMENT (qti-associate-interaction): Assertion 3] Invalid XML attribute in position 3 with name of max-plays.",
+  "[RULE LOCAL ELEMENT (qti-drawing-interaction): Assertion 1] Invalid XML attribute in position 1 with name of max-plays.",
+  "[RULE LOCAL ELEMENT (qti-gap): Assertion 1] Invalid XML attribute in position 1 with name of align.",
+  "[RULE LOCAL ELEMENT (qti-gap): Assertion 3] Invalid XML attribute in position 3 with name of templateIdentifier.",
+  "[RULE LOCAL ELEMENT (qti-gap-img): Assertion 2] Invalid XML attribute in position 2 with name of response-identifier.",
+  "[RULE LOCAL ELEMENT (qti-gap-img): Assertion 3] Invalid XML attribute in position 3 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-gap-match-interaction): Assertion 1] Invalid XML attribute in position 1 with name of open.",
+  "[RULE LOCAL ELEMENT (qti-gap-match-interaction): Assertion 2] Invalid XML attribute in position 2 with name of match-group.",
+  "[RULE LOCAL ELEMENT (qti-gap-match-interaction): Assertion 3] Invalid XML attribute in position 3 with name of min-choices.",
+  "[RULE LOCAL ELEMENT (qti-gap-match-interaction): Assertion 4] Invalid XML attribute in position 4 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-gap-match-interaction): Assertion 5] Invalid XML attribute in position 5 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-graphic-associate-interaction): Assertion 3] Invalid XML attribute in position 3 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-graphic-order-interaction): Assertion 2] Invalid XML attribute in position 2 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-graphic-order-interaction): Assertion 3] Invalid XML attribute in position 3 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-graphic-order-interaction): Assertion 5] Invalid XML attribute in position 5 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-hottext): Assertion 1] Invalid XML attribute in position 1 with name of zzz.",
+  "[RULE LOCAL ELEMENT (qti-hottext): Assertion 2] Invalid XML attribute in position 2 with name of shuffle.",
+  "[RULE LOCAL ELEMENT (qti-hottext-interaction): Assertion 1] Invalid XML attribute in position 1 with name of colour.",
+  "[RULE LOCAL ELEMENT (qti-hottext-interaction): Assertion 2] Invalid XML attribute in position 2 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-html-content): Assertion 1] Invalid XML attribute in position 1 with name of normal-minimum.",
+  "[RULE LOCAL ELEMENT (qti-inline-choice-interaction): Assertion 1] Invalid XML attribute in position 1 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-media-interaction): Assertion 2] Invalid XML attribute in position 2 with name of media.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 1] Invalid XML attribute in position 1 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-order-interaction): Assertion 2] Invalid XML attribute in position 2 with name of min-plays.",
+  "[RULE LOCAL ELEMENT (qti-position-object-interaction): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-position-object-interaction): Assertion 2] Invalid XML attribute in position 2 with name of cardinality.",
+  "[RULE LOCAL ELEMENT (qti-simple-associable-choice): Assertion 2] Invalid XML attribute in position 2 with name of mastery-value.",
+  "[RULE LOCAL ELEMENT (qti-simple-associable-choice): Assertion 4] Invalid XML attribute in position 4 with name of upper-bound.",
+  "[RULE LOCAL ELEMENT (qti-simple-associable-choice): Assertion 5] Invalid XML attribute in position 5 with name of step-label.",
+  "[RULE LOCAL ELEMENT (qti-simple-choice): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-simple-choice): Assertion 2] Invalid XML attribute in position 2 with name of lower-bound.",
+  "[RULE LOCAL ELEMENT (qti-simple-match-set): Assertion 2] Invalid XML attribute in position 2 with name of string-identifier.",
+  "[RULE LOCAL ELEMENT (qti-slider-interaction): Assertion 2] Invalid XML attribute in position 2 with name of autostart.",
+  "[RULE LOCAL ELEMENT (qti-slider-interaction): Assertion 3] Invalid XML attribute in position 3 with name of max-plays.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 1] Invalid XML attribute in position 1 with name of base-type.",
+  "[RULE LOCAL ELEMENT (qti-template-inline): Assertion 1] Invalid XML attribute in position 1 with name of shuffle.",
+  "[RULE LOCAL ELEMENT (qti-test-feedback): Assertion 1] Invalid XML attribute in position 1 with name of normal-maximum.",
+  "[RULE LOCAL ELEMENT (qti-test-feedback): Assertion 2] Invalid XML attribute in position 2 with name of expected-length.",
+  "[RULE LOCAL ELEMENT (qti-test-feedback): Assertion 3] Invalid XML attribute in position 3 with name of role.",
+  "[RULE LOCAL ELEMENT (qti-text-entry-interaction): Assertion 1] Invalid XML attribute in position 1 with name of max-choices.",
+  "[RULE LOCAL ELEMENT (qti-text-entry-interaction): Assertion 2] Invalid XML attribute in position 2 with name of center-point.",
+  "[RULE LOCAL ELEMENT (qti-upload-interaction): Assertion 1] Invalid XML attribute in position 1 with name of max-choices.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of string-identifier.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of lower-bound.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 2] Invalid XML attribute in position 2 with name of match-max.",
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 3] Invalid XML attribute in position 3 with name of aria-disabled."
+ ],
+ "fuzz-1966.xml": [],
+ "fuzz-1985.xml": [
+  "[RULE ROOT ELEMENT (qti-assessment-item): Assertion 1] Invalid XML attribute in position 1 with name of submission-mode."
+ ]
+}

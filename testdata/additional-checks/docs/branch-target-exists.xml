@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-test xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="branch-target-exists" title="branch-target-exists">
+  <qti-test-part identifier="P1" navigation-mode="linear" submission-mode="individual">
+    <qti-branch-rule target="P2"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+    <qti-assessment-section identifier="S1" title="S1" visible="true">
+      <qti-assessment-item-ref identifier="I1" href="i1.xml">
+        <qti-branch-rule target="I3"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      </qti-assessment-item-ref>
+      <qti-assessment-item-ref identifier="I2" href="i2.xml">
+        <qti-branch-rule target="I1"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      </qti-assessment-item-ref>
+      <qti-assessment-item-ref identifier="I3" href="i3.xml">
+        <qti-branch-rule target="EXIT_SECTION"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="I4"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="NOWHERE"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      </qti-assessment-item-ref>
+    </qti-assessment-section>
+  </qti-test-part>
+  <qti-test-part identifier="P2" navigation-mode="linear" submission-mode="individual">
+    <qti-branch-rule target="P2"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+    <qti-assessment-section identifier="S2" title="S2" visible="true">
+      <qti-assessment-item-ref identifier="I4" href="i4.xml"/>
+    </qti-assessment-section>
+  </qti-test-part>
+</qti-assessment-test>

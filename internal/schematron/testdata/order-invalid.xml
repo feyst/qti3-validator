@@ -1,0 +1,10 @@
+<order xmlns="urn:order" code="ABCD">
+  <customer name=" " vip="maybe"/>
+  <line id="l1" qty="12"/>
+  <line id="l2"/>
+  <line id="l3" qty="1"/>
+  <line id="l3" qty="1"/>
+  <ref to="l9"/>
+  <ref to="l3"/>
+  <note lang="nl"/>
+</order>

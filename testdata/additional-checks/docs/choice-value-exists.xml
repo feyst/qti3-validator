@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="choice-value-exists" title="choice-value-exists" adaptive="false" time-dependent="false">
+  <qti-response-declaration identifier="RESPONSE" cardinality="multiple" base-type="identifier">
+    <qti-correct-response><qti-value>A</qti-value><qti-value> Z </qti-value></qti-correct-response>
+    <qti-mapping default-value="0"><qti-map-entry map-key="A" mapped-value="1"/><qti-map-entry map-key="Y" mapped-value="1"/></qti-mapping>
+  </qti-response-declaration>
+  <qti-response-declaration identifier="PAIRS" cardinality="multiple" base-type="directedPair">
+    <qti-correct-response><qti-value>M1 N1</qti-value><qti-value>M1 N9</qti-value></qti-correct-response>
+  </qti-response-declaration>
+  <qti-response-declaration identifier="TEXT" cardinality="single" base-type="identifier">
+    <qti-correct-response><qti-value>ANYTHING</qti-value></qti-correct-response>
+  </qti-response-declaration>
+  <qti-item-body>
+    <qti-choice-interaction response-identifier="RESPONSE" max-choices="0">
+      <qti-simple-choice identifier="A">A</qti-simple-choice>
+      <qti-simple-choice identifier="B">B</qti-simple-choice>
+    </qti-choice-interaction>
+    <qti-match-interaction response-identifier="PAIRS" max-associations="2">
+      <qti-simple-match-set><qti-simple-associable-choice identifier="M1" match-max="1">1</qti-simple-associable-choice></qti-simple-match-set>
+      <qti-simple-match-set><qti-simple-associable-choice identifier="N1" match-max="1">2</qti-simple-associable-choice></qti-simple-match-set>
+    </qti-match-interaction>
+    <qti-portable-custom-interaction response-identifier="TEXT" custom-interaction-type-identifier="x" module="x"/>
+  </qti-item-body>
+</qti-assessment-item>

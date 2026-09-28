@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?root-pi first?>
+<q:root xmlns:q="urn:q" xmlns="urn:default" xmlns:x="urn:x" id="r" xml:lang="en-GB">
+  <!-- a comment -->
+  <item n="1" x:flag="yes" data-a="A">one</item>
+  <item n="2">two<b>bold</b>tail</item>
+  <item n="3" xml:lang="nl"><b>  spaced   out  </b></item>
+  <q:other n="10" v="1.5">-2.5</q:other>
+  <num>  42  </num>
+  <empty/>
+  <list><v>1</v><v>2</v><v>3</v><v>abc</v></list>
+  <nons xmlns="">plain<child a="z"/></nons>
+  <?pi-target some data?>
+  <last n="7"/>
+</q:root>

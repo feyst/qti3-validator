@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-response-processing xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0">
+  <qti-set-outcome-value identifier="SCORE"><qti-base-value base-type="float">0</qti-base-value></qti-set-outcome-value>
+</qti-response-processing>

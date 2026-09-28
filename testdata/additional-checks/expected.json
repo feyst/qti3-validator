@@ -1,0 +1,102 @@
+{
+ "branch-target-exists.xml": [
+  "Branch rule target 'I1' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'I4' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'NOWHERE' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'P2' is not another test part of the test, nor EXIT_TEST."
+ ],
+ "builtin-not-declared.xml": [
+  "The built-in outcome variable 'completionStatus' must not be declared.",
+  "The built-in response variable 'duration' must not be declared.",
+  "The built-in response variable 'numAttempts' must not be declared."
+ ],
+ "choice-value-exists.xml": [
+  "[warning] The correct response of 'PAIRS' names 'M1 N9', which is not a choice of its interaction.",
+  "[warning] The correct response of 'RESPONSE' names 'Z', which is not a choice of its interaction.",
+  "[warning] The mapping of 'RESPONSE' has key 'Y', which is not a choice of its interaction."
+ ],
+ "identifier-unique.xml": [
+  "Choice identifier 'A' is used by more than one choice in the same interaction.",
+  "Choice identifier 'A' is used by more than one choice in the same interaction.",
+  "Variable 'RESPONSE' is declared more than once.",
+  "Variable 'RESPONSE' is declared more than once."
+ ],
+ "interaction-response-type.xml": [
+  "qti-choice-interaction must be bound to a response variable with base-type identifier but 'R_STRING' has base-type string.",
+  "qti-order-interaction must be bound to a response variable with cardinality ordered but 'R_SINGLE' has cardinality single.",
+  "qti-text-entry-interaction must be bound to a response variable with cardinality single record but 'R_MULTIPLE' has cardinality multiple."
+ ],
+ "mapping-declared.xml": [
+  "qti-map-response uses response variable 'RESPONSE', which has no qti-mapping.",
+  "qti-map-response-point uses response variable 'POINT', which must have base-type point and a qti-area-mapping.",
+  "qti-map-response-point uses response variable 'RESPONSE', which must have base-type point and a qti-area-mapping."
+ ],
+ "response-declaration-exists.xml": [
+  "qti-text-entry-interaction has string-identifier 'ALSO_MISSING', which is not a declared response variable.",
+  "qti-text-entry-interaction is bound to 'MISSING', which is not a declared response variable."
+ ],
+ "response-processing-empty-template.xml": [],
+ "response-processing-imsglobal-url.xml": [
+  "Response processing template 'map_response' needs a qti-mapping for RESPONSE."
+ ],
+ "response-processing-map-response-point.xml": [
+  "Response processing template 'map_response_point' needs RESPONSE with base-type point and a qti-area-mapping."
+ ],
+ "response-processing-map-response.xml": [
+  "Response processing template 'map_response' needs a qti-mapping for RESPONSE."
+ ],
+ "response-processing-match-correct.xml": [
+  "Response processing template 'match_correct' needs a correct response for RESPONSE.",
+  "Response processing template 'match_correct' needs an outcome variable SCORE, which is not declared."
+ ],
+ "response-processing-no-response.xml": [
+  "Response processing template 'CC2_match_basic' needs a response variable RESPONSE, which is not declared."
+ ],
+ "response-processing-standalone.xml": [],
+ "response-processing-templated-correct.xml": [],
+ "response-processing-unknown.xml": [
+  "[warning] Response processing template 'https://example.org/rp/house-template.xml' is not defined by QTI 3 and has no template-location."
+ ],
+ "response-processing-valid.xml": [],
+ "set-target-declared.xml": [
+  "qti-set-correct-response sets 'NO_RESPONSE', which is not a declared response variable.",
+  "qti-set-default-value sets 'NO_VARIABLE', which is not a declared response or outcome variable.",
+  "qti-set-outcome-value sets 'NO_OUTCOME', which is not a declared outcome variable.",
+  "qti-set-template-value sets 'NO_TEMPLATE', which is not a declared template variable."
+ ],
+ "show-hide-variable.xml": [
+  "qti-feedback-inline refers to outcome variable 'SCORE', which must have base-type identifier and single or multiple cardinality.",
+  "qti-modal-feedback refers to 'NO_OUTCOME', which is not a declared outcome variable.",
+  "qti-simple-choice refers to 'NO_TEMPLATE', which is not a declared template variable.",
+  "qti-simple-choice refers to template variable 'NUMBER', which must have base-type identifier and single or multiple cardinality."
+ ],
+ "template-processing-scope.xml": [
+  "Template processing must not use the value of response or outcome variable 'RESPONSE'.",
+  "Template processing must not use the value of response or outcome variable 'SCORE'.",
+  "Template processing must not use the value of response or outcome variable 'numAttempts'.",
+  "qti-map-response uses response variable 'RESPONSE', which has no qti-mapping."
+ ],
+ "test-identifier-unique.xml": [
+  "Identifier 'I1' is used by more than one test part, section or item reference in the test.",
+  "Identifier 'I1' is used by more than one test part, section or item reference in the test.",
+  "Identifier 'P1' is used by more than one test part, section or item reference in the test.",
+  "Identifier 'P1' is used by more than one test part, section or item reference in the test."
+ ],
+ "test-item-variable.xml": [
+  "qti-variable refers to 'I9.SCORE', but the test has no item reference, section or test part 'I9'."
+ ],
+ "variable-declared-test.xml": [
+  "qti-variable refers to 'NOT_IN_TEST', which is not a variable declared in the test."
+ ],
+ "variable-declared.xml": [
+  "qti-correct refers to 'SCORE', which is not a declared response variable.",
+  "qti-map-response refers to 'NO_SUCH_RESPONSE', which is not a declared response variable.",
+  "qti-printed-variable refers to 'UNKNOWN_PRINTED', which is not a declared outcome or template variable.",
+  "qti-variable refers to 'UNKNOWN_VAR', which is not a declared variable."
+ ],
+ "variable-used-hand-scored.xml": [],
+ "variable-used.xml": [
+  "[warning] Outcome variable 'MAXSCORE' is declared but not used in response processing.",
+  "[warning] Template variable 'UNUSED_T' is declared but not used in template processing."
+ ]
+}

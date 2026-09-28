@@ -1,0 +1,6 @@
+# Downloaded by `go run ./cmd/fetchschemas`, pinned in schemas.lock.
+/internal/validator/schemas/purl.imsglobal.org/
+/internal/validator/schemas/schematron.json.gz
+
+# Editor settings.
+/.idea/

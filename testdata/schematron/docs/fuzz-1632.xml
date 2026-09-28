@@ -1,0 +1,1 @@
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><qti-item-body><qti-template-variable min-associations="1" identifier="RESPONSE" string-identifier="SCORE" expected-lines="X"></qti-template-variable></qti-item-body></qti-assessment-item>

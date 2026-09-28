@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="variable-declared" title="variable-declared" adaptive="false" time-dependent="false">
+  <qti-response-declaration identifier="RESPONSE" cardinality="single" base-type="identifier"><qti-correct-response><qti-value>A</qti-value></qti-correct-response></qti-response-declaration>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float"/>
+  <qti-template-declaration identifier="T" cardinality="single" base-type="integer"/>
+  <qti-item-body>
+    <qti-choice-interaction response-identifier="RESPONSE" max-choices="1">
+      <qti-simple-choice identifier="A">A</qti-simple-choice>
+      <qti-simple-choice identifier="B">B</qti-simple-choice>
+    </qti-choice-interaction>
+    <p><qti-printed-variable identifier="T"/> <qti-printed-variable identifier="UNKNOWN_PRINTED"/></p>
+  </qti-item-body>
+  <qti-response-processing>
+    <qti-response-condition>
+      <qti-response-if>
+        <qti-and>
+          <qti-match><qti-variable identifier="RESPONSE"/><qti-correct identifier="RESPONSE"/></qti-match>
+          <qti-gte><qti-variable identifier="numAttempts"/><qti-default identifier="SCORE"/></qti-gte>
+          <qti-is-null><qti-variable identifier="UNKNOWN_VAR"/></qti-is-null>
+          <qti-is-null><qti-correct identifier="SCORE"/></qti-is-null>
+          <qti-is-null><qti-map-response identifier="NO_SUCH_RESPONSE"/></qti-is-null>
+        </qti-and>
+        <qti-set-outcome-value identifier="SCORE"><qti-base-value base-type="float">1</qti-base-value></qti-set-outcome-value>
+      </qti-response-if>
+    </qti-response-condition>
+  </qti-response-processing>
+</qti-assessment-item>

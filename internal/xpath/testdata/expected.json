@@ -1,0 +1,902 @@
+[
+ {
+  "expr": "count(//*)",
+  "type": "number",
+  "value": "17.0"
+ },
+ {
+  "expr": "count(//d:item)",
+  "type": "number",
+  "value": "3.0"
+ },
+ {
+  "expr": "count(//d:item[@n > 1])",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "string(//d:item[2])",
+  "type": "string",
+  "value": "twoboldtail"
+ },
+ {
+  "expr": "string(//d:item[last()])",
+  "type": "string",
+  "value": "  spaced   out  "
+ },
+ {
+  "expr": "string((//d:item)[last()]/@n)",
+  "type": "string",
+  "value": "3"
+ },
+ {
+  "expr": "count(//d:item[2]/preceding-sibling::*)",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(//d:item[2]/following-sibling::*)",
+  "type": "number",
+  "value": "7.0"
+ },
+ {
+  "expr": "name(//d:item[1]/following-sibling::*[1])",
+  "type": "string",
+  "value": "item"
+ },
+ {
+  "expr": "name(//d:item[3]/preceding-sibling::*[1])",
+  "type": "string",
+  "value": "item"
+ },
+ {
+  "expr": "name(//d:b[1]/ancestor::*[1])",
+  "type": "string",
+  "value": "item"
+ },
+ {
+  "expr": "name(//d:b[1]/ancestor::*[last()])",
+  "type": "string",
+  "value": "q:root"
+ },
+ {
+  "expr": "count(//d:b[1]/ancestor-or-self::*)",
+  "type": "number",
+  "value": "5.0"
+ },
+ {
+  "expr": "count(//d:b/preceding::*)",
+  "type": "number",
+  "value": "3.0"
+ },
+ {
+  "expr": "count(//d:b[2]/preceding::node())",
+  "type": "number",
+  "value": "0.0"
+ },
+ {
+  "expr": "count(//d:item[1]/following::*)",
+  "type": "number",
+  "value": "15.0"
+ },
+ {
+  "expr": "count(//d:item[1]/@*/following::*)",
+  "type": "number",
+  "value": "15.0"
+ },
+ {
+  "expr": "count(//d:item[1]/@*)",
+  "type": "number",
+  "value": "3.0"
+ },
+ {
+  "expr": "name(//d:item[1]/@*[2])",
+  "type": "string",
+  "value": "x:flag"
+ },
+ {
+  "expr": "name(//d:item[1]/@*[1])",
+  "type": "string",
+  "value": "n"
+ },
+ {
+  "expr": "string(//d:item[1]/@x:flag)",
+  "type": "string",
+  "value": "yes"
+ },
+ {
+  "expr": "local-name(//d:item[1]/@x:flag)",
+  "type": "string",
+  "value": "flag"
+ },
+ {
+  "expr": "namespace-uri(//d:item[1]/@x:flag)",
+  "type": "string",
+  "value": "urn:x"
+ },
+ {
+  "expr": "namespace-uri(/*)",
+  "type": "string",
+  "value": "urn:q"
+ },
+ {
+  "expr": "name(/*)",
+  "type": "string",
+  "value": "q:root"
+ },
+ {
+  "expr": "local-name(/*)",
+  "type": "string",
+  "value": "root"
+ },
+ {
+  "expr": "count(/*/namespace::*)",
+  "type": "number",
+  "value": "4.0"
+ },
+ {
+  "expr": "count(//nons/namespace::*)",
+  "type": "number",
+  "value": "4.0"
+ },
+ {
+  "expr": "count(//q:*)",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "count(//x:*)",
+  "type": "number",
+  "value": "0.0"
+ },
+ {
+  "expr": "count(/descendant::node())",
+  "type": "number",
+  "value": "44.0"
+ },
+ {
+  "expr": "count(//text())",
+  "type": "number",
+  "value": "24.0"
+ },
+ {
+  "expr": "count(//comment())",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(//processing-instruction())",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "count(//processing-instruction('pi-target'))",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "string(//processing-instruction())",
+  "type": "string",
+  "value": "first"
+ },
+ {
+  "expr": "string(//comment())",
+  "type": "string",
+  "value": " a comment "
+ },
+ {
+  "expr": "count(//nons)",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(//nons/child)",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "string(//nons/child/@a)",
+  "type": "string",
+  "value": "z"
+ },
+ {
+  "expr": "string(//d:num)",
+  "type": "string",
+  "value": "  42  "
+ },
+ {
+  "expr": "number(//d:num)",
+  "type": "number",
+  "value": "42.0"
+ },
+ {
+  "expr": "//d:num = 42",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "//d:num = '42'",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "//d:list/d:v = 2",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "//d:list/d:v = 'abc'",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "//d:list/d:v != 2",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "//d:list/d:v > 2",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "//d:list/d:v < 1",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "//d:list/d:v = //d:item/@n",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "//d:list/d:v != //d:list/d:v",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "//d:none = 1",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "//d:none != 1",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "//d:none = false()",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "//d:list/d:v = true()",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "sum(//d:list/d:v)",
+  "type": "number",
+  "value": "NaN"
+ },
+ {
+  "expr": "sum(//d:item/@n)",
+  "type": "number",
+  "value": "6.0"
+ },
+ {
+  "expr": "count(//d:list/d:v[. > 1])",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "count(//d:list/d:v[position() mod 2 = 0])",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "string(//d:list/d:v[position() = last() - 1])",
+  "type": "string",
+  "value": "3"
+ },
+ {
+  "expr": "string(//d:list/d:v[3][1])",
+  "type": "string",
+  "value": "3"
+ },
+ {
+  "expr": "string((//d:list/d:v)[2])",
+  "type": "string",
+  "value": "2"
+ },
+ {
+  "expr": "string(//d:list/*[2])",
+  "type": "string",
+  "value": "2"
+ },
+ {
+  "expr": "1 + 2 * 3",
+  "type": "number",
+  "value": "7.0"
+ },
+ {
+  "expr": "10 div 4",
+  "type": "number",
+  "value": "2.5"
+ },
+ {
+  "expr": "10 mod 3",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "-10 mod 3",
+  "type": "number",
+  "value": "-1.0"
+ },
+ {
+  "expr": "10 mod -3",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "5.5 mod 2",
+  "type": "number",
+  "value": "1.5"
+ },
+ {
+  "expr": "1 div 0",
+  "type": "number",
+  "value": "Infinity"
+ },
+ {
+  "expr": "-1 div 0",
+  "type": "number",
+  "value": "-Infinity"
+ },
+ {
+  "expr": "0 div 0",
+  "type": "number",
+  "value": "NaN"
+ },
+ {
+  "expr": "string(1 div 0)",
+  "type": "string",
+  "value": "Infinity"
+ },
+ {
+  "expr": "string(0 div 0)",
+  "type": "string",
+  "value": "NaN"
+ },
+ {
+  "expr": "string(-0)",
+  "type": "string",
+  "value": "0"
+ },
+ {
+  "expr": "string(1.0)",
+  "type": "string",
+  "value": "1"
+ },
+ {
+  "expr": "string(0.5)",
+  "type": "string",
+  "value": "0.5"
+ },
+ {
+  "expr": "string(-1.25)",
+  "type": "string",
+  "value": "-1.25"
+ },
+ {
+  "expr": "string(1000000)",
+  "type": "string",
+  "value": "1000000"
+ },
+ {
+  "expr": "string(123456789012)",
+  "type": "string",
+  "value": "1.23456789012e+11"
+ },
+ {
+  "expr": "string(0.000001)",
+  "type": "string",
+  "value": "1e-06"
+ },
+ {
+  "expr": "string(1 div 3)",
+  "type": "string",
+  "value": "0.333333333333333"
+ },
+ {
+  "expr": "round(2.5)",
+  "type": "number",
+  "value": "3.0"
+ },
+ {
+  "expr": "round(-2.5)",
+  "type": "number",
+  "value": "-2.0"
+ },
+ {
+  "expr": "round(-0.4)",
+  "type": "number",
+  "value": "-0"
+ },
+ {
+  "expr": "string(round(-0.4))",
+  "type": "string",
+  "value": "0"
+ },
+ {
+  "expr": "round(1.4999)",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "floor(-1.5)",
+  "type": "number",
+  "value": "-2.0"
+ },
+ {
+  "expr": "ceiling(-1.5)",
+  "type": "number",
+  "value": "-1.0"
+ },
+ {
+  "expr": "ceiling(1.1)",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "number('  12  ')",
+  "type": "number",
+  "value": "12.0"
+ },
+ {
+  "expr": "number('1e3')",
+  "type": "number",
+  "value": "1000.0"
+ },
+ {
+  "expr": "number('+1')",
+  "type": "number",
+  "value": "NaN"
+ },
+ {
+  "expr": "number('-.5')",
+  "type": "number",
+  "value": "-0.5"
+ },
+ {
+  "expr": "number('.')",
+  "type": "number",
+  "value": "NaN"
+ },
+ {
+  "expr": "number('')",
+  "type": "number",
+  "value": "NaN"
+ },
+ {
+  "expr": "number('12.')",
+  "type": "number",
+  "value": "12.0"
+ },
+ {
+  "expr": "number(true())",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "boolean('false')",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "boolean(0)",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "boolean(0 div 0)",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "boolean(//d:none)",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "not(//d:none)",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "true() = 'x'",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "'1' = 1.0",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "'1.0' = 1",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "'1.0' = '1'",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "1 < 'a'",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "'2' > '10'",
+  "type": "boolean",
+  "value": "false"
+ },
+ {
+  "expr": "concat('a', 1, true(), 'b')",
+  "type": "string",
+  "value": "a1trueb"
+ },
+ {
+  "expr": "substring('12345', 2, 3)",
+  "type": "string",
+  "value": "234"
+ },
+ {
+  "expr": "substring('12345', 2)",
+  "type": "string",
+  "value": "2345"
+ },
+ {
+  "expr": "substring('12345', 1.5, 2.6)",
+  "type": "string",
+  "value": "234"
+ },
+ {
+  "expr": "substring('12345', 0, 3)",
+  "type": "string",
+  "value": "12"
+ },
+ {
+  "expr": "substring('12345', 0 div 0, 3)",
+  "type": "string",
+  "value": ""
+ },
+ {
+  "expr": "substring('12345', 1, 0 div 0)",
+  "type": "string",
+  "value": ""
+ },
+ {
+  "expr": "substring('12345', -42, 1 div 0)",
+  "type": "string",
+  "value": "12345"
+ },
+ {
+  "expr": "substring('12345', -1 div 0, 1 div 0)",
+  "type": "string",
+  "value": ""
+ },
+ {
+  "expr": "substring('ëüé€x', 2, 2)",
+  "type": "string",
+  "value": "üé"
+ },
+ {
+  "expr": "string-length('ëüé€x')",
+  "type": "number",
+  "value": "5.0"
+ },
+ {
+  "expr": "string-length(//d:item[3])",
+  "type": "number",
+  "value": "16.0"
+ },
+ {
+  "expr": "normalize-space(//d:item[3])",
+  "type": "string",
+  "value": "spaced out"
+ },
+ {
+  "expr": "normalize-space('  a  b  ')",
+  "type": "string",
+  "value": "a b"
+ },
+ {
+  "expr": "translate('bar', 'abc', 'ABC')",
+  "type": "string",
+  "value": "BAr"
+ },
+ {
+  "expr": "translate('--aaa--', 'abc-', 'ABC')",
+  "type": "string",
+  "value": "AAA"
+ },
+ {
+  "expr": "translate('aab', 'aa', 'xy')",
+  "type": "string",
+  "value": "xxb"
+ },
+ {
+  "expr": "substring-before('1999/04/01', '/')",
+  "type": "string",
+  "value": "1999"
+ },
+ {
+  "expr": "substring-after('1999/04/01', '/')",
+  "type": "string",
+  "value": "04/01"
+ },
+ {
+  "expr": "substring-after('abc', 'x')",
+  "type": "string",
+  "value": ""
+ },
+ {
+  "expr": "substring-before('abc', '')",
+  "type": "string",
+  "value": ""
+ },
+ {
+  "expr": "starts-with('abc', '')",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "contains('abc', 'bc')",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "lang('en')",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "string(//d:item[3]/d:b[lang('nl')])",
+  "type": "string",
+  "value": "  spaced   out  "
+ },
+ {
+  "expr": "count(//*[lang('en')])",
+  "type": "number",
+  "value": "15.0"
+ },
+ {
+  "expr": "count(//*[lang('nl')])",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "count(//d:item[lang('en-gb')])",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "string(//d:item[@n=2]/text()[2])",
+  "type": "string",
+  "value": "tail"
+ },
+ {
+  "expr": "string(//d:item[@n=2]/text()[last()])",
+  "type": "string",
+  "value": "tail"
+ },
+ {
+  "expr": "count(//d:item[d:b])",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "count(//d:item[not(d:b)])",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(//*[@n][@n > 2])",
+  "type": "number",
+  "value": "3.0"
+ },
+ {
+  "expr": "count(//*[@n > 2][1])",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count((//*[@n > 2])[1])",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "name(//*[@n][last()])",
+  "type": "string",
+  "value": "last"
+ },
+ {
+  "expr": "count(//d:item | //d:item[1] | //d:b)",
+  "type": "number",
+  "value": "5.0"
+ },
+ {
+  "expr": "count(//d:item[1]/@* | //d:item[1])",
+  "type": "number",
+  "value": "4.0"
+ },
+ {
+  "expr": "name((//d:b | //d:item)[1])",
+  "type": "string",
+  "value": "item"
+ },
+ {
+  "expr": "name((//d:b | //d:item)[last()])",
+  "type": "string",
+  "value": "b"
+ },
+ {
+  "expr": "count(//d:item/..)",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "name(//d:b/../..)",
+  "type": "string",
+  "value": "q:root"
+ },
+ {
+  "expr": "count(//@*)",
+  "type": "number",
+  "value": "12.0"
+ },
+ {
+  "expr": "count(//@n)",
+  "type": "number",
+  "value": "5.0"
+ },
+ {
+  "expr": "count(//*[@data-a])",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(//d:item[@x:flag='yes' and @n=1])",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(//d:item[@n=1 or @n=3])",
+  "type": "number",
+  "value": "2.0"
+ },
+ {
+  "expr": "string(/*/@id)",
+  "type": "string",
+  "value": "r"
+ },
+ {
+  "expr": "-//d:item[1]/@n",
+  "type": "number",
+  "value": "-1.0"
+ },
+ {
+  "expr": "- - 3",
+  "type": "number",
+  "value": "3.0"
+ },
+ {
+  "expr": "3 - -3",
+  "type": "number",
+  "value": "6.0"
+ },
+ {
+  "expr": "string(//d:list/d:v[last()]) = 'abc' and 1",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "count(ancestor-or-self::*)",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(self::node())",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(/)",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(/..)",
+  "type": "number",
+  "value": "0.0"
+ },
+ {
+  "expr": "count(//d:empty/node())",
+  "type": "number",
+  "value": "0.0"
+ },
+ {
+  "expr": "string(//d:empty)",
+  "type": "string",
+  "value": ""
+ },
+ {
+  "expr": "//d:empty = ''",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "boolean(//d:empty)",
+  "type": "boolean",
+  "value": "true"
+ },
+ {
+  "expr": "count(//d:item[position()=2])",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(//d:item[2]/self::d:item)",
+  "type": "number",
+  "value": "1.0"
+ },
+ {
+  "expr": "count(//d:item[2]/self::item)",
+  "type": "number",
+  "value": "0.0"
+ },
+ {
+  "expr": "count(//child::d:item/attribute::n)",
+  "type": "number",
+  "value": "3.0"
+ },
+ {
+  "expr": "count(//d:item/descendant::text())",
+  "type": "number",
+  "value": "5.0"
+ },
+ {
+  "expr": "count(//d:item/descendant-or-self::node())",
+  "type": "number",
+  "value": "10.0"
+ },
+ {
+  "expr": "count(//d:list/d:v[1]/following::d:v)",
+  "type": "number",
+  "value": "3.0"
+ },
+ {
+  "expr": "count(//d:list/d:v[4]/preceding::d:v)",
+  "type": "number",
+  "value": "3.0"
+ },
+ {
+  "expr": "string(//d:list/d:v[4]/preceding::d:v[1])",
+  "type": "string",
+  "value": "3"
+ },
+ {
+  "expr": "string(//d:list/d:v[4]/preceding-sibling::d:v[1])",
+  "type": "string",
+  "value": "3"
+ },
+ {
+  "expr": "string(//d:list/d:v[1]/following::*[1])",
+  "type": "string",
+  "value": "2"
+ }
+]

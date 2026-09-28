@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest xmlns="http://www.imsglobal.org/xsd/qti/qtiv3p0/imscp_v1p1" identifier="package-1">
+  <metadata>
+    <schema>QTI Package</schema>
+    <schemaversion>3.0.0</schemaversion>
+  </metadata>
+  <organizations/>
+  <resources>
+    <resource identifier="test-1" type="imsqti_test_xmlv3p0" href="test.xml">
+      <file href="test.xml"/>
+      <dependency identifierref="item-1"/>
+    </resource>
+    <resource identifier="item-1" type="imsqti_item_xmlv3p0" href="items/item-1.xml">
+      <file href="items/item-1.xml"/>
+    </resource>
+  </resources>
+</manifest>

@@ -1,0 +1,1 @@
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><qti-response-declaration identifier="R2" cardinality="single" base-type="identifier"/><qti-item-body><qti-graphic-hotspot-interaction>x</qti-graphic-hotspot-interaction></qti-item-body></qti-assessment-item>

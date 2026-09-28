@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="show-hide-variable" title="show-hide-variable" adaptive="false" time-dependent="false">
+  <qti-response-declaration identifier="RESPONSE" cardinality="single" base-type="identifier"><qti-correct-response><qti-value>A</qti-value></qti-correct-response></qti-response-declaration>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float"/>
+  <qti-outcome-declaration identifier="FEEDBACK" cardinality="single" base-type="identifier"/>
+  <qti-template-declaration identifier="SHOW" cardinality="multiple" base-type="identifier"/>
+  <qti-template-declaration identifier="NUMBER" cardinality="single" base-type="integer"/>
+  <qti-item-body>
+    <qti-choice-interaction response-identifier="RESPONSE" max-choices="1">
+      <qti-simple-choice identifier="A" template-identifier="SHOW">A</qti-simple-choice>
+      <qti-simple-choice identifier="B" template-identifier="NO_TEMPLATE">B</qti-simple-choice>
+      <qti-simple-choice identifier="C" template-identifier="NUMBER">C</qti-simple-choice>
+    </qti-choice-interaction>
+    <p><qti-feedback-inline outcome-identifier="FEEDBACK" identifier="A">ok</qti-feedback-inline>
+       <qti-feedback-inline outcome-identifier="SCORE" identifier="A">score</qti-feedback-inline></p>
+  </qti-item-body>
+  <qti-response-processing>
+    <qti-set-outcome-value identifier="FEEDBACK"><qti-base-value base-type="identifier">A</qti-base-value></qti-set-outcome-value>
+    <qti-set-outcome-value identifier="SCORE"><qti-base-value base-type="float">1</qti-base-value></qti-set-outcome-value>
+  </qti-response-processing>
+  <qti-modal-feedback outcome-identifier="NO_OUTCOME" identifier="A" show-hide="show">x</qti-modal-feedback>
+</qti-assessment-item>

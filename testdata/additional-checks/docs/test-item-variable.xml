@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-test xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="test-item-variable" title="test-item-variable">
+  <qti-outcome-declaration identifier="TOTAL" cardinality="single" base-type="float"/>
+  <qti-test-part identifier="P1" navigation-mode="linear" submission-mode="individual">
+    <qti-assessment-section identifier="S1" title="S1" visible="true">
+      <qti-assessment-item-ref identifier="I1" href="i1.xml"/>
+    </qti-assessment-section>
+  </qti-test-part>
+  <qti-outcome-processing>
+    <qti-set-outcome-value identifier="TOTAL">
+      <qti-sum><qti-variable identifier="I1.SCORE"/><qti-variable identifier="S1.duration"/><qti-variable identifier="I9.SCORE"/></qti-sum>
+    </qti-set-outcome-value>
+  </qti-outcome-processing>
+</qti-assessment-test>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-test xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="test-1" title="Toets">
+  <qti-test-part identifier="part-1" navigation-mode="linear" submission-mode="individual">
+    <qti-assessment-section identifier="section-1" title="Sectie" visible="true">
+      <qti-assessment-item-ref identifier="item-1" href="items/item-1.xml"/>
+    </qti-assessment-section>
+  </qti-test-part>
+</qti-assessment-test>

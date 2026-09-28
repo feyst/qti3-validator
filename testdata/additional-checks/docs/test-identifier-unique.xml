@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-test xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="test-identifier-unique" title="test-identifier-unique">
+  <qti-test-part identifier="P1" navigation-mode="linear" submission-mode="individual">
+    <qti-assessment-section identifier="P1" title="S" visible="true">
+      <qti-assessment-item-ref identifier="I1" href="i1.xml"/>
+      <qti-assessment-item-ref identifier="I1" href="i2.xml"/>
+      <qti-assessment-item-ref identifier="I3" href="i3.xml"/>
+    </qti-assessment-section>
+  </qti-test-part>
+</qti-assessment-test>

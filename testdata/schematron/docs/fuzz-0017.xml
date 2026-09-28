@@ -1,0 +1,1 @@
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" cardinality="multiple" role="tab"><qti-item-body><qti-accustom-interaction role="presentation" lower-bound="3" aria-invalid="true" match-max="2" outcome-identifier="X"></qti-accustom-interaction></qti-item-body></qti-assessment-item>

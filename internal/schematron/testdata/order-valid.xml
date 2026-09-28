@@ -1,0 +1,6 @@
+<order xmlns="urn:order" code="ABC">
+  <customer name="Ada"/>
+  <line id="l1" qty="2"/>
+  <line id="l2" qty="10"/>
+  <ref to="l1"/>
+</order>
