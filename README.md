@@ -522,4 +522,5 @@ uploaded package is deleted as soon as its request finishes.
 ## Contributing
 
 How the service is built, tested and measured is described in
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](CONTRIBUTING.md); how the code is structured, in
+[ARCHITECTURE.md](ARCHITECTURE.md).

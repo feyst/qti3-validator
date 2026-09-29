@@ -6,28 +6,41 @@ How to use the service is in the [README](README.md).
 The service checks QTI 3 documents in three steps: well-formedness, XSD
 validity against the official 1EdTech schemas, and the ISO Schematron rules
 that 1EdTech embeds in those schemas. It is written in Go, without CGo or
-libxml2, and ships as a `scratch` image of about 12 MB.
+libxml2, and ships as a `scratch` image of about 13 MB.
 
 ## Project layout
 
+The code is layered: a pure domain model, an application layer with the use
+cases and their ports, and adapters that implement those ports. Why, and the
+rules that keep it that way, are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 | Path | Contents |
 | --- | --- |
-| `cmd/server` | The HTTP service; `-check` compiles the schemas and rules and exits |
-| `cmd/fetchschemas` | Build step: downloads the pinned schemas, extracts and compiles the Schematron rules, including `rules/` |
+| `cmd/qti-validator` | The service; `-check` compiles the schemas and rules and exits |
+| `cmd/fetchschemas` | Build step: downloads the pinned schemas, compiles the Schematron rules, including `rules/` |
 | `rules/qti3-additional-checks.sch` | The validator's own Schematron rules; see [docs/additional-checks.md](docs/additional-checks.md) |
-| `internal/server` | HTTP handlers, configuration from environment variables, limits |
-| `internal/validator` | Document and package validation: root detection, XSD phase, Schematron phase, result model |
-| `internal/validator/schemas` | `schemas.lock`; the downloaded schemas and compiled rules land here (git-ignored) |
-| `internal/schematron` | Schematron extraction, build-time compilation and the runtime engine |
-| `internal/xpath` | XPath 1.0 over a small DOM with line numbers |
-| `internal/xmlenc` | UTF-16 to UTF-8 for schema files |
+| `internal/domain/qti` | Domain model: documents, QTI versions, findings, outcomes, limits, version choice |
+| `internal/app` | Use cases (validate a document, validate a package) and the ports they need |
+| `internal/app/report` | The report clients receive, projected from domain results |
+| `internal/adapter/httpapi` | Inbound: the HTTP API |
+| `internal/adapter/xsdschema` | Outbound: XML Schema validation with `jacoelho/xsd` |
+| `internal/adapter/rules` | Outbound: Schematron rules with `internal/lib/schematron` |
+| `internal/adapter/schemastore` | Outbound: the embedded schemas and compiled rules; `schemas/schemas.lock` |
+| `internal/adapter/ziparchive` | Outbound: content packages with `archive/zip` |
+| `internal/adapter/validatorsdir` | Outbound: the mounted validators directory |
+| `internal/bootstrap` | Composition root: wires adapters to the application |
+| `internal/config` | Settings from environment variables |
+| `internal/lib/xpath` | XPath 1.0 over a small DOM with line numbers |
+| `internal/lib/schematron` | Schematron extraction, build-time compilation and the runtime engine |
+| `internal/lib/xmldoc` | Root detection and well-formedness checks |
+| `internal/lib/xmlenc` | UTF-16 to UTF-8 for schema files |
 | `third_party/xsd` | Patched copy of `github.com/jacoelho/xsd`, see [Implementation notes](#implementation-notes) |
-| `testdata` | Fixtures; `testdata/schematron` and `testdata/additional-checks` hold documents with reference-implementation output |
+| `testdata` | Fixtures; see [testdata/README.md](testdata/README.md) |
 
 ## How it works
 
 ```
-build time (Dockerfile, cmd/fetchschemas)        runtime (cmd/server)
+build time (Dockerfile, cmd/fetchschemas)        runtime (cmd/qti-validator)
 ─────────────────────────────────────────        ─────────────────────────────
 download the 17 XSDs pinned in schemas.lock      compile the XSDs        (0.35 s)
 verify each SHA-256                              load compiled rules     (ms)
@@ -45,7 +58,7 @@ the Schematron engine are part of this repository.
 
 The schemas are not in the repository. `cmd/fetchschemas` downloads them from
 `purl.imsglobal.org` at build time and checks each file against
-[`internal/validator/schemas/schemas.lock`](internal/validator/schemas/schemas.lock).
+[`internal/adapter/schemastore/schemas/schemas.lock`](internal/adapter/schemastore/schemas/schemas.lock).
 The validator embeds them with `go:embed` and never downloads anything at
 runtime.
 
@@ -81,13 +94,13 @@ Accepted root elements. Both the namespace and the local name must match:
 | `lom` | `http://ltsc.ieee.org/xsd/LOM` | `lom` |
 | `qtiMetadata` | `http://www.imsglobal.org/xsd/imsqti_metadata_v3p0` | `qti-metadata` |
 
-To add a root, extend `DocumentTypes` in `internal/validator/document.go`.
+To add a root, extend `documentTypes` in `internal/domain/qti/document.go`.
 
 ## QTI versions
 
 Each supported QTI version has its own entry schemas and Schematron rules,
-compiled side by side at startup. `Versions` in
-`internal/validator/schemas.go` lists them; the last entry is the default for
+compiled side by side at startup. `versions` in
+`internal/domain/qti/version.go` lists them; the last entry is the default for
 documents that do not declare a version. How the service picks a version per
 request is described in the README.
 
@@ -99,7 +112,7 @@ To add a version, for example 3.0.2:
    once.
 2. Run `go run ./cmd/fetchschemas`. It extracts and compiles the new rules
    with the others.
-3. Add the version to `Versions`.
+3. Add the version to `versions`.
 4. Compare the fixtures under the old and the new version. Every difference
    must be explained by the release notes: 3.0 to 3.0.1 only added to the ASI
    schema and changed the manifest's `schemaversion` and LTI resource types.
@@ -143,7 +156,7 @@ Not supported, and failing the build:
 
 Phases are not selected: all patterns always run.
 
-The XPath engine (`internal/xpath`) exists because neither pure-Go XPath
+The XPath engine (`internal/lib/xpath`) exists because neither pure-Go XPath
 library fits:
 
 - **`antchfx/xpath`** has no variables (needed for `let`), no `current()`, and
@@ -188,7 +201,7 @@ How the engine is checked:
 
 ```sh
 go run ./cmd/fetchschemas   # once, or after changing schemas.lock
-go run ./cmd/server
+go run ./cmd/qti-validator
 ```
 
 Go 1.27 or newer is required.
@@ -200,56 +213,67 @@ docker build -t qti-validator .
 docker run --rm -p 8080:8080 qti-validator
 ```
 
-## Tests and benchmarks
+## Tests, linters and benchmarks
+
+`make` is the entry point; `make help` lists the targets.
 
 ```sh
-go run ./cmd/fetchschemas
-go vet ./...
-go test -race ./...
-go test -run '^$' -bench . -benchmem ./internal/validator
+make schemas   # once, or after changing schemas.lock or rules/
+make tools     # installs golangci-lint and govulncheck
+make check     # linters, tests with the race detector, vulnerability check
+make bench
 ```
 
-The tests cover:
+`make check` is what CI runs (`.github/workflows/ci.yml`). It covers:
 
-- valid and invalid items: missing element, missing attribute, bad value,
-  cardinality, several errors at once;
-- Schematron: an unknown attribute, `max-choices` below `min-choices`, XSD
-  and Schematron errors together, and the reference-checked regression set;
-- the Schematron engine itself: every supported feature, first-match
-  semantics, rejection of unsupported constructs, and agreement between the
-  native naming checks and XPath;
-- XPath 1.0 conformance against libxml2;
-- malformed XML, wrong namespace, unknown root, DTDs and XXE, non-UTF-8,
-  and size and depth limits;
-- packages: valid, invalid XML, missing manifest, path traversal, ZIP bombs
-  with honest and lying headers, too many files and the uncompressed budget;
-- the validators directory: `.sch` rules on QTI and custom documents, custom
-  roots, embedded rules, sibling and purl imports, escaping imports and
-  symbolic links, collisions, compile errors, a custom document in a package,
-  and unchanged results for the fixtures with and without it;
-- a missing schema dependency failing at startup;
-- that every schema loaded is pinned in the lock file;
-- the HTTP status codes.
+- **Linters:** `golangci-lint` with the configuration in `.golangci.yml`,
+  including `gosec`, `errorlint`, `gocritic` and `revive`, and `depguard`
+  rules that enforce the layering of [ARCHITECTURE.md](ARCHITECTURE.md). An
+  import that crosses a layer the wrong way fails the build.
+- **Formatting:** `make fmt` (gofumpt, goimports). `third_party/` is left as
+  it is upstream.
+- **Vulnerabilities:** `govulncheck` on the dependencies.
+
+The tests are layered like the code:
+
+- **Domain:** version choice, safe entry names, outcomes; no I/O.
+- **Use cases with fakes:** the application layer runs against fake schema,
+  rule and archive adapters, so its decisions are tested without compiling a
+  schema: when rules run, how they share `MAX_ERRORS`, version notices, and
+  every package failure, including ZIP bombs with honest and lying headers.
+- **Report:** the projection onto the report, from hand-made results.
+- **Integration:** the use cases with the real adapters, via
+  `internal/bootstrap`: valid and invalid items, Schematron and XSD findings
+  together, malformed XML, wrong namespace, DTDs and XXE, non-UTF-8, limits,
+  packages, QTI versions, and the validators directory (custom roots,
+  embedded rules, imports, symbolic links, collisions, compile errors);
+- **Adapters:** the rules against the ISO reference implementation and the
+  additional checks against their reference output; the schema store and its
+  pinning; the ZIP reader; the HTTP status codes and both request shapes.
+- **Libraries:** the Schematron engine (every supported feature, first-match
+  semantics, unsupported constructs, native naming checks) and XPath 1.0
+  conformance against libxml2.
 
 None of them need the internet once the schemas are fetched.
 
-Benchmark on the machine below, `go test -bench`. A validation includes XSD
-and Schematron:
+Benchmarks on the machine below, `make bench`. A validation includes XSD,
+1EdTech's Schematron rules and the additional checks; both QTI versions are
+loaded:
 
 | Benchmark | Time/op | Allocated/op | Allocs/op |
 | --- | ---: | ---: | ---: |
-| Startup: compile XSDs, load rules | 362 ms | 491 MB (transient) | 794k |
-| Validate `testdata/valid/assessment-item.xml` (1.3 KB) | 79 µs | 43 KB | 633 |
-| Validate a 3-document package | 176 µs | 97 KB | 1360 |
-| 1 concurrent validation | 87 µs | 43 KB | 635 |
-| 10 concurrent validations | 504 µs | 845 KB | 6739 |
-| 50 concurrent validations | 1.9 ms | 4.2 MB | 33690 |
+| Startup: compile XSDs, load rules | 0.77 s | 983 MB (transient) | 1.6M |
+| Validate `testdata/valid/assessment-item.xml` (1.3 KB) | 149 µs | 84 KB | 2003 |
+| Validate a 3-document package | 328 µs | 163 KB | 3489 |
+| 1 concurrent validation | 173 µs | 86 KB | 2005 |
+| 10 concurrent validations | 0.96 ms | 1.2 MB | 20.4k |
+| 50 concurrent validations | 3.3–3.6 ms | 6.4 MB | 102k |
 
 ## Performance and memory
 
 **Current numbers, QTI 3.0 and 3.0.1 both loaded:** 40 MiB RSS when idle, a
-startup peak of 100 MiB while both schema sets compile, and a peak of 109 MiB
-under the load below. For comparison, the current validator uses more than
+startup peak of 100 MiB while both schema sets compile, and a peak of 115–120
+MiB under the load below. For comparison, the current validator uses more than
 2 GB.
 
 **Validators directory** (local binary, not the image; startup peak as
@@ -271,7 +295,7 @@ is merged, and the numbers here updated.
 
 Environment:
 Docker 29.8.2 on WSL2 (kernel 6.18.33.2), Intel Core Ultra 7 268V, 8 CPUs,
-16 GB. Image `qti-validator:dev` from this Dockerfile (13.3 MB), default
+16 GB. Image `qti-validator:dev` from this Dockerfile (13.4 MB), default
 configuration (`MAX_CONCURRENT` = 8). RSS is `VmRSS`/`VmHWM` from
 `/proc/<pid>/status` of the container process. Load was generated with
 `curl` through `xargs -P`. Every validation includes XSD, 1EdTech's
@@ -299,7 +323,7 @@ Every request in the run below returned 200 (5800 requests).
 | 200 packages, 50 concurrent | 75 MiB | 2.8 s |
 | 5 s idle after load | 59 MiB | |
 
-Peak RSS over the whole run was 109 MiB. With 50 concurrent clients, 8
+Peak RSS over the whole run was 115–120 MiB over several runs. With 50 concurrent clients, 8
 validations run at once and the rest wait for a slot.
 
 Corpus check: the same build validated the 391 QTI 3 XML files and 33
@@ -333,7 +357,7 @@ The XML documents inside the packages count as documents of the corpus too.
 - **Package semantics:** nothing checks that manifest `href`s point to files in
   the package, or that resources reference each other correctly.
 - **SSML:** the upstream SSML 1.1 core profile uses `xs:redefine`, which the XSD
-  library does not support. A small wrapper in `internal/validator/schemas.go`
+  library does not support. A small wrapper in `internal/adapter/schemastore/overrides.go`
   includes the same upstream `synthesis-nonamespace.xsd` without the redefine.
   As a result, two SSML restrictions are not enforced: `version` and
   `xml:lang` required on `<ssml:speak>`, and `name` required on `<ssml:mark>`.
@@ -356,7 +380,7 @@ The XML documents inside the packages count as documents of the corpus too.
   compiles them at startup. The Schematron rules are compiled at build time.
 - **id():** without a DTD no attribute has type ID, so XPath `id()` selects
   nothing. The QTI rules do not use it.
-- **Report format:** `internal/validator/report.go` turns the internal
+- **Report format:** `internal/app/report/report.go` turns the internal
   results into the report both endpoints return. Its shape follows the public
   report model of 1EdTech's validator engine; the comments on the types name
   the public sources each part comes from (the API description at
@@ -367,7 +391,7 @@ The XML documents inside the packages count as documents of the corpus too.
   per document). Keep it that way: anything taken from the model needs its
   public source, and nothing comes from member-only tools. Change the report
   only by adding fields.
-- **Validators directory:** `internal/validator/mounted.go` reads
+- **Validators directory:** `internal/adapter/validatorsdir` reads
   `VALIDATORS_DIR` once at startup, before the QTI schemas compile, through an
   `os.Root`, so neither a name nor a symbolic link can leave the directory;
   a link that stays inside, as in a Kubernetes ConfigMap volume, works. Each

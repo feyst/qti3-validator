@@ -1,5 +1,5 @@
 // Command fetchschemas downloads the QTI schemas pinned in
-// internal/validator/schemas/schemas.lock, verifies their checksums, and
+// internal/adapter/schemastore/schemas/schemas.lock, verifies their checksums, and
 // compiles the Schematron rules embedded in them, together with the
 // validator's own rules in rules/qti3-additional-checks.sch, to
 // schematron.json.gz. A schema already downloaded with the pinned checksum
@@ -32,8 +32,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kennisnet/qti3-validator/internal/schematron"
-	"github.com/kennisnet/qti3-validator/internal/xmlenc"
+	"github.com/kennisnet/qti3-validator/internal/lib/schematron"
+	"github.com/kennisnet/qti3-validator/internal/lib/xmlenc"
 )
 
 const maxSchemaBytes = 64 << 20
@@ -44,8 +44,8 @@ type pin struct {
 }
 
 func main() {
-	lockPath := flag.String("lock", "internal/validator/schemas/schemas.lock", "lock file with sha256 and URL per schema")
-	outDir := flag.String("out", "internal/validator/schemas", "directory to store the schemas in")
+	lockPath := flag.String("lock", "internal/adapter/schemastore/schemas/schemas.lock", "lock file with sha256 and URL per schema")
+	outDir := flag.String("out", "internal/adapter/schemastore/schemas", "directory to store the schemas in")
 	extraRules := flag.String("rules", "rules/qti3-additional-checks.sch", "the validator's own Schematron rules")
 	flag.Parse()
 
@@ -115,7 +115,7 @@ func writeRules(name string, compiled *schematron.Compiled) error {
 	if err := zw.Close(); err != nil {
 		return err
 	}
-	return os.WriteFile(name, buf.Bytes(), 0o644)
+	return os.WriteFile(name, buf.Bytes(), 0o600)
 }
 
 func readLock(name string) ([]pin, error) {
@@ -192,10 +192,10 @@ func fetch(client *http.Client, p pin, outDir string) ([]byte, error) {
 	if err := zw.Close(); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		return nil, err
 	}
-	return data, os.WriteFile(dst, gz.Bytes(), 0o644)
+	return data, os.WriteFile(dst, gz.Bytes(), 0o600)
 }
 
 // cached returns a schema stored by an earlier run, if its checksum is the

@@ -1,0 +1,111 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - copyloopvar
+    - depguard
+    - dupl
+    - errorlint
+    - exhaustive
+    - gocognit
+    - gocritic
+    - gosec
+    - intrange
+    - misspell
+    - nolintlint
+    - perfsprint
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+  settings:
+    depguard:
+      # The architecture: the domain depends on nothing, the application
+      # layer only on the domain and generic libraries, adapters never on
+      # each other's callers. See ARCHITECTURE.md.
+      rules:
+        domain:
+          list-mode: strict
+          files: ["**/internal/domain/**", "!$test"]
+          allow: ["$gostd", "github.com/kennisnet/qti3-validator/internal/domain"]
+        app:
+          files: ["**/internal/app/**", "!$test"]
+          deny:
+            - pkg: github.com/kennisnet/qti3-validator/internal/adapter
+              desc: the application layer reaches adapters only through its ports
+            - pkg: github.com/kennisnet/qti3-validator/internal/bootstrap
+              desc: the composition root depends on the application, not the other way round
+            - pkg: github.com/kennisnet/qti3-validator/internal/config
+              desc: configuration is read by the composition root
+            - pkg: github.com/jacoelho/xsd
+              desc: XML Schema validation is the xsdschema adapter
+            - pkg: github.com/kennisnet/qti3-validator/internal/lib/schematron
+              desc: Schematron is the rules adapter
+        lib:
+          files: ["**/internal/lib/**", "!$test"]
+          deny:
+            - pkg: github.com/kennisnet/qti3-validator/internal/domain
+              desc: generic libraries know nothing of QTI
+            - pkg: github.com/kennisnet/qti3-validator/internal/app
+              desc: generic libraries know nothing of the application
+            - pkg: github.com/kennisnet/qti3-validator/internal/adapter
+              desc: generic libraries know nothing of adapters
+        httpapi:
+          files: ["**/internal/adapter/httpapi/**", "!$test"]
+          deny:
+            - pkg: github.com/kennisnet/qti3-validator/internal/adapter/
+              desc: the HTTP adapter drives the application, not other adapters
+            - pkg: github.com/kennisnet/qti3-validator/internal/bootstrap
+              desc: the HTTP adapter receives the application from the composition root
+            - pkg: github.com/jacoelho/xsd
+              desc: XML Schema validation is the xsdschema adapter
+    gocognit:
+      min-complexity: 25
+    dupl:
+      threshold: 150
+    gocritic:
+      enabled-tags: [diagnostic, style, performance]
+      disabled-checks:
+        - hugeParam # values such as qti.Limits are passed by value on purpose
+        - unnamedResult
+        - paramTypeCombine
+        - commentedOutCode
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: error-strings
+        - name: receiver-naming
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+    gosec:
+      excludes:
+        - G304 # files are opened by name on purpose: schemas, temp files, the validators directory
+    exhaustive:
+      # Checked only where a switch is marked //exhaustive:enforce: the XPath
+      # lexer and parser switch on token kinds where most cases do nothing.
+      explicit-exhaustive-switch: true
+  exclusions:
+    paths: [third_party] # a vendored copy kept identical to upstream
+    presets: [std-error-handling]
+    rules:
+      - path: _test\.go
+        linters: [dupl, gosec, gocognit, errcheck]
+
+formatters:
+  exclusions:
+    paths: [third_party]
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [github.com/kennisnet/qti3-validator]

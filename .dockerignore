@@ -5,5 +5,5 @@ Dockerfile
 .dockerignore
 testdata
 # Schemas are always downloaded in the build, never copied from a checkout.
-internal/validator/schemas/purl.imsglobal.org
-internal/validator/schemas/schematron.json.gz
+internal/adapter/schemastore/schemas/purl.imsglobal.org
+internal/adapter/schemastore/schemas/schematron.json.gz

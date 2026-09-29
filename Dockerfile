@@ -11,7 +11,7 @@ RUN go mod download
 
 COPY . .
 
-# Download the QTI schemas pinned in internal/validator/schemas/schemas.lock,
+# Download the QTI schemas pinned in internal/adapter/schemastore/schemas/schemas.lock,
 # and compile the Schematron rules embedded in them together with the
 # validator's own rules in rules/qti3-additional-checks.sch.
 # The QTI version is fixed by the URLs in that file (spec/qti/v3p0, binding
@@ -22,9 +22,9 @@ RUN go run ./cmd/fetchschemas
 ARG VERSION=0.1.0
 RUN CGO_ENABLED=0 go build \
     -trimpath \
-    -ldflags="-s -w -X github.com/kennisnet/qti3-validator/internal/server.Version=${VERSION}" \
+    -ldflags="-s -w -X github.com/kennisnet/qti3-validator/internal/adapter/httpapi.Version=${VERSION}" \
     -o /out/qti-validator \
-    ./cmd/server \
+    ./cmd/qti-validator \
  && mkdir /out/tmp /out/validators
 
 # Compile the schemas once at build time, so a schema the validator cannot
