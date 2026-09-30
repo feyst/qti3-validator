@@ -12,8 +12,8 @@ import (
 // Config holds the service settings, read from environment variables.
 type Config struct {
 	Addr                string        // ADDR
-	MaxRequestSize      int64         // MAX_REQUEST_SIZE: body of /v1/validate, bytes
-	MaxPackageSize      int64         // MAX_PACKAGE_SIZE: body of /v1/validate/package, bytes
+	MaxRequestSize      int64         // MAX_REQUEST_SIZE: one XML document, bytes
+	MaxPackageSize      int64         // MAX_PACKAGE_SIZE: request body of a package or upload, bytes
 	MaxFileSize         int64         // MAX_FILE_SIZE: uncompressed XML entry in a package, bytes
 	MaxFiles            int           // MAX_FILES: entries in a package
 	MaxUncompressedSize int64         // MAX_UNCOMPRESSED_SIZE: all XML in a package, bytes

@@ -22,7 +22,19 @@ A finding is a normal Schematron finding: `code` is `schematron`, and
 `generator` names the file and the check, for example:
 
 ```json
-{"title": "Schematron validation", "message": "qti-choice-interaction is bound to 'RESPONSE', which is not a declared response variable.", "location": {"resource": "/items/item-1.xml", "line": 18, "column": 5, "path": "/qti-assessment-item[1]/qti-item-body[1]/qti-choice-interaction[1]"}, "generator": "schematron|qti3-additional-checks.sch#response-declaration-exists", "code": "schematron", "detailsMessage": null}
+{
+  "title": "Schematron validation",
+  "message": "qti-choice-interaction is bound to 'RESPONSE', which is not a declared response variable.",
+  "location": {
+    "resource": "/items/item-1.xml",
+    "line": 18,
+    "column": 5,
+    "path": "/qti-assessment-item[1]/qti-item-body[1]/qti-choice-interaction[1]"
+  },
+  "generator": "schematron|qti3-additional-checks.sch#response-declaration-exists",
+  "code": "schematron",
+  "detailsMessage": null
+}
 ```
 
 The part after `#` is the check's id from the tables below. Ids do not change
@@ -86,4 +98,4 @@ After a change:
    document triggers.
 
 To add checks for your own installation without changing this file, mount a
-`.sch` file instead; see [Custom validators](../README.md#custom-validators).
+`.sch` file instead; see [Custom validators](custom-validators.md).

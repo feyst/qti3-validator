@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"runtime"
-	"strings"
 
 	"github.com/kennisnet/qti3-validator/internal/domain/qti"
 )
@@ -49,17 +48,14 @@ func statusFor(o qti.Outcome) int {
 	return http.StatusOK
 }
 
-func hasMediaType(r *http.Request, ok func(string) bool) bool {
+// mediaType is the request's media type, without parameters; empty when the
+// header is missing or malformed.
+func mediaType(r *http.Request) string {
 	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	return err == nil && ok(mt)
-}
-
-func isXMLMediaType(mt string) bool {
-	return mt == "application/xml" || mt == "text/xml" || strings.HasSuffix(mt, "+xml")
-}
-
-func isZIPMediaType(mt string) bool {
-	return mt == "application/zip" || mt == "application/x-zip-compressed" || mt == "application/octet-stream"
+	if err != nil {
+		return ""
+	}
+	return mt
 }
 
 // spool copies a package to a temporary file, because a ZIP must be read

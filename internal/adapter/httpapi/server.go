@@ -1,9 +1,8 @@
 // Package httpapi is the HTTP adapter: it exposes the validation use cases
 // as a JSON API and answers with the report of package report.
 //
-// Two request shapes are served. /v1/validate and /v1/validate/package take
-// the document or package as the request body; /api/validate takes it as a
-// multipart upload.
+// Validation is one endpoint, POST /api/validate. It takes the document or
+// package as the request body or as a multipart upload.
 package httpapi
 
 import (
@@ -32,7 +31,7 @@ type Validator interface {
 // Options configure the server.
 type Options struct {
 	Addr           string
-	MaxPackageSize int64 // body of /v1/validate/package and upload of /api/validate, bytes
+	MaxPackageSize int64 // request body of /api/validate, bytes
 	PackageLimits  qti.PackageLimits
 	MaxConcurrent  int // validations running at once
 	RequestTimeout time.Duration
@@ -56,8 +55,6 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /version", s.version)
-	mux.HandleFunc("POST /v1/validate", s.validateDocument)
-	mux.HandleFunc("POST /v1/validate/package", s.validatePackage)
 	mux.HandleFunc("GET /api/validators", s.apiValidators)
 	mux.HandleFunc("POST /api/validate", s.apiValidate)
 	return s.logRequests(mux)

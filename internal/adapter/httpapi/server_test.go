@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -121,7 +122,7 @@ func TestValidateStatusCodes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			status, body := post(t, srv.URL+"/v1/validate", tt.contentType, tt.body)
+			status, body := post(t, srv.URL+"/api/validate", tt.contentType, tt.body)
 			if status != tt.status || outcome(body) != tt.outcome || firstCode(body) != tt.code {
 				t.Fatalf("got %d %q %q, want %d %q %q: %v", status, outcome(body), firstCode(body), tt.status, tt.outcome, tt.code, body)
 			}
@@ -131,7 +132,7 @@ func TestValidateStatusCodes(t *testing.T) {
 
 func TestReportShape(t *testing.T) {
 	srv := newTestServer(t, testOptions{})
-	status, body := post(t, srv.URL+"/v1/validate?name=item.xml", "application/xml", testdata(t, "invalid/invalid-value.xml"))
+	status, body := post(t, srv.URL+"/api/validate?name=item.xml", "application/xml", testdata(t, "invalid/invalid-value.xml"))
 	if status != 200 {
 		t.Fatalf("status %d", status)
 	}
@@ -159,7 +160,7 @@ func TestReportShape(t *testing.T) {
 
 func TestValidateRequestTooLarge(t *testing.T) {
 	srv := newTestServer(t, testOptions{MaxRequestSize: 512})
-	status, body := post(t, srv.URL+"/v1/validate", "application/xml", testdata(t, "valid/assessment-item.xml"))
+	status, body := post(t, srv.URL+"/api/validate", "application/xml", testdata(t, "valid/assessment-item.xml"))
 	if status != http.StatusRequestEntityTooLarge || firstCode(body) != "too_large" {
 		t.Fatalf("got %d %v", status, body)
 	}
@@ -184,25 +185,37 @@ func TestValidatePackage(t *testing.T) {
 		"test.xml":         testdata(t, "package/test.xml"),
 		"items/item-1.xml": testdata(t, "package/item-1.xml"),
 	}
-	status, body := post(t, srv.URL+"/v1/validate/package", "application/zip", zipOf(t, files))
+	status, body := post(t, srv.URL+"/api/validate", "application/zip", zipOf(t, files))
 	if status != 200 || outcome(body) != "VALID" || body["summary"].(map[string]any)["valid"] != 3.0 {
 		t.Fatalf("got %d %v", status, body)
 	}
 
 	files["items/item-2.xml"] = testdata(t, "invalid/malformed.xml")
-	status, body = post(t, srv.URL+"/v1/validate/package", "application/zip", zipOf(t, files))
+	status, body = post(t, srv.URL+"/api/validate", "application/zip", zipOf(t, files))
 	if status != 200 || outcome(body) != "FATAL" || firstCode(body) != "invalid_xml" {
 		t.Fatalf("got %d %v", status, body)
 	}
 
-	status, body = post(t, srv.URL+"/v1/validate/package", "application/zip", []byte("not a zip"))
+	status, body = post(t, srv.URL+"/api/validate", "application/zip", []byte("not a zip"))
 	if status != 200 || outcome(body) != "FATAL" || firstCode(body) != "invalid_zip" {
 		t.Fatalf("got %d %v", status, body)
 	}
 
-	status, _ = post(t, srv.URL+"/v1/validate/package", "application/xml", zipOf(t, files))
-	if status != 415 {
-		t.Fatalf("got %d", status)
+	// The Content-Type decides: a ZIP sent as XML is read as XML.
+	status, body = post(t, srv.URL+"/api/validate", "application/xml", zipOf(t, files))
+	if status != 200 || outcome(body) != "FATAL" || firstCode(body) != "invalid_xml" {
+		t.Fatalf("ZIP as XML: %d %v", status, body)
+	}
+
+	// application/octet-stream: the content decides.
+	status, body = post(t, srv.URL+"/api/validate", "application/octet-stream", zipOf(t, files))
+	if status != 200 || body["input"].(map[string]any)["type"] != "ZIP" {
+		t.Fatalf("ZIP as octet-stream: %d %v", status, body)
+	}
+	status, body = post(t, srv.URL+"/api/validate", "application/octet-stream", testdata(t, "valid/assessment-item.xml"))
+	if status != 200 || outcome(body) != "VALID" || body["input"].(map[string]any)["type"] != "XML" ||
+		body["input"].(map[string]any)["name"] != "document.xml" {
+		t.Fatalf("XML as octet-stream: %d %v", status, body)
 	}
 }
 
@@ -210,7 +223,7 @@ func TestVersionParameter(t *testing.T) {
 	srv := newTestServer(t, testOptions{})
 	item := testdata(t, "valid/assessment-item-3.0.1.xml")
 	for query, want := range map[string]string{"": "VALID", "?version=3.0.1": "VALID", "?version=3.0.0": "ERROR", "?version=3.1": "400"} {
-		status, body := post(t, srv.URL+"/v1/validate"+query, "application/xml", item)
+		status, body := post(t, srv.URL+"/api/validate"+query, "application/xml", item)
 		got := outcome(body)
 		if status != 200 {
 			got = strconv.Itoa(status)
@@ -226,11 +239,11 @@ func TestVersionParameter(t *testing.T) {
 		"imsmanifest.xml":  testdata(t, "package/imsmanifest.xml"),
 		"items/item-1.xml": item,
 	}
-	status, body := post(t, srv.URL+"/v1/validate/package?version=3.0.1", "application/zip", zipOf(t, files))
+	status, body := post(t, srv.URL+"/api/validate?version=3.0.1", "application/zip", zipOf(t, files))
 	if status != 200 || body["specification"].(map[string]any)["version"] != "3.0.1" {
 		t.Fatalf("package with version: %d %v", status, body)
 	}
-	status, _ = post(t, srv.URL+"/v1/validate/package?version=nope", "application/zip", zipOf(t, files))
+	status, _ = post(t, srv.URL+"/api/validate?version=nope", "application/zip", zipOf(t, files))
 	if status != 400 {
 		t.Fatalf("package with bad version: %d", status)
 	}
@@ -238,7 +251,7 @@ func TestVersionParameter(t *testing.T) {
 
 func TestValidatePackageTooLarge(t *testing.T) {
 	srv := newTestServer(t, testOptions{MaxPackageSize: 1024})
-	status, body := post(t, srv.URL+"/v1/validate/package", "application/zip", bytes.Repeat([]byte("x"), 4096))
+	status, body := post(t, srv.URL+"/api/validate", "application/zip", bytes.Repeat([]byte("x"), 4096))
 	if status != http.StatusRequestEntityTooLarge || firstCode(body) != "too_large" {
 		t.Fatalf("got %d %v", status, body)
 	}
@@ -258,10 +271,17 @@ func TestHealthAndVersion(t *testing.T) {
 			t.Fatalf("%s: %d %v", path, resp.StatusCode, body)
 		}
 	}
-	resp, _ := http.Get(srv.URL + "/v1/validate")
+	resp, _ := http.Get(srv.URL + "/api/validate")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("GET /v1/validate: %d", resp.StatusCode)
+		t.Fatalf("GET /api/validate: %d", resp.StatusCode)
+	}
+	for _, path := range []string{"/v1/validate", "/v1/validate/package"} {
+		resp, _ := http.Post(srv.URL+path, "application/xml", strings.NewReader("<x/>"))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("POST %s: %d, want 404", path, resp.StatusCode)
+		}
 	}
 }
 
@@ -335,8 +355,18 @@ func TestAPIValidate(t *testing.T) {
 		t.Fatalf("validators: %d %v", resp.StatusCode, list)
 	}
 
-	if status, _ := post(t, api, "application/zip", zipOf(t, files)); status != 415 {
-		t.Fatalf("raw body: %d", status)
+	// The same endpoint takes the input as the body.
+	status, body = post(t, api+"&name=raw.zip", "application/zip", zipOf(t, files))
+	if status != 200 || body["input"].(map[string]any)["name"] != "raw.zip" || body["input"].(map[string]any)["type"] != "ZIP" {
+		t.Fatalf("raw ZIP: %d %v", status, body)
+	}
+	status, body = post(t, api, "application/xml", testdata(t, "valid/assessment-item.xml"))
+	if status != 200 || outcome(body) != "VALID" || body["input"].(map[string]any)["name"] != "document.xml" {
+		t.Fatalf("raw XML: %d %v", status, body)
+	}
+	status, body = post(t, api, "application/json", []byte("{}"))
+	if status != 415 || firstCode(body) != "unsupported_media_type" {
+		t.Fatalf("JSON: %d %v", status, body)
 	}
 
 	small := newTestServer(t, testOptions{MaxPackageSize: 1024})

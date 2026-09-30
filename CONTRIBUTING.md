@@ -249,7 +249,7 @@ The tests are layered like the code:
   embedded rules, imports, symbolic links, collisions, compile errors);
 - **Adapters:** the rules against the ISO reference implementation and the
   additional checks against their reference output; the schema store and its
-  pinning; the ZIP reader; the HTTP status codes and both request shapes.
+  pinning; the ZIP reader; the HTTP status codes and every request shape of `/api/validate`.
 - **Libraries:** the Schematron engine (every supported feature, first-match
   semantics, unsupported constructs, native naming checks) and XPath 1.0
   conformance against libxml2.
