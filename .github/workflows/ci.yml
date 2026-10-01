@@ -32,4 +32,4 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build image
-        run: docker build -t qti-validator:ci .
+        run: docker build -t kennisnet/qti3-validator:ci .

@@ -3,6 +3,7 @@
 GOLANGCI_LINT_VERSION := v2.14.0
 GOVULNCHECK_VERSION   := v1.8.0
 GOBIN                 := $(shell go env GOPATH)/bin
+IMAGE                 := kennisnet/qti3-validator
 
 .PHONY: help schemas build test race cover bench lint fmt vuln check image tools
 
@@ -39,8 +40,8 @@ vuln: ## Check dependencies for known vulnerabilities
 
 check: lint race vuln ## Everything CI runs
 
-image: ## Build the Docker image
-	docker build -t qti-validator:dev .
+image: ## Build the Docker image, tagged kennisnet/qti3-validator:dev and :latest
+	docker build -t $(IMAGE):dev -t $(IMAGE):latest .
 
 tools: ## Install the linters
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)

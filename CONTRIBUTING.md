@@ -209,8 +209,8 @@ Go 1.27 or newer is required.
 ### Docker
 
 ```sh
-docker build -t qti-validator .
-docker run --rm -p 8080:8080 qti-validator
+make image   # tags kennisnet/qti3-validator:dev and :latest
+docker run --rm -p 8080:8080 kennisnet/qti3-validator
 ```
 
 ## Tests, linters and benchmarks
@@ -295,7 +295,7 @@ is merged, and the numbers here updated.
 
 Environment:
 Docker 29.8.2 on WSL2 (kernel 6.18.33.2), Intel Core Ultra 7 268V, 8 CPUs,
-16 GB. Image `qti-validator:dev` from this Dockerfile (13.4 MB), default
+16 GB. Image `kennisnet/qti3-validator:dev` from this Dockerfile (13.4 MB), default
 configuration (`MAX_CONCURRENT` = 8). RSS is `VmRSS`/`VmHWM` from
 `/proc/<pid>/status` of the container process. Load was generated with
 `curl` through `xargs -P`. Every validation includes XSD, 1EdTech's
