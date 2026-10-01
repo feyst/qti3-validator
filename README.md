@@ -110,21 +110,21 @@ warning instead of an error.
 
 ### `POST /api/validate`
 
-The `Content-Type` says how the input is sent:
+Send a ZIP package or a single XML document as the request body. The service
+recognises which it is; a `Content-Type` is optional:
 
-| `Content-Type` | Body | Validated as |
-| --- | --- | --- |
-| `application/zip` | A ZIP file | A package |
-| `application/xml`, `text/xml` | One XML document | A single document |
-| `application/octet-stream` | A ZIP or an XML document | Decided by the content |
-| `multipart/form-data` | The file in the form field `file` | Decided by the content |
+| `Content-Type` | Validated as |
+| --- | --- |
+| `application/zip` | A package |
+| `application/xml`, `text/xml` | A single document |
+| none, or any other | A package if the body is a ZIP, otherwise a single document |
 
 Query parameters, all optional:
 
 | Parameter | Meaning |
 | --- | --- |
 | `version` | `3.0.0` or `3.0.1`: the QTI version every document is validated against |
-| `name` | The name of the input in the report; default the uploaded file's name, else `package.zip` or `document.xml` |
+| `name` | The name of the input in the report; default `package.zip` or `document.xml` |
 | `validatorId` | `Qti30Inspector`; see `GET /api/validators` |
 
 For example, to validate a 3.0 package against QTI 3.0.1:
@@ -148,8 +148,8 @@ JSON body:
 
 ```json
 {
-  "code": "unsupported_media_type",
-  "message": "Content-Type must be multipart/form-data, application/xml or application/zip"
+  "code": "unsupported_version",
+  "message": "version must be one of 3.0.0, 3.0.1"
 }
 ```
 
@@ -157,9 +157,8 @@ JSON body:
 | --- | --- | --- |
 | 400 | `unsupported_version` | `version` is not a supported version |
 | 400 | `unknown_validator` | `validatorId` is not listed by `GET /api/validators` |
-| 400 | `invalid_request` | The body could not be read, or a form has no `file` field |
+| 400 | `invalid_request` | The body could not be read |
 | 413 | `too_large`, `too_many_files` | The request, package, or the XML in a package exceeds a limit |
-| 415 | `unsupported_media_type` | The `Content-Type` is not one of the above |
 | 500 | `internal` | The service failed; the body is then a report with outcome `EXCEPTION` |
 | 503 | `busy` | All validation slots stayed busy for `REQUEST_TIMEOUT`; retry later |
 

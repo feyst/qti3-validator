@@ -34,7 +34,7 @@ func (s *Server) apiValidators(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) filePart(w http.ResponseWriter, r *http.Request) (*multipart.Part, bool) {
 	mr, err := multipartReader(r, http.MaxBytesReader(w, r.Body, s.opts.MaxPackageSize+multipartOverhead))
 	if err != nil {
-		writeError(w, http.StatusUnsupportedMediaType, codeUnsupportedMediaType, "Content-Type must be multipart/form-data")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "multipart body without a boundary")
 		return nil, false
 	}
 	for {

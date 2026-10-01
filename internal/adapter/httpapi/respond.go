@@ -15,10 +15,9 @@ import (
 // Codes of request errors: the request could not be validated at all. Codes
 // of findings are in package qti.
 const (
-	codeUnsupportedMediaType = "unsupported_media_type"
-	codeInvalidRequest       = "invalid_request"
-	codeUnknownValidator     = "unknown_validator"
-	codeBusy                 = "busy"
+	codeInvalidRequest   = "invalid_request"
+	codeUnknownValidator = "unknown_validator"
+	codeBusy             = "busy"
 )
 
 // requestError is the body of a response without a report.

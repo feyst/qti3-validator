@@ -28,13 +28,16 @@ const multipartOverhead = 64 << 10
 type requestShape int
 
 const (
-	shapeUnsupported requestShape = iota
-	shapeMultipart                // the input in the multipart field "file"
-	shapeDocument                 // one XML document as the body
-	shapePackage                  // a ZIP as the body
-	shapeSniff                    // a body whose content says what it is
+	shapeSniff     requestShape = iota // a body whose content says what it is
+	shapeMultipart                     // the input in the multipart field "file"
+	shapeDocument                      // one XML document as the body
+	shapePackage                       // a ZIP as the body
 )
 
+// shapeOf picks the request shape. A Content-Type that names XML or a ZIP is
+// followed; any other, or none, lets the content decide. That includes
+// application/x-www-form-urlencoded, which curl sends for --data-binary
+// without a -H.
 func shapeOf(r *http.Request) requestShape {
 	mt := mediaType(r)
 	switch {
@@ -44,10 +47,8 @@ func shapeOf(r *http.Request) requestShape {
 		return shapeDocument
 	case mt == "application/zip" || mt == "application/x-zip-compressed":
 		return shapePackage
-	case mt == "application/octet-stream":
-		return shapeSniff
 	}
-	return shapeUnsupported
+	return shapeSniff
 }
 
 // apiValidate serves POST /api/validate, the one validation endpoint: the
@@ -62,11 +63,6 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	shape := shapeOf(r)
-	if shape == shapeUnsupported {
-		writeError(w, http.StatusUnsupportedMediaType, codeUnsupportedMediaType,
-			"Content-Type must be multipart/form-data, application/xml or application/zip")
-		return
-	}
 	version, ok := versionParam(w, r)
 	if !ok {
 		return

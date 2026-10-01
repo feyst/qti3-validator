@@ -118,7 +118,7 @@ func TestValidateStatusCodes(t *testing.T) {
 		{"invalid QTI", "application/xml", testdata(t, "invalid/invalid-value.xml"), 200, "ERROR", "validation"},
 		{"unknown root", "application/xml", testdata(t, "invalid/unknown-root.xml"), 200, "FATAL", "unsupported_document"},
 		{"malformed", "application/xml", testdata(t, "invalid/malformed.xml"), 200, "FATAL", "invalid_xml"},
-		{"wrong content type", "application/json", []byte(`{}`), 415, "", "unsupported_media_type"},
+		{"other content type", "application/json", []byte(`{}`), 200, "FATAL", "invalid_xml"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -364,9 +364,17 @@ func TestAPIValidate(t *testing.T) {
 	if status != 200 || outcome(body) != "VALID" || body["input"].(map[string]any)["name"] != "document.xml" {
 		t.Fatalf("raw XML: %d %v", status, body)
 	}
-	status, body = post(t, api, "application/json", []byte("{}"))
-	if status != 415 || firstCode(body) != "unsupported_media_type" {
-		t.Fatalf("JSON: %d %v", status, body)
+	// Without a Content-Type that names XML or a ZIP, the content decides:
+	// no header, or curl's default for --data-binary.
+	for _, ct := range []string{"", "application/x-www-form-urlencoded"} {
+		status, body = post(t, api, ct, zipOf(t, files))
+		if status != 200 || body["input"].(map[string]any)["type"] != "ZIP" {
+			t.Fatalf("ZIP with Content-Type %q: %d %v", ct, status, body)
+		}
+		status, body = post(t, api, ct, testdata(t, "valid/assessment-item.xml"))
+		if status != 200 || outcome(body) != "VALID" || body["input"].(map[string]any)["type"] != "XML" {
+			t.Fatalf("XML with Content-Type %q: %d %v", ct, status, body)
+		}
 	}
 
 	small := newTestServer(t, testOptions{MaxPackageSize: 1024})
