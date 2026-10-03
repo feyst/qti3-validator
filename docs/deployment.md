@@ -3,8 +3,14 @@
 ## Memory and CPU
 
 The service uses about 40 MB of memory when idle. Measured with the defaults
-on 8 CPUs, the peak was 115–120 MB, with 50 clients sending 1 MB packages
+on 8 CPUs, the peak was about 100 MB, with 50 clients sending 1 MB packages
 (74 files each) at the same time.
+
+The image sets `GOMEMLIMIT=90MiB`, a soft limit for the Go runtime: the
+garbage collector works harder as memory nears it. That keeps the peak at
+about 100 MB instead of 110–130 MB, at no measurable cost in speed. If you
+give the container more memory and send larger documents, raise it with
+`-e GOMEMLIMIT=…`; it never makes the service fail, only collect sooner.
 
 Memory grows with the size of the documents being validated at that moment,
 times `MAX_CONCURRENT`. With typical QTI content, a memory limit of 256 MiB

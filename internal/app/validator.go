@@ -16,6 +16,7 @@ type Validator struct {
 	customTypes map[xml.Name]qti.DocumentType
 	limits      qti.Limits
 	openArchive ArchiveOpener
+	references  ReferenceReader
 }
 
 // Config is what a Validator is built from.
@@ -28,6 +29,9 @@ type Config struct {
 	Limits qti.Limits
 	// OpenArchive reads packages.
 	OpenArchive ArchiveOpener
+	// References reads the references of package documents, which are then
+	// checked across the package. Nil checks none.
+	References ReferenceReader
 }
 
 // New returns a Validator. It fails when a supported version has no
@@ -40,6 +44,7 @@ func New(cfg Config) (*Validator, error) {
 		customTypes: map[xml.Name]qti.DocumentType{},
 		limits:      cfg.Limits.WithDefaults(),
 		openArchive: cfg.OpenArchive,
+		references:  cfg.References,
 	}
 	for _, name := range qti.SupportedVersions() {
 		p, ok := cfg.Versions[name]

@@ -46,6 +46,12 @@ type CustomType struct {
 	Profile
 }
 
+// ReferenceReader reads what a well-formed document refers to: other files
+// of its package, and for tests the variables of their items.
+type ReferenceReader interface {
+	ReadReferences(data []byte) (qti.DocumentReferences, error)
+}
+
 // Archive is a package's container, a ZIP file.
 type Archive interface {
 	Entries() []ArchiveEntry

@@ -23,6 +23,8 @@ const AdditionalChecks = "qti3-additional-checks.sch"
 // It is safe for concurrent use.
 type Checker struct {
 	sets []ruleSet
+	// types runs the type checks of types.go after the rule sets.
+	types bool
 }
 
 var _ app.RuleChecker = (*Checker)(nil)
@@ -35,7 +37,8 @@ type ruleSet struct {
 }
 
 // ForVersion returns the built-in rules of a QTI version: those embedded in
-// its XSDs and in the LOM schema, and the additional checks.
+// its XSDs and in the LOM schema, the additional checks, and the type checks
+// of types.go.
 func ForVersion(compiled *schematron.Compiled, v qti.Version) (*Checker, error) {
 	subset, err := compiled.Subset(v.ASI, qti.LOMSchema, AdditionalChecks)
 	if err != nil {
@@ -45,7 +48,7 @@ func ForVersion(compiled *schematron.Compiled, v qti.Version) (*Checker, error) 
 	if err != nil {
 		return nil, fmt.Errorf("QTI %s: %w", v.Name, err)
 	}
-	return &Checker{sets: []ruleSet{{engine: engine}}}, nil
+	return &Checker{sets: []ruleSet{{engine: engine}}, types: true}, nil
 }
 
 // Mounted returns a checker for rules from the validators directory.
@@ -57,15 +60,17 @@ func Mounted(engine *schematron.Engine) *Checker {
 // checkers are skipped; it returns nil when all are.
 func Chain(checkers ...*Checker) *Checker {
 	var sets []ruleSet
+	types := false
 	for _, c := range checkers {
 		if c != nil {
 			sets = append(sets, c.sets...)
+			types = types || c.types
 		}
 	}
-	if len(sets) == 0 {
+	if len(sets) == 0 && !types {
 		return nil
 	}
-	return &Checker{sets: sets}
+	return &Checker{sets: sets, types: types}
 }
 
 // CheckRules implements app.RuleChecker. Each rule set runs while fewer than
@@ -98,6 +103,15 @@ func (c *Checker) CheckRules(data []byte, maxFindings int) ([]app.RuleFinding, e
 				errorCount++
 			}
 			out = append(out, rf)
+		}
+	}
+	if c.types {
+		for _, f := range checkTypes(tree) {
+			if maxFindings > 0 && errorCount >= maxFindings {
+				break
+			}
+			errorCount++
+			out = append(out, f)
 		}
 	}
 	return out, nil

@@ -22,18 +22,31 @@ func (v *Validator) ValidateDocument(ctx context.Context, q ValidateDocument) qt
 }
 
 func (v *Validator) validateReader(ctx context.Context, r io.Reader, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
-	lr := &limitReader{r: ctxReader{ctx: ctx, r: r}, remaining: limits.MaxDocumentSize}
-	data, err := io.ReadAll(lr)
-	switch {
-	case lr.exceeded:
-		return qti.Failure(qti.OutcomeTooLarge, "", qti.CodeTooLarge,
-			fmt.Sprintf("document is larger than %d bytes", limits.MaxDocumentSize))
-	case ctx.Err() != nil:
-		return qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "validation interrupted: "+ctx.Err().Error())
-	case err != nil:
-		return qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "read: "+err.Error())
+	data, failure := readDocument(ctx, r, limits)
+	if failure != nil {
+		return *failure
 	}
 	return v.validate(data, req, limits)
+}
+
+// readDocument reads a document into memory, bounded by MaxDocumentSize. On
+// failure it returns the result to report instead.
+func readDocument(ctx context.Context, r io.Reader, limits qti.Limits) ([]byte, *qti.DocumentResult) {
+	lr := &limitReader{r: ctxReader{ctx: ctx, r: r}, remaining: limits.MaxDocumentSize}
+	data, err := io.ReadAll(lr)
+	var res qti.DocumentResult
+	switch {
+	case lr.exceeded:
+		res = qti.Failure(qti.OutcomeTooLarge, "", qti.CodeTooLarge,
+			fmt.Sprintf("document is larger than %d bytes", limits.MaxDocumentSize))
+	case ctx.Err() != nil:
+		res = qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "validation interrupted: "+ctx.Err().Error())
+	case err != nil:
+		res = qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "read: "+err.Error())
+	default:
+		return data, nil
+	}
+	return nil, &res
 }
 
 func (v *Validator) validate(data []byte, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {

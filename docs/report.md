@@ -118,7 +118,7 @@ Each item in those lists:
 | `location.resource` | The document: its name, or in a package its path from the package root |
 | `location.line`, `location.column` | Position in the document, starting at 1 |
 | `location.path` | The element, as an XPath. Schema paths have no positions; Schematron paths do (`[1]`) |
-| `generator` | The check that found it: `xsd\|<schema URL>`, `schematron\|<rule set>`, `schematron\|<file>#<rule>` for the [additional checks](additional-checks.md) and [custom validators](custom-validators.md), or `parse`, `package`, `version`, `limits`, `document-type` |
+| `generator` | The check that found it: `xsd\|<schema URL>`, `schematron\|<rule set>`, `schematron\|<file>#<rule>` for the [additional checks](additional-checks.md) and [custom validators](custom-validators.md), `reference\|<check>` and `value-type\|<check>` for the additional checks in Go, or `parse`, `package`, `version`, `limits`, `document-type` |
 | `code` | Stable code for the kind of finding; see [Codes](#codes) |
 | `source` | Only for a custom validator: the file in `/validators` |
 | `detailsMessage` | Reserved for extra detail; currently always `null` |
@@ -134,7 +134,7 @@ From least to most severe:
 | `WARNING` | Something to look at, such as an overridden QTI version | yes |
 | `ERROR` | The document breaks the XML Schema or a rule, or the package is incomplete | no |
 | `FATAL` | The input could not be read: not well-formed XML, not UTF-8, not a QTI document, not a ZIP | no |
-| `EXCEPTION` | The service itself failed; the response is then HTTP 500 | no |
+| `EXCEPTION` | The service itself failed, for example a validation interrupted by `REQUEST_TIMEOUT`; the response is then HTTP 500 | no |
 
 A report is valid when its outcome is `VALID` or `WARNING`.
 
@@ -145,6 +145,8 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `valid` | VALID | The document passed |
 | `validation` | ERROR | The document does not conform to the QTI XML Schemas |
 | `schematron` | ERROR | The document breaks a Schematron rule (WARNING for a rule marked as a warning) |
+| `reference` | ERROR | A reference to a file, item or variable does not resolve in the package (WARNING for an unlisted file or a used fallback); see [additional checks](additional-checks.md#references-within-a-package) |
+| `value_type` | ERROR | A value or expression has the wrong base type or cardinality; see [additional checks](additional-checks.md#value-types) |
 | `unsupported_version` | ERROR | A manifest declares a `<schemaversion>` the service does not support; it was validated against the latest version instead |
 | `missing_manifest` | ERROR | There is no `imsmanifest.xml` in the root of the package |
 | `unsafe_path` | ERROR | An entry name in the package is absolute or contains `..` |

@@ -166,12 +166,19 @@ func ForDocument(res qti.DocumentResult, meta Meta) Report {
 func ForPackage(res qti.PackageResult, meta Meta) Report {
 	b := newReportBuilder(meta, "ZIP", res.Version)
 	b.report.Summary.TotalRun++ // reading the package and its manifest
-	for _, e := range res.Errors {
-		resource := meta.InputName
+	resourceOf := func(e qti.Finding) string {
 		if e.File != "" {
-			resource = packagePath(e.File)
+			return packagePath(e.File)
 		}
-		b.add(itemFor(e, resource, "", ""))
+		return meta.InputName
+	}
+	for _, e := range res.Errors {
+		b.add(itemFor(e, resourceOf(e), "", ""))
+	}
+	for _, e := range res.Warnings {
+		it := itemFor(e, resourceOf(e), "", "")
+		it.Outcome = OutcomeNameWarning
+		b.add(it)
 	}
 	for _, f := range res.Files {
 		b.addDocument(packagePath(f.File), qti.DocumentResult{
@@ -302,6 +309,10 @@ func itemFor(e qti.Finding, resource, schema, version string) Item {
 			it.Title += " (" + e.Source + ")"
 			it.Generator = "schematron|" + e.Source + "#" + e.Rule
 		}
+	case qti.CodeReference:
+		it.Title, it.Generator = "Package references", "reference|"+e.Rule
+	case qti.CodeValueType:
+		it.Title, it.Generator = "Value types", "value-type|"+e.Rule
 	case qti.CodeInvalidXML, qti.CodeUnsupportedEncoding, qti.CodeUnsupportedXML:
 		it.Title, it.Generator, it.Outcome = "XML parsing", "parse", OutcomeNameFatal
 	case qti.CodeUnsupportedDocument:

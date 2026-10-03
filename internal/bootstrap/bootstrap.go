@@ -5,6 +5,7 @@ package bootstrap
 import (
 	"sync"
 
+	"github.com/kennisnet/qti3-validator/internal/adapter/qtirefs"
 	"github.com/kennisnet/qti3-validator/internal/adapter/rules"
 	"github.com/kennisnet/qti3-validator/internal/adapter/schemastore"
 	"github.com/kennisnet/qti3-validator/internal/adapter/validatorsdir"
@@ -62,7 +63,12 @@ func NewValidator(opts Options) (*app.Validator, error) {
 		mounted = *loaded
 	}
 
-	cfg := app.Config{Versions: map[string]app.Profile{}, Limits: opts.Limits, OpenArchive: ziparchive.Open}
+	cfg := app.Config{
+		Versions:    map[string]app.Profile{},
+		Limits:      opts.Limits,
+		OpenArchive: ziparchive.Open,
+		References:  qtirefs.Reader{},
+	}
 	for _, v := range qti.Versions() {
 		schema, err := xsdschema.CompileVersion(resolver, v)
 		if err != nil {

@@ -28,11 +28,12 @@ func (r *DocumentResult) AddError(f Finding, outcome Outcome) {
 
 // PackageResult is the result of validating a QTI package.
 type PackageResult struct {
-	Valid   bool
-	Version string    // QTI version the package was validated against
-	Errors  []Finding // findings about the package itself
-	Files   []FileResult
-	Outcome Outcome
+	Valid    bool
+	Version  string    // QTI version the package was validated against
+	Errors   []Finding // findings about the package itself
+	Warnings []Finding // findings about the package that leave it valid
+	Files    []FileResult
+	Outcome  Outcome
 }
 
 // Fail records a finding about the package itself.

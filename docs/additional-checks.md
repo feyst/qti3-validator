@@ -11,10 +11,13 @@ the [QTI 3.0 specification](https://www.imsglobal.org/spec/qti/v3p0/info)
 requires in so many words, or something that makes an item impossible to run
 as written. The quotes below are from that specification.
 
-The checks live in one ISO Schematron file,
-[`rules/qti3-additional-checks.sch`](../rules/qti3-additional-checks.sch). They
+Most checks live in one ISO Schematron file,
+[`rules/qti3-additional-checks.sch`](../rules/qti3-additional-checks.sch), and
 run on every QTI 3.0 and 3.0.1 item and test, after the XSD and 1EdTech's
-rules.
+rules. Checks that Schematron cannot express are written in Go:
+[references within a package](#references-within-a-package), which need the
+other files of the package, and [value types](#value-types), which follow
+types through nested expressions.
 
 ## In the report
 
@@ -37,8 +40,10 @@ A finding is a normal Schematron finding: `code` is `schematron`, and
 }
 ```
 
-The part after `#` is the check's id from the tables below. Ids do not change
-once released, so you can filter on them.
+The part after `#` is the check's id from the tables below. The checks in Go
+have their own codes and generators: `reference|<id>` with code `reference`,
+and `value-type|<id>` with code `value_type`. Ids do not change once
+released, so you can filter on them.
 
 An **error** makes the document invalid. A **warning** does not.
 
@@ -68,23 +73,51 @@ An **error** makes the document invalid. A **warning** does not.
 | `choice-value-exists` | A correct response or map key names only choices of its interaction; a pair names a choice on both sides. Checked when every interaction bound to the response offers fixed choices | The candidate can never give that answer | warning |
 | `variable-used` | Every declared outcome variable is used in response processing, and every template variable in template processing. Items without response or template processing are not checked; scoring by hand is allowed | "every declared variable must be referenced in the corresponding outcomes processing" | warning |
 
+## References within a package
+
+These run when a package is validated, after every file in it was read: they
+compare what the documents refer to with the files the package holds.
+References to other hosts (`https://…`) are not checked; whether they can be
+reached depends on the moment, not on the package. A reference that leaves
+the package (`../…`) counts as missing.
+
+| Check | What it checks | Basis | Level |
+| --- | --- | --- | --- |
+| `manifest-file-exists` | Every `href` of a resource and its files in `imsmanifest.xml` is a file in the package (with `xml:base` applied) | Package files "MUST be contained in the corresponding QTI content package" | error |
+| `file-in-manifest` | Every file in the package is listed in the manifest | [Beginner's Guide](https://www.imsglobal.org/spec/qti/v3p0/guide): a manifest "lists all the assets contained within the package" | warning |
+| `item-ref-exists` | A `qti-assessment-item-ref` refers to an item in the package, a `qti-assessment-section-ref` to a section. An LTI link counts as an item, as the [Implementation Guide](https://www.imsglobal.org/spec/qti/v3p0/impl) describes in "Package with a Test and Items with LTI resources" | The test cannot load the item | error |
+| `stimulus-ref-exists` | A `qti-assessment-stimulus-ref` refers to a stimulus in the package | The item cannot show the stimulus | error |
+| `asset-exists` | `img`, `object`, `audio`, `video` (and its poster), `source`, `track`, `qti-stylesheet` and XInclude references are files in the package | The item cannot load them | error |
+| `pci-module-exists` | The `primary-path` or `fallback-path` of a PCI module, and its module configurations, are files in the package; `.js` may be left out. A missing `primary-path` with a `fallback-path` that exists is a warning | The interaction cannot load | error, or warning |
+| `catalog-file-exists` | The `qti-file-href` of a catalog card is a file in the package | "these files MUST be contained in the corresponding QTI content package" | error |
+| `template-location-exists` | A local `template-location` of response processing is a file in the package | A delivery engine that does not know the template cannot fetch it | warning |
+| `test-item-variable-declared` | A test's `ITEM.VARIABLE` refers to a variable the item declares, or a built-in one | "All variables must be declared" | error |
+
+## Value types
+
+These follow the types of the declarations through every expression. An
+operand whose type is not known, such as the result of a
+`qti-custom-operator` or a variable of another item, is never reported.
+
+| Check | What it checks | Basis | Level |
+| --- | --- | --- | --- |
+| `value-type` | Default and correct values, map keys and `qti-base-value`s are valid for their base type: an identifier is a name, an integer a whole number, a pair two identifiers, a point two numbers. An empty value is NULL and always valid | The value space of the base type; "Empty containers and empty strings are always treated as NULL values" | error |
+| `expression-type` | Every operator gets the base type and cardinality it takes, for example numbers for `qti-sum`, two values of the same type for `qti-match`, a single value then a container for `qti-member`, and a single boolean for a condition | The description of each expression in section 2.11 of the information model, for example "The qti-sum operator takes 1 or more sub-expressions which all have numerical base-types" | error |
+| `assignment-type` | `qti-set-outcome-value`, `qti-set-template-value`, `qti-set-correct-response` and `qti-set-default-value` assign a value of the variable's base type and cardinality; an integer may be assigned to a float | "must result in a value with base-type and cardinality matching the declaration" | error |
+
 ## Limits
 
-- **One document at a time.** Schematron sees one document. Whether an item a
-  test refers to declares a variable, or whether a referenced file exists in
-  the package, is not checked.
-- **Sections in other files.** A test part that includes sections with
-  `qti-assessment-section-ref` is not checked for branch targets and
-  item variables, since those sections are not in the document.
-- **Expressions are not type-checked.** Whether an operator gets the base-type
-  and cardinality it needs, for example two numbers for `qti-sum`, is not
-  checked.
-- **Values are not parsed.** Whether a correct response or map key is a valid
-  value of its base-type, such as a `point` of two numbers, is not checked.
+- **One package at a time.** A test that includes sections from files outside
+  the package, or items on another host, is checked only as far as the
+  package goes.
+- **Known types only.** The type checks report only what is certain; a
+  record field or a custom operator ends what they can follow.
 
 ## Changing a check
 
-The file is plain ISO Schematron with XPath 1.0, so it can be read and edited
+The checks in Go are in `internal/domain/qti/references.go` (references) and
+`internal/adapter/rules/types.go` (value types), with their tests next to
+them. The Schematron file is plain ISO Schematron with XPath 1.0, so it can be read and edited
 like any other. Each pattern starts with a comment that quotes its basis.
 After a change:
 

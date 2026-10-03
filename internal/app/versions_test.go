@@ -88,7 +88,10 @@ func TestPackageUsesManifestVersion(t *testing.T) {
 	}
 
 	// A 3.0.1-only item in a 3.0.0 package is invalid, unless 3.0.1 is forced.
-	entries = append(entries, entry{"items/item-301.xml", readTestdata(t, "valid/assessment-item-3.0.1.xml")})
+	entries = append(entries,
+		entry{"items/item-301.xml", readTestdata(t, "valid/assessment-item-3.0.1.xml")},
+		entry{"items/vraag.mp3", "ID3 not really"}, // the audio the item plays
+	)
 	if res := validatePackageWith(t, makeZip(t, entries...), ""); res.Valid {
 		t.Fatalf("3.0.1 item accepted in a 3.0.0 package: %+v", res)
 	}

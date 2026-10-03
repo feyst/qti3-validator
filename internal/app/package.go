@@ -46,6 +46,7 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 
 	hasManifest := false
 	budget := limits.MaxUncompressedSize
+	contents := qti.PackageContents{Documents: map[string]qti.PackageDocument{}}
 	for _, e := range entries {
 		name := e.Name()
 		if !qti.SafeEntryName(name) {
@@ -55,7 +56,11 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 			})
 			continue
 		}
-		if e.IsDir() || !strings.EqualFold(path.Ext(name), ".xml") {
+		if e.IsDir() {
+			continue
+		}
+		contents.Files = append(contents.Files, name)
+		if !strings.EqualFold(path.Ext(name), ".xml") {
 			continue
 		}
 		if name == qti.ManifestName {
@@ -65,7 +70,7 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 			res.Fail(qti.OutcomeInternal, qti.Finding{Code: qti.CodeInternal, Message: "validation interrupted: " + err.Error()})
 			return res
 		}
-		fr, outcome := v.validateEntry(ctx, e, limits.MaxFileSize, &budget, req, manifest.qtiFiles[name])
+		fr, outcome, doc := v.validateEntry(ctx, e, limits.MaxFileSize, &budget, req, manifest.qtiFiles[name])
 		if outcome == qti.OutcomeTooLarge {
 			res.Fail(qti.OutcomeTooLarge, qti.Finding{
 				Code:    qti.CodeTooLarge,
@@ -75,6 +80,12 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 		}
 		res.Files = append(res.Files, fr)
 		res.Outcome = res.Outcome.Worse(outcome)
+		if doc != nil {
+			contents.Documents[name] = *doc
+		}
+	}
+	if v.references != nil {
+		applyReferenceFindings(&res, qti.CheckReferences(contents))
 	}
 	if !hasManifest {
 		res.Fail(qti.OutcomeInvalid, qti.Finding{Code: qti.CodeMissingManifest, Message: "package has no " + qti.ManifestName + " at its root"})
@@ -123,23 +134,24 @@ func readEntry(e ArchiveEntry, maxSize int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(rc, maxSize))
 }
 
-// validateEntry validates one XML entry. Its outcome is OutcomeTooLarge only
-// when the package-wide budget ran out, which aborts the package. A file the
-// manifest lists as a QTI resource is never skipped: if it is not a QTI
-// document, that is an error.
+// validateEntry validates one XML entry, and returns what it refers to when
+// it could be read. Its outcome is OutcomeTooLarge only when the
+// package-wide budget ran out, which aborts the package. A file the manifest
+// lists as a QTI resource is never skipped: if it is not a QTI document,
+// that is an error.
 func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize int64, budget *int64,
 	req qti.VersionRequest, qtiResource bool,
-) (qti.FileResult, qti.Outcome) {
+) (qti.FileResult, qti.Outcome, *qti.PackageDocument) {
 	name := e.Name()
 	out := qti.FileResult{File: name}
 	if exceeds(e.DeclaredSize(), maxSize) {
 		out.Errors = []qti.Finding{{Code: qti.CodeTooLarge, File: name, Message: fmt.Sprintf("file is larger than %d bytes", maxSize)}}
-		return out, qti.OutcomeInvalid
+		return out, qti.OutcomeInvalid, nil
 	}
 	rc, err := e.Open()
 	if err != nil {
 		out.Errors = []qti.Finding{{Code: qti.CodeInvalidZIP, File: name, Message: err.Error()}}
-		return out, qti.OutcomeInvalid
+		return out, qti.OutcomeInvalid, nil
 	}
 	defer rc.Close()
 
@@ -149,8 +161,15 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 	counted := &countingReader{r: rc}
 	limits := v.limits
 	limits.MaxDocumentSize = readLimit
-	res := v.validateReader(ctx, counted, req, limits)
+	data, failure := readDocument(ctx, counted, limits)
+	var res qti.DocumentResult
+	if failure != nil {
+		res = *failure
+	} else {
+		res = v.validate(data, req, limits)
+	}
 	*budget -= counted.n
+	doc := v.documentReferences(data, res)
 
 	out.Schema, out.Version = res.Schema, res.Version
 	out.Errors, out.Warnings = inFile(res.Errors, name), inFile(res.Warnings, name)
@@ -160,20 +179,66 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 		// declares: a ZIP bomb with a lying header.
 		out.Schema = ""
 		out.Errors = []qti.Finding{{Code: qti.CodeInvalidZIP, File: name, Message: counted.err.Error()}}
+		return out, qti.OutcomeInvalid, nil
 	case res.Outcome == qti.OutcomeValid:
 		out.Valid = true
-		return out, qti.OutcomeValid
+		return out, qti.OutcomeValid, doc
 	case res.Outcome == qti.OutcomeTooLarge && readLimit < maxSize:
-		return out, qti.OutcomeTooLarge
+		return out, qti.OutcomeTooLarge, nil
 	case len(res.Errors) == 1 && res.Errors[0].Code == qti.CodeUnsupportedDocument && !qtiResource:
 		out.Valid, out.Skipped = true, true
-		return out, qti.OutcomeValid
+		return out, qti.OutcomeValid, doc
 	case res.Outcome == qti.OutcomeInternal:
-		return out, qti.OutcomeInternal
+		return out, qti.OutcomeInternal, doc
 	}
 	// Inside a package a malformed or oversized document makes the package
 	// invalid; the request itself was fine.
-	return out, qti.OutcomeInvalid
+	return out, qti.OutcomeInvalid, doc
+}
+
+// documentReferences reads what a validated document refers to. A document
+// that could not be read refers to nothing; it still counts as a file of its
+// type, so references to it are checked.
+func (v *Validator) documentReferences(data []byte, res qti.DocumentResult) *qti.PackageDocument {
+	if v.references == nil || data == nil {
+		return nil
+	}
+	doc := &qti.PackageDocument{Schema: res.Schema}
+	if res.Outcome == qti.OutcomeMalformed {
+		return doc
+	}
+	refs, err := v.references.ReadReferences(data)
+	if err == nil {
+		doc.Refs = refs
+	}
+	return doc
+}
+
+// applyReferenceFindings adds the findings of the reference checks to the
+// files they are about, or to the package when that file was not validated
+// as a QTI document, such as an image.
+func applyReferenceFindings(res *qti.PackageResult, findings []qti.ReferenceFinding) {
+	files := map[string]*qti.FileResult{}
+	for i := range res.Files {
+		if !res.Files[i].Skipped {
+			files[res.Files[i].File] = &res.Files[i]
+		}
+	}
+	for _, f := range findings {
+		fr := files[f.File]
+		switch {
+		case fr == nil && f.Warning:
+			res.Warnings = append(res.Warnings, f.Finding)
+		case fr == nil:
+			res.Fail(qti.OutcomeInvalid, f.Finding)
+		case f.Warning:
+			fr.Warnings = append(fr.Warnings, f.Finding)
+		default:
+			fr.Errors = append(fr.Errors, f.Finding)
+			fr.Valid = false
+			res.Outcome = res.Outcome.Worse(qti.OutcomeInvalid)
+		}
+	}
 }
 
 // exceeds reports whether a declared size is over a limit.
