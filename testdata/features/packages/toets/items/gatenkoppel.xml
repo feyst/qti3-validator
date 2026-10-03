@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.imsglobal.org/xsd/imsqtiasi_v3p0 https://purl.imsglobal.org/spec/qti/v3p0/schema/xsd/imsqti_asiv3p0_v1p0.xsd"
+    identifier="gatenkoppel" title="Rivieren in de zin" adaptive="false" time-dependent="false" xml:lang="nl">
+  <qti-response-declaration identifier="RESPONSE" cardinality="multiple" base-type="directedPair">
+    <qti-correct-response>
+      <qti-value>RIJN G1</qti-value>
+      <qti-value>MAAS G2</qti-value>
+    </qti-correct-response>
+  </qti-response-declaration>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float">
+    <qti-default-value>
+      <qti-value>0</qti-value>
+    </qti-default-value>
+  </qti-outcome-declaration>
+  <qti-item-body>
+    <qti-gap-match-interaction response-identifier="RESPONSE" shuffle="false" max-associations="2">
+      <qti-prompt>Sleep de rivieren naar de juiste plek.</qti-prompt>
+      <qti-gap-text identifier="RIJN" match-max="1">Rijn</qti-gap-text>
+      <qti-gap-text identifier="MAAS" match-max="1">Maas</qti-gap-text>
+      <p>Bij Lobith stroomt de <qti-gap identifier="G1"/> Nederland binnen, bij Eijsden de <qti-gap identifier="G2"/>.</p>
+    </qti-gap-match-interaction>
+  </qti-item-body>
+  <qti-response-processing template="https://purl.imsglobal.org/spec/qti/v3p0/rptemplates/match_correct.xml"/>
+</qti-assessment-item>

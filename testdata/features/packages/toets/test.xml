@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-test xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.imsglobal.org/xsd/imsqtiasi_v3p0 https://purl.imsglobal.org/spec/qti/v3p0/schema/xsd/imsqti_asiv3p0_v1p0.xsd"
+    identifier="aardrijkskunde" title="Aardrijkskunde van Nederland">
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float"/>
+  <qti-test-part identifier="deel-1" navigation-mode="nonlinear" submission-mode="simultaneous">
+    <qti-assessment-section identifier="kennis" title="Kennis" visible="true">
+      <qti-assessment-item-ref identifier="keuze" href="items/keuze.xml"/>
+      <qti-assessment-item-ref identifier="meerkeuze" href="items/meerkeuze.xml"/>
+      <qti-assessment-item-ref identifier="invul" href="items/invul.xml"/>
+      <qti-assessment-item-ref identifier="open" href="items/open.xml"/>
+      <qti-assessment-item-ref identifier="koppel" href="items/koppel.xml"/>
+      <qti-assessment-item-ref identifier="gatenkoppel" href="items/gatenkoppel.xml"/>
+    </qti-assessment-section>
+    <qti-assessment-section identifier="toepassing" title="Toepassing" visible="true">
+      <qti-assessment-item-ref identifier="volgorde" href="items/volgorde.xml"/>
+      <qti-assessment-item-ref identifier="keuzelijst" href="items/keuzelijst.xml"/>
+      <qti-assessment-item-ref identifier="tekstselectie" href="items/tekstselectie.xml"/>
+      <qti-assessment-item-ref identifier="formule" href="items/formule.xml"/>
+      <qti-assessment-item-ref identifier="bronvraag" href="items/bronvraag.xml"/>
+      <qti-assessment-item-ref identifier="sjabloon" href="items/sjabloon.xml"/>
+    </qti-assessment-section>
+  </qti-test-part>
+  <qti-outcome-processing>
+    <qti-set-outcome-value identifier="SCORE">
+      <qti-sum>
+        <qti-test-variables variable-identifier="SCORE"/>
+      </qti-sum>
+    </qti-set-outcome-value>
+  </qti-outcome-processing>
+</qti-assessment-test>

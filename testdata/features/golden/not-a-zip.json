@@ -1,0 +1,42 @@
+{
+  "report": {
+    "errors": [],
+    "exceptions": [],
+    "fatals": [
+      {
+        "code": "invalid_zip",
+        "detailsMessage": null,
+        "generator": "package",
+        "location": {
+          "resource": "package.zip"
+        },
+        "message": "zip: not a valid zip file",
+        "title": "Package"
+      }
+    ],
+    "generator": "qti-validator",
+    "input": {
+      "name": "package.zip",
+      "type": "ZIP"
+    },
+    "notRun": [],
+    "specification": {
+      "pid": "qti.pid",
+      "shortName": "qti",
+      "title": "QTI"
+    },
+    "summary": {
+      "errors": 0,
+      "exceptions": 0,
+      "fatals": 1,
+      "notRun": 0,
+      "outcome": "FATAL",
+      "totalRun": 1,
+      "valid": 0,
+      "warnings": 0
+    },
+    "valids": [],
+    "warnings": []
+  },
+  "status": 200
+}

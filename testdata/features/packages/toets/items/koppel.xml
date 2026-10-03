@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.imsglobal.org/xsd/imsqtiasi_v3p0 https://purl.imsglobal.org/spec/qti/v3p0/schema/xsd/imsqti_asiv3p0_v1p0.xsd"
+    identifier="koppel" title="Steden en provincies" adaptive="false" time-dependent="false" xml:lang="nl">
+  <qti-response-declaration identifier="RESPONSE" cardinality="multiple" base-type="directedPair">
+    <qti-correct-response>
+      <qti-value>ZWOLLE OV</qti-value>
+      <qti-value>ASSEN DR</qti-value>
+      <qti-value>ARNHEM GE</qti-value>
+    </qti-correct-response>
+    <qti-mapping default-value="0">
+      <qti-map-entry map-key="ZWOLLE OV" mapped-value="1"/>
+      <qti-map-entry map-key="ASSEN DR" mapped-value="1"/>
+      <qti-map-entry map-key="ARNHEM GE" mapped-value="1"/>
+    </qti-mapping>
+  </qti-response-declaration>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float">
+    <qti-default-value>
+      <qti-value>0</qti-value>
+    </qti-default-value>
+  </qti-outcome-declaration>
+  <qti-item-body>
+    <qti-match-interaction response-identifier="RESPONSE" shuffle="false" max-associations="3">
+      <qti-prompt>Koppel elke stad aan haar provincie.</qti-prompt>
+      <qti-simple-match-set>
+        <qti-simple-associable-choice identifier="ZWOLLE" match-max="1">Zwolle</qti-simple-associable-choice>
+        <qti-simple-associable-choice identifier="ASSEN" match-max="1">Assen</qti-simple-associable-choice>
+        <qti-simple-associable-choice identifier="ARNHEM" match-max="1">Arnhem</qti-simple-associable-choice>
+      </qti-simple-match-set>
+      <qti-simple-match-set>
+        <qti-simple-associable-choice identifier="OV" match-max="1">Overijssel</qti-simple-associable-choice>
+        <qti-simple-associable-choice identifier="DR" match-max="1">Drenthe</qti-simple-associable-choice>
+        <qti-simple-associable-choice identifier="GE" match-max="1">Gelderland</qti-simple-associable-choice>
+      </qti-simple-match-set>
+    </qti-match-interaction>
+  </qti-item-body>
+  <qti-response-processing template="https://purl.imsglobal.org/spec/qti/v3p0/rptemplates/map_response.xml"/>
+</qti-assessment-item>

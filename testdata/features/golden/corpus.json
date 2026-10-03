@@ -1,0 +1,1456 @@
+{
+  "QTI3_BPIG_Examples/BPIG_22April.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "QTI3_BPIG_Examples/BPIGtest.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/BG007.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/BG009.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/BG010.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/CatalogWithMultipleSupports.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/CatalogsAcrossContentNodes.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/Example01-modalFeedback.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/Example02-feedbackInline.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/Example03-feedbackBlock-solution.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/Example04-feedbackBlock-templateBlock.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "QTI3_BPIG_Examples/items/Example05-feedbackBlock-adaptive.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/MathML.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/MultipleCatalogs.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/Order_RTL_Hebrew.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/QTI3-associate.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/QTI3-custom-stylesheet.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/QTI3-graphic-order.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/QTI3-hotspot.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/QTI3-inline-choice.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/QTI3-match.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/QTI3-order.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/QTI3multiplechoice2.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/RTL_Hebrew.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/ReferencingCatalogContent.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/adaptiveTemplate.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/adaptive_mh1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/data_dash.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/drawing-interaction-1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/end-attempt-example-1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/essay.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/example-graphic-assoc-1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/example-graphic-assoc-1alt.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/feedbackBlock-solution-random.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/gap-match-example-1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/graphic-gap-match-item1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/hot-text-example-1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/mc_calc3.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/mc_calc5.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/media-example-1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/position-object-1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/qti3-choice-aria-mathml-catalog.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/rubric_block.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/ruby_default.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/ruby_i23n.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/select-point-item_1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/shakespeare_biography.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/slider-1.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "QTI3_BPIG_Examples/items/stat2.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/template_digging.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/template_image.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/unbelievable_night_item1.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/unbelievable_night_item2.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/unbelievable_night_item3.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/items/upload-interaction.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BPIG_Examples/passages/unbelievableNight.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BeginnersGuide_Examples/BGtest.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BeginnersGuide_Examples/BegGuide_March2025.zip": {
+    "outcome": "VALID"
+  },
+  "QTI3_BeginnersGuide_Examples/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BeginnersGuide_Examples/items/BG007.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BeginnersGuide_Examples/items/BG008.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BeginnersGuide_Examples/items/BG009.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BeginnersGuide_Examples/items/BG010.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BeginnersGuide_Examples/items/BG011.xml": {
+    "outcome": "VALID"
+  },
+  "QTI3_BeginnersGuide_Examples/items/firstexample.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/CAT/CAT_Test01_Adaptive_EchoAdapt.zip": {
+    "outcome": "FATAL",
+    "codes": [
+      "reference",
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/CAT/test.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_xml"
+    ]
+  },
+  "qtiv3-examples/PCI/sample_pci.zip": {
+    "outcome": "FATAL",
+    "codes": [
+      "reference",
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_CompWater_01/composition_of_water_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_CompWater_02/composition_of_water_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_CompWater_03/composition_of_water_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_CompWater_04/composition_of_water_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Gap_Match_01/gap-match-qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Gap_Match_02/gap-match-qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Gap_Match_03/gap-match-qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Graphic_Gap_Match_01/graphic-gap-match-qti3.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Graphic_Gap_Match_02/graphic-gap-match-qti3.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Graphic_Gap_Match_03/graphic-gap-match-qti3.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Hotspot_01/hotspot-qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Hotspot_02/hotspot-qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Hotspot_03/hotspot-qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Hottext_01/hottext-qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Hottext_02/hottext-qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Luggage_01/unattended_luggage_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Luggage_02/unattended_luggage_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Luggage_03/unattended_luggage_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Luggage_04/unattended_luggage_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Luggage_05/unattended_luggage_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Match_01/match_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Match_02/match_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_Match_03/match_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_RichardTake2_01/inline_choice_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_RichardTake3_01/text_entry_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_WritingPostcard_01/extended_text_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_WritingPostcard_02/extended_text_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_WritingPostcard_03/extended_text_qti3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/Items/Item_QTI3_hottext-sv-3/hottext-sv-3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/items/shared-vocabulary/shared-vocabulary-imsmanifest.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/BBQsTest/BBQsTest.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "reference"
+    ]
+  },
+  "qtiv3-examples/packaging/BBQsTest/assessment.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-13b92f311fc0/SineRule-002-maths.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-1ccd6e04685f/ShortAnswer-extText-postcard.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-200e2c3f7d76/matching-associate-trigDeriv.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-2a2cfb9f4dde/Likert-match-questionSet.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-371b0f88774a/MultipleChoice-choice-polynomials.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-377d71221b04/jumble-inlineChoice.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-3cd82285401e/MultipleAnswer-choice-materials.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-5c1b1e2d56bd/either-or.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-75bd778a3504/essay-vacation.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-7e4520cd463f/Likert-choice-questionSet.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-7f35b6c393d5/matching-match-trigDeriv.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-8167235c360b/QuizBowl-multi-geometry.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-83210b60ed8f/TF-choice.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-90b59b73c8e4/upload-file.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-992e8bd3c9ac/hotspot-maximum.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-bd44a757f562/SineRule-001.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-be3cd3bdd3d4/order-mountains.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-c0bdd9a130c7/text_entry-calculus.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-d565dbe89933/text_entry-Lycidas.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-e475c3c922f6/order-maths.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-f8e13982226c/jumble-gapMatch.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/id-f9f3153e2ba4/TheAnswer-001.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/BBQsTest/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASE/CASE.zip": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/CASE/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASE/testitems/-TX_G06SAMP_000.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASE/testitems/-TX_G06SAMP_001.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/CASE/testitems/-TX_G06SAMP_004.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/CASE/testitems/-TX_G06SAMP_005.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_104374830.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_1724166344.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_1845621905.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_1925743812.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_2121083126.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_2140438487.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_265237402.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_403910368.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_603808326.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/A_79197713.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/B_110728156.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/B_1312708806.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/B_1541841167.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/B_1553271053.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/B_1992117307.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/B_2082409940.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/B_426321584.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/B_568428036.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/B_790429330.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/CASEWithOutcome.zip": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/Test_258641331.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/CASEWithOutcome/testoutcome01.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/packaging/basicFeedbackTest/assessment.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/basicFeedbackTest/basicFeedbackTest.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/basicFeedbackTest/id-53a79b001624/Example01-modalFeedback.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/basicFeedbackTest/id-692fc07cc3e2/Example05-feedbackBlock-adaptive.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/basicFeedbackTest/id-a360e0fa63e6/Example03-feedbackBlock-solution.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/basicFeedbackTest/id-b0dd9e732083/Example02-feedbackInline.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/basicFeedbackTest/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/ccPackage/ccPackage.zip": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/ccPackage/rptemplates/CC2_map_response.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/ccPackage/rptemplates/CC2_match.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/ccPackage/rptemplates/CC2_match_basic.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_102010.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_102011.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_102012.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_102013.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_102015.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_102016.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_104045.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_104047.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_104048.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_104049.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/QUE_104051.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/ccPackage/testitems/testQDB_1.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_104374830.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_1724166344.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_1845621905.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_1925743812.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_2121083126.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_2140438487.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_265237402.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_403910368.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_603808326.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/A_79197713.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/B_110728156.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/B_1312708806.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/B_1541841167.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/B_1553271053.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/B_1992117307.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/B_2082409940.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/B_426321584.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/B_568428036.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/B_790429330.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/C_1040094513.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/C_125080616.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/C_1403975437.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/C_1523210801.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/C_1759289459.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/C_1990748733.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/C_2059910905.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/C_748642656.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/C_837739994.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_1010823154.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_1141014364.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_1279631403.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_1973054364.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_2051452460.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_235732284.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_479465969.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_514842512.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_525465264.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/D_898920432.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_1171606219.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_134048013.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_1362075109.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_1399904697.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_1477168682.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_1493092933.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_1570830319.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_1884870891.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_835678250.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/E_889853140.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/F_1344365064.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/F_1564647515.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/F_521041065.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/F_837664539.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/Test_258641331.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/englishBasicLevelV2.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishBasicLevelV2/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Item1_1792983784.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Item1_410949756.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Item1_619462302.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Item2_205541527.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Item2_863783866.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Item3_837431413.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Item4_357463136.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Item5_154730035.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Item6_1645506707.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/Test_976288596.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/englishHighLevelV2.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/englishHighLevelV2/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/externalMetadata/externalMetadata.zip": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/externalMetadata/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/externalMetadata/testitems/-TX_G06SAMP_000.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/externalMetadata/testitems/-TX_G06SAMP_001.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/externalMetadata/testitems/-TX_G06SAMP_004.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/externalMetadata/testitems/-TX_G06SAMP_005.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/externalMetadata/testitems/metadata_6abfaa45-644b-52e8-891e-4fa4045a6c69.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/externalMetadata/testitems/metadata_747eee11-848c-597a-8c9c-a71c5399798d.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/feedbackTest/assessment.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/feedbackTest/feedbackTest.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "reference",
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/feedbackTest/id-38d47747fb30/Example02-feedbackInline.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/feedbackTest/id-5e216df10030/Example03-feedbackBlock-solution.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/feedbackTest/id-9c33d141576e/Example05-feedbackBlock-adaptive.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/feedbackTest/id-aaa0bbf5da1d/Example03-feedbackBlock-solution-random.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/feedbackTest/id-d599169403d2/Example04-feedbackBlock-templateBlock.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/feedbackTest/id-fa3ee5852723/Example01-modalFeedback.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/feedbackTest/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/Choicemultiple_2014410822.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/Choicemultiple_871212949.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/Choicesingle_853928446.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/Choicetruefalse_176040516.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/Hotspot_278940407.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/Hottext_801974120.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/InteractionMixSachsen_1901710679.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/Matchmultiple_1038910213.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/Matchsingle_143114773.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/Order_913967682.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/TextEntry_883368511.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/TextEntrynumeric_2040297025.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/TextEntrynumeric_770468849.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/TextEntrysubset_806481421.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/interactionMixSaxonyV3/interactionMixSaxonyV3.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/Example01-modalFeedback.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/Example02-feedbackInline.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/Example03-feedbackBlock-solution-random.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/Example03-feedbackBlock-solution.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/Example04-feedbackBlock-templateBlock.xml": {
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/items/Example05-feedbackBlock-adaptive.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/adaptive.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/adaptive_template.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/associate.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/audio-video.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/choice.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/choice_aria.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/choice_fixed.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/choice_multiple.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/choice_multiple_chocolade.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/choice_multiple_rtl.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/choice_ruby.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/data-attributes.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "validation"
+    ]
+  },
+  "qtiv3-examples/packaging/items/drawing.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/essay.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/extended_text.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/extended_text_rubric.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/feedback_adaptive.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "value_type"
+    ]
+  },
+  "qtiv3-examples/packaging/items/figures.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/gap_match.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/graphic_associate.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/graphic_gap_match.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/graphic_gap_match_text.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/graphic_order.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/hint.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/hotspot.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/hottext.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/inline_choice.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/inline_choice_math.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/items.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron",
+      "validation",
+      "value_type"
+    ]
+  },
+  "qtiv3-examples/packaging/items/likert.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/match.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/math.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/mc_calc3.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/mc_calc5.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/mc_stat2.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/media_coords.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/multi-input.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/nested_object.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/order.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/order_partial_scoring.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/order_rtl.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/orkney1.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/orkney2.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/position_object.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/select_point.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/slider.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/svg.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/template.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/template_image.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/text_entry.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/upload.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/items/upload_composite.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/lti/imsmanifest.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "validation"
+    ]
+  },
+  "qtiv3-examples/packaging/lti/links/streaming_video_experiment101.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/packaging/lti/lti.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "validation"
+    ]
+  },
+  "qtiv3-examples/packaging/maxfiles/example/adaptive.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/maxfiles/example/choice.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/maxfiles/example/choice_multiple.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/maxfiles/example/hotspot.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/maxfiles/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/maxfiles/maxfiles.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/maxfiles/rptemplates/map_response.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/maxfiles/rptemplates/match_correct.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/metaData/choice.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/metaData/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/metaData/metaData.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/pci-simple/pci_simple_example.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/pci-simple/src/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/pci-simple/src/measuring_ph.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/pci/pci_item_examples.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "reference",
+      "validation",
+      "value_type"
+    ]
+  },
+  "qtiv3-examples/packaging/pci/src/fractions1.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "value_type"
+    ]
+  },
+  "qtiv3-examples/packaging/pci/src/fractions_deps.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "value_type"
+    ]
+  },
+  "qtiv3-examples/packaging/pci/src/fractions_deps_2.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "validation",
+      "value_type"
+    ]
+  },
+  "qtiv3-examples/packaging/pci/src/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/pci/src/measuring_ph.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedMedia/example/graphic_order.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedMedia/example/hotspot.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedMedia/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedMedia/sharedMedia.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedStimulus/exemplar04.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedStimulus/exemplar05.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedStimulus/exemplar06.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedStimulus/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedStimulus/passages/unbelievableNight.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/sharedStimulus/sharedStimulus.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "reference"
+    ]
+  },
+  "qtiv3-examples/packaging/simple/choice.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/simple/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/simple/simple.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/svg/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/svg/svg.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/svg/svg.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/testWithLti/assessment.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/testWithLti/elements.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/testWithLti/imsmanifest.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "validation"
+    ]
+  },
+  "qtiv3-examples/packaging/testWithLti/links/Choicesingle_853928446.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/packaging/testWithLti/links/item1.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/packaging/testWithLti/links/periodicTable.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/packaging/testWithLti/testWithLti.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "validation"
+    ]
+  },
+  "qtiv3-examples/packaging/test_package_minfiles/example/adaptive.xml": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/test_package_minfiles/example/choice.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/test_package_minfiles/example/choice_multiple.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/test_package_minfiles/example/hotspot.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/test_package_minfiles/example/rtest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/test_package_minfiles/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/test_package_minfiles/test_package_minfiles.zip": {
+    "outcome": "ERROR",
+    "codes": [
+      "schematron"
+    ]
+  },
+  "qtiv3-examples/packaging/usageData/USAGE-FEMALE-TEST-106391.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/packaging/usageData/USAGE-MALE-TEST-106391.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/packaging/usageData/USAGE-TOTAL-TEST-106391.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/packaging/usageData/imsmanifest.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/packaging/usageData/usageData.zip": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/results/conformance-use-case-1.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/results/full-example.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "invalid_xml"
+    ]
+  },
+  "qtiv3-examples/results/report.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/tests/complete.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest01-fragment.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  },
+  "qtiv3-examples/tests/rtest01-set01.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest01-set02.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest01-set03.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest01.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest02.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest03.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest04.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest06.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest08.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest09.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest10.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest12.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest13.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest22.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest24.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest25.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest26.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/tests/rtest27.xml": {
+    "outcome": "VALID"
+  },
+  "qtiv3-examples/usageData/example.xml": {
+    "outcome": "FATAL",
+    "codes": [
+      "unsupported_document"
+    ]
+  }
+}

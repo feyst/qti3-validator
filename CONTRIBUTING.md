@@ -250,6 +250,16 @@ The tests are layered like the code:
 - **Adapters:** the rules against the ISO reference implementation and the
   additional checks against their reference output; the schema store and its
   pinning; the ZIP reader; the HTTP status codes and every request shape of `/api/validate`.
+- **Features:** `internal/feature` sends realistic packages and items through
+  the HTTP API and compares each report with a golden file in
+  `testdata/features/golden`: the test package in `testdata/features`, a
+  variant of it with one problem each, the packages in `examples/`, and four
+  packages from php-qti3. After a deliberate change, run
+  `go test ./internal/feature -update` and review the diff of the golden files.
+- **Corpus (optional):** `make corpus` fetches the public 1EdTech QTI examples
+  at a pinned commit and validates all 419 files, comparing outcome and codes
+  per file with `testdata/features/golden/corpus.json`. Without the corpus
+  this test is skipped, so CI does not need the network for it.
 - **Libraries:** the Schematron engine (every supported feature, first-match
   semantics, unsupported constructs, native naming checks) and XPath 1.0
   conformance against libxml2.
@@ -262,18 +272,19 @@ loaded:
 
 | Benchmark | Time/op | Allocated/op | Allocs/op |
 | --- | ---: | ---: | ---: |
-| Startup: compile XSDs, load rules | 0.77 s | 983 MB (transient) | 1.6M |
-| Validate `testdata/valid/assessment-item.xml` (1.3 KB) | 149 µs | 84 KB | 2003 |
-| Validate a 3-document package | 328 µs | 163 KB | 3489 |
-| 1 concurrent validation | 173 µs | 86 KB | 2005 |
-| 10 concurrent validations | 0.96 ms | 1.2 MB | 20.4k |
-| 50 concurrent validations | 3.3–3.6 ms | 6.4 MB | 102k |
+| Startup: compile XSDs, load rules | 0.80 s | 983 MB (transient) | 1.6M |
+| Validate `testdata/valid/assessment-item.xml` (1.3 KB) | 170–178 µs | 87 KB | 2020 |
+| Validate a 3-document package, references included | 416–423 µs | 190 KB | 3940 |
+| 1 concurrent validation | 175–182 µs | 87 KB | 2022 |
+| 10 concurrent validations | 0.88–0.90 ms | 1.2 MB | 20.6k |
+| 50 concurrent validations | 3.7–3.9 ms | 6.4 MB | 103k |
 
 ## Performance and memory
 
 **Current numbers, QTI 3.0 and 3.0.1 both loaded:** 40 MiB RSS when idle, a
-startup peak of 100 MiB while both schema sets compile, and a peak of 115–120
-MiB under the load below. For comparison, the current validator uses more than
+startup peak of about 100 MiB while both schema sets compile, and a peak of
+about 100 MiB under the load below. The image sets `GOMEMLIMIT=90MiB`; without
+it the peak under the same load varied between 110 and 132 MiB over six runs. For comparison, the current validator uses more than
 2 GB.
 
 **Validators directory** (local binary, not the image; startup peak as
@@ -295,7 +306,7 @@ is merged, and the numbers here updated.
 
 Environment:
 Docker 29.8.2 on WSL2 (kernel 6.18.33.2), Intel Core Ultra 7 268V, 8 CPUs,
-16 GB. Image `kennisnet/qti3-validator:dev` from this Dockerfile (13.4 MB), default
+16 GB. Image `kennisnet/qti3-validator:dev` from this Dockerfile (13.5 MB), default
 configuration (`MAX_CONCURRENT` = 8). RSS is `VmRSS`/`VmHWM` from
 `/proc/<pid>/status` of the container process. Load was generated with
 `curl` through `xargs -P`. Every validation includes XSD, 1EdTech's
@@ -313,17 +324,17 @@ Every request in the run below returned 200 (5800 requests).
 
 | After | RSS | Time |
 | --- | ---: | ---: |
-| Startup (peak while the XSDs compile) | 100 MiB | |
-| Idle after startup | 40 MiB | |
-| 1000 sequential item validations | 57 MiB | 7.5 s |
-| 2000 items, 10 concurrent | 60 MiB | 3.2 s |
-| 2000 items, 50 concurrent | 60 MiB | 3.2 s |
-| 500 of the largest items, 50 concurrent | 94 MiB | 1.4 s |
-| 100 packages, 10 concurrent | 88 MiB | 1.3 s |
-| 200 packages, 50 concurrent | 75 MiB | 2.8 s |
-| 5 s idle after load | 59 MiB | |
+| Startup (peak while the XSDs compile) | 96 MiB | |
+| Idle after startup | 43 MiB | |
+| 1000 sequential item validations | 59 MiB | 5.1 s |
+| 2000 items, 10 concurrent | 61 MiB | 2.7 s |
+| 2000 items, 50 concurrent | 61 MiB | 2.8 s |
+| 500 of the largest items, 50 concurrent | 88 MiB | 1.2 s |
+| 100 packages, 10 concurrent | 73 MiB | 1.4 s |
+| 200 packages, 50 concurrent | 80 MiB | 2.6 s |
+| 5 s idle after load | 58 MiB | |
 
-Peak RSS over the whole run was 115–120 MiB over several runs. With 50 concurrent clients, 8
+Peak RSS over the whole run was 100 MiB (99–102 MiB over five runs). With 50 concurrent clients, 8
 validations run at once and the rest wait for a slot.
 
 Corpus check: the same build validated the 391 QTI 3 XML files and 33
@@ -354,8 +365,10 @@ The XML documents inside the packages count as documents of the corpus too.
 
 ## Implementation notes
 
-- **Package semantics:** nothing checks that manifest `href`s point to files in
-  the package, or that resources reference each other correctly.
+- **Package references:** checked after all files of a package were read; each
+  document is read a second time for its references, which costs about 12% of
+  a package's validation time. They could be read from the DOM the Schematron
+  rules already build, if that time ever matters.
 - **SSML:** the upstream SSML 1.1 core profile uses `xs:redefine`, which the XSD
   library does not support. A small wrapper in `internal/adapter/schemastore/overrides.go`
   includes the same upstream `synthesis-nonamespace.xsd` without the redefine.

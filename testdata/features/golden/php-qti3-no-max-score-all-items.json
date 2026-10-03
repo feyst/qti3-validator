@@ -1,0 +1,255 @@
+{
+  "report": {
+    "errors": [],
+    "exceptions": [],
+    "fatals": [],
+    "generator": "qti-validator",
+    "input": {
+      "name": "package.zip",
+      "type": "ZIP"
+    },
+    "notRun": [],
+    "specification": {
+      "pid": "qti300.pid",
+      "shortName": "qti",
+      "title": "QTI 3.0.0",
+      "version": "3.0.0"
+    },
+    "summary": {
+      "errors": 0,
+      "exceptions": 0,
+      "fatals": 0,
+      "notRun": 0,
+      "outcome": "WARNING",
+      "totalRun": 40,
+      "valid": 13,
+      "warnings": 7
+    },
+    "valids": [
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/AssessmentTest.xml"
+        },
+        "message": "Valid qti-assessment-test (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_1_1.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_2_1.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_2_2.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_2_3.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_2_4.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_2_5.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_3_1.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_4_1.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_5_1.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_6_1.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/METADATA001.xml"
+        },
+        "message": "Valid lom (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/imsmanifest.xml"
+        },
+        "message": "Valid imscp-manifest (QTI 3.0.0)",
+        "title": "Document"
+      }
+    ],
+    "warnings": [
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#variable-used",
+        "location": {
+          "column": 5,
+          "line": 19,
+          "path": "/qti-assessment-item[1]/qti-outcome-declaration[2]",
+          "resource": "/QUE_1_1.xml"
+        },
+        "message": "Outcome variable 'FEEDBACK' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#variable-used",
+        "location": {
+          "column": 5,
+          "line": 16,
+          "path": "/qti-assessment-item[1]/qti-outcome-declaration[2]",
+          "resource": "/QUE_2_1.xml"
+        },
+        "message": "Outcome variable 'FEEDBACK' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#variable-used",
+        "location": {
+          "column": 5,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-outcome-declaration[4]",
+          "resource": "/QUE_2_3.xml"
+        },
+        "message": "Outcome variable 'FEEDBACK' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#variable-used",
+        "location": {
+          "column": 5,
+          "line": 28,
+          "path": "/qti-assessment-item[1]/qti-outcome-declaration[2]",
+          "resource": "/QUE_2_4.xml"
+        },
+        "message": "Outcome variable 'FEEDBACK' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#variable-used",
+        "location": {
+          "column": 5,
+          "line": 30,
+          "path": "/qti-assessment-item[1]/qti-outcome-declaration[2]",
+          "resource": "/QUE_4_1.xml"
+        },
+        "message": "Outcome variable 'FEEDBACK' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#variable-used",
+        "location": {
+          "column": 5,
+          "line": 19,
+          "path": "/qti-assessment-item[1]/qti-outcome-declaration[2]",
+          "resource": "/QUE_6_1.xml"
+        },
+        "message": "Outcome variable 'MAXSCORE' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#variable-used",
+        "location": {
+          "column": 5,
+          "line": 21,
+          "path": "/qti-assessment-item[1]/qti-outcome-declaration[3]",
+          "resource": "/QUE_6_1.xml"
+        },
+        "message": "Outcome variable 'FEEDBACK' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      }
+    ]
+  },
+  "status": 200
+}

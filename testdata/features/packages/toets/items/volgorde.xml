@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.imsglobal.org/xsd/imsqtiasi_v3p0 https://purl.imsglobal.org/spec/qti/v3p0/schema/xsd/imsqti_asiv3p0_v1p0.xsd"
+    identifier="volgorde" title="Van noord naar zuid" adaptive="false" time-dependent="false" xml:lang="nl">
+  <qti-response-declaration identifier="RESPONSE" cardinality="ordered" base-type="identifier">
+    <qti-correct-response>
+      <qti-value>GRO</qti-value>
+      <qti-value>UTR</qti-value>
+      <qti-value>MAA</qti-value>
+    </qti-correct-response>
+  </qti-response-declaration>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float">
+    <qti-default-value>
+      <qti-value>0</qti-value>
+    </qti-default-value>
+  </qti-outcome-declaration>
+  <qti-item-body>
+    <qti-order-interaction response-identifier="RESPONSE" shuffle="true">
+      <qti-prompt>Zet de steden van noord naar zuid.</qti-prompt>
+      <qti-simple-choice identifier="GRO">Groningen</qti-simple-choice>
+      <qti-simple-choice identifier="UTR">Utrecht</qti-simple-choice>
+      <qti-simple-choice identifier="MAA">Maastricht</qti-simple-choice>
+    </qti-order-interaction>
+  </qti-item-body>
+  <qti-response-processing template="https://purl.imsglobal.org/spec/qti/v3p0/rptemplates/match_correct.xml"/>
+</qti-assessment-item>

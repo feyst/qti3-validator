@@ -4,8 +4,12 @@ GOLANGCI_LINT_VERSION := v2.14.0
 GOVULNCHECK_VERSION   := v1.8.0
 GOBIN                 := $(shell go env GOPATH)/bin
 IMAGE                 := kennisnet/qti3-validator
+# The public 1EdTech QTI examples, pinned by commit; see CONTRIBUTING.md.
+CORPUS_REPO           := https://github.com/1EdTech/qti-examples.git
+CORPUS_COMMIT         := 0a92fbbb6d2e620a1f7fad19977be4c418246bc0
+CORPUS_DIR            := testdata/corpus/qti-examples
 
-.PHONY: help schemas build test race cover bench lint fmt vuln check image tools
+.PHONY: help schemas build test race cover bench lint fmt vuln check image tools corpus
 
 help: ## Show the targets
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -39,6 +43,12 @@ vuln: ## Check dependencies for known vulnerabilities
 	$(GOBIN)/govulncheck ./...
 
 check: lint race vuln ## Everything CI runs
+
+corpus: ## Fetch the public 1EdTech QTI examples and validate them all (go test -run Corpus)
+	@if [ ! -d $(CORPUS_DIR)/.git ]; then git init -q $(CORPUS_DIR) && git -C $(CORPUS_DIR) remote add origin $(CORPUS_REPO); fi
+	git -C $(CORPUS_DIR) fetch -q --depth 1 origin $(CORPUS_COMMIT)
+	git -C $(CORPUS_DIR) checkout -q --detach $(CORPUS_COMMIT)
+	go test -count=1 -run Corpus ./internal/feature
 
 image: ## Build the Docker image, tagged kennisnet/qti3-validator:dev and :latest
 	docker build -t $(IMAGE):dev -t $(IMAGE):latest .

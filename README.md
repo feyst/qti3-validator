@@ -40,7 +40,7 @@ curl -X POST http://localhost:8080/api/validate \
 ```
 
 The answer is a [validation report](docs/report.md). `summary.outcome` is the
-verdict:
+verdict; see [Outcomes](#outcomes):
 
 ```json
 {
@@ -59,6 +59,9 @@ verdict:
 }
 ```
 
+To see what findings look like, validate the example package with a problem
+of each kind, [`examples/with-errors.zip`](examples/README.md).
+
 ## What is checked
 
 Every document goes through four checks:
@@ -70,8 +73,9 @@ Every document goes through four checks:
    XSD cannot express, such as allowed attributes, `max-choices` against
    `min-choices` and ARIA roles.
 4. **[Additional checks](docs/additional-checks.md):** whether the parts of an
-   item or test fit together, for example that every interaction is bound to a
-   declared response variable.
+   item, test or package fit together, for example that every interaction is
+   bound to a declared response variable, that the files a package refers to
+   are in it, and that values and expressions have the right types.
 
 A package is checked file by file. It needs an `imsmanifest.xml` in its root;
 every XML file is validated, media files are not opened, and XML files that
@@ -135,13 +139,27 @@ curl -X POST 'http://localhost:8080/api/validate?version=3.0.1&name=toets.zip' \
   --data-binary @toets.zip
 ```
 
-### Status codes
+### Outcomes
 
 Every request that could be validated gets **HTTP 200** and a report, also
-when the content is invalid: the verdict is `summary.outcome`. A report is
-valid when its outcome is `VALID` or `WARNING`; it is not when it is `ERROR`,
-`FATAL` or `EXCEPTION`. [The validation report](docs/report.md) describes
-every field, outcome and code.
+when the content is invalid. Each finding is listed under its outcome
+(`errors`, `warnings`, `fatals`, …), and `summary.outcome` is the most severe
+one:
+
+| Outcome | When | Valid? |
+| --- | --- | --- |
+| `VALID` | A document passed every check | yes |
+| `WARNING` | Something to look at that does not break the item, such as an outcome that is never used | yes |
+| `ERROR` | A document breaks the XML Schema or a rule, or a package misses its manifest | no |
+| `FATAL` | Something could not be read at all: XML that is not well-formed, not UTF-8 or has a `DOCTYPE`, a document that is not QTI 3, or a body that is not a ZIP | no |
+| `EXCEPTION` | The service itself failed, for example a validation interrupted by `REQUEST_TIMEOUT`; the response is then HTTP 500 | no |
+| `NOT_RUN` | A check was skipped: an XML file that is not a QTI document, or the checks after a `FATAL` | does not count |
+
+In a package, every file gets its own findings, so one package can contain
+all of them. [`examples/with-errors.zip`](examples/README.md) shows each kind.
+[The validation report](docs/report.md) describes every field and code.
+
+### Status codes
 
 A request that could not be validated at all gets an error status and a short
 JSON body:
@@ -159,7 +177,7 @@ JSON body:
 | 400 | `unknown_validator` | `validatorId` is not listed by `GET /api/validators` |
 | 400 | `invalid_request` | The body could not be read |
 | 413 | `too_large`, `too_many_files` | The request, package, or the XML in a package exceeds a limit |
-| 500 | `internal` | The service failed; the body is then a report with outcome `EXCEPTION` |
+| 500 | `internal` | The service failed; the body is a report with outcome `EXCEPTION` |
 | 503 | `busy` | All validation slots stayed busy for `REQUEST_TIMEOUT`; retry later |
 
 ## Configuration
@@ -194,10 +212,9 @@ container, Docker Compose, Kubernetes and logging.
 
 ## Limitations
 
-- **Package consistency:** whether files a manifest or an item refers to exist
-  in the package is not checked yet.
 - **Scoring:** whether response processing gives the scores you intend is not
-  checked; the additional checks only check that it can run.
+  checked; the additional checks only check that it can run, and that its
+  values and expressions have the right types.
 - **Encoding:** documents must be UTF-8 (ASCII is fine). A `DOCTYPE` is not
   accepted.
 - **SSML:** two SSML restrictions are not enforced: `version` and `xml:lang` on

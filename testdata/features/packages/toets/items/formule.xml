@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.imsglobal.org/xsd/imsqtiasi_v3p0 https://purl.imsglobal.org/spec/qti/v3p0/schema/xsd/imsqti_asiv3p0_v1p0.xsd"
+    xmlns:m="http://www.w3.org/1998/Math/MathML"
+    identifier="formule" title="Bevolkingsdichtheid" adaptive="false" time-dependent="false" xml:lang="nl">
+  <qti-response-declaration identifier="RESPONSE" cardinality="single" base-type="float">
+    <qti-correct-response>
+      <qti-value>2000</qti-value>
+    </qti-correct-response>
+  </qti-response-declaration>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float">
+    <qti-default-value>
+      <qti-value>0</qti-value>
+    </qti-default-value>
+  </qti-outcome-declaration>
+  <qti-item-body>
+    <p>De bevolkingsdichtheid is
+      <m:math display="inline"><m:mfrac><m:mi>inwoners</m:mi><m:mi>oppervlakte</m:mi></m:mfrac></m:math>.
+      Een gemeente heeft 50 000 inwoners op 25 km². Hoeveel inwoners per km² is dat?
+      <qti-text-entry-interaction response-identifier="RESPONSE" expected-length="6"/>
+    </p>
+  </qti-item-body>
+  <qti-response-processing template="https://purl.imsglobal.org/spec/qti/v3p0/rptemplates/match_correct.xml"/>
+</qti-assessment-item>

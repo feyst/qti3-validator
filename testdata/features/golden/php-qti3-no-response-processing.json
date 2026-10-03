@@ -1,0 +1,73 @@
+{
+  "report": {
+    "errors": [],
+    "exceptions": [],
+    "fatals": [],
+    "generator": "qti-validator",
+    "input": {
+      "name": "package.zip",
+      "type": "ZIP"
+    },
+    "notRun": [],
+    "specification": {
+      "pid": "qti300.pid",
+      "shortName": "qti",
+      "title": "QTI 3.0.0",
+      "version": "3.0.0"
+    },
+    "summary": {
+      "errors": 0,
+      "exceptions": 0,
+      "fatals": 0,
+      "notRun": 0,
+      "outcome": "VALID",
+      "totalRun": 13,
+      "valid": 4,
+      "warnings": 0
+    },
+    "valids": [
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/AssessmentTest.xml"
+        },
+        "message": "Valid qti-assessment-test (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/QUE_1_1.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/METADATA001.xml"
+        },
+        "message": "Valid lom (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/imsmanifest.xml"
+        },
+        "message": "Valid imscp-manifest (QTI 3.0.0)",
+        "title": "Document"
+      }
+    ],
+    "warnings": []
+  },
+  "status": 200
+}

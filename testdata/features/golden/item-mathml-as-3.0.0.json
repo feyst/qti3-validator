@@ -1,0 +1,43 @@
+{
+  "report": {
+    "errors": [],
+    "exceptions": [],
+    "fatals": [],
+    "generator": "qti-validator",
+    "input": {
+      "name": "formule.xml",
+      "type": "XML"
+    },
+    "notRun": [],
+    "specification": {
+      "pid": "qti300.pid",
+      "shortName": "qti",
+      "title": "QTI 3.0.0",
+      "version": "3.0.0"
+    },
+    "summary": {
+      "errors": 0,
+      "exceptions": 0,
+      "fatals": 0,
+      "notRun": 0,
+      "outcome": "VALID",
+      "totalRun": 3,
+      "valid": 1,
+      "warnings": 0
+    },
+    "valids": [
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "formule.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      }
+    ],
+    "warnings": []
+  },
+  "status": 200
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-stimulus xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.imsglobal.org/xsd/imsqtiasi_v3p0 https://purl.imsglobal.org/spec/qti/v3p0/schema/xsd/imsqti_asiv3p0_v1p0.xsd"
+    identifier="deltawerken" title="Deltawerken" xml:lang="nl">
+  <qti-stimulus-body>
+    <p>Na de watersnood van 1953 besloot Nederland zijn zeeweringen te versterken.
+      De Deltawerken sluiten de zeearmen in Zeeland en Zuid-Holland af.</p>
+  </qti-stimulus-body>
+</qti-assessment-stimulus>

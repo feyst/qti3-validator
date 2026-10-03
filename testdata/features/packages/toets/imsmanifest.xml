@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest xmlns="http://www.imsglobal.org/xsd/qti/qtiv3p0/imscp_v1p1"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.imsglobal.org/xsd/qti/qtiv3p0/imscp_v1p1 https://purl.imsglobal.org/spec/qti/v3p0/schema/xsd/imsqtiv3p0_imscpv1p2_v1p0.xsd"
+    identifier="aardrijkskunde-pakket">
+  <metadata>
+    <schema>QTI Package</schema>
+    <schemaversion>3.0.0</schemaversion>
+  </metadata>
+  <organizations/>
+  <resources>
+    <resource identifier="toets" type="imsqti_test_xmlv3p0" href="test.xml">
+      <file href="test.xml"/>
+      <dependency identifierref="keuze"/>
+      <dependency identifierref="meerkeuze"/>
+      <dependency identifierref="invul"/>
+      <dependency identifierref="open"/>
+      <dependency identifierref="koppel"/>
+      <dependency identifierref="gatenkoppel"/>
+      <dependency identifierref="volgorde"/>
+      <dependency identifierref="keuzelijst"/>
+      <dependency identifierref="tekstselectie"/>
+      <dependency identifierref="formule"/>
+      <dependency identifierref="bronvraag"/>
+      <dependency identifierref="sjabloon"/>
+    </resource>
+    <resource identifier="keuze" type="imsqti_item_xmlv3p0" href="items/keuze.xml">
+      <file href="items/keuze.xml"/>
+      <dependency identifierref="kaart"/>
+    </resource>
+    <resource identifier="meerkeuze" type="imsqti_item_xmlv3p0" href="items/meerkeuze.xml">
+      <file href="items/meerkeuze.xml"/>
+    </resource>
+    <resource identifier="invul" type="imsqti_item_xmlv3p0" href="items/invul.xml">
+      <file href="items/invul.xml"/>
+    </resource>
+    <resource identifier="open" type="imsqti_item_xmlv3p0" href="items/open.xml">
+      <file href="items/open.xml"/>
+    </resource>
+    <resource identifier="koppel" type="imsqti_item_xmlv3p0" href="items/koppel.xml">
+      <file href="items/koppel.xml"/>
+    </resource>
+    <resource identifier="gatenkoppel" type="imsqti_item_xmlv3p0" href="items/gatenkoppel.xml">
+      <file href="items/gatenkoppel.xml"/>
+    </resource>
+    <resource identifier="volgorde" type="imsqti_item_xmlv3p0" href="items/volgorde.xml">
+      <file href="items/volgorde.xml"/>
+    </resource>
+    <resource identifier="keuzelijst" type="imsqti_item_xmlv3p0" href="items/keuzelijst.xml">
+      <file href="items/keuzelijst.xml"/>
+    </resource>
+    <resource identifier="tekstselectie" type="imsqti_item_xmlv3p0" href="items/tekstselectie.xml">
+      <file href="items/tekstselectie.xml"/>
+    </resource>
+    <resource identifier="formule" type="imsqti_item_xmlv3p0" href="items/formule.xml">
+      <file href="items/formule.xml"/>
+    </resource>
+    <resource identifier="bronvraag" type="imsqti_item_xmlv3p0" href="items/bronvraag.xml">
+      <file href="items/bronvraag.xml"/>
+      <dependency identifierref="deltawerken"/>
+    </resource>
+    <resource identifier="sjabloon" type="imsqti_item_xmlv3p0" href="items/sjabloon.xml">
+      <file href="items/sjabloon.xml"/>
+    </resource>
+    <resource identifier="deltawerken" type="imsqti_stimulus_xmlv3p0" href="stimuli/deltawerken.xml">
+      <file href="stimuli/deltawerken.xml"/>
+    </resource>
+    <resource identifier="kaart" type="webcontent" href="media/kaart.png">
+      <file href="media/kaart.png"/>
+    </resource>
+  </resources>
+</manifest>
