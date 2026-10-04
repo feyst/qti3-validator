@@ -1247,7 +1247,10 @@
     "outcome": "VALID"
   },
   "qtiv3-examples/packaging/sharedStimulus/exemplar06.xml": {
-    "outcome": "VALID"
+    "outcome": "WARNING",
+    "codes": [
+      "schematron"
+    ]
   },
   "qtiv3-examples/packaging/sharedStimulus/imsmanifest.xml": {
     "outcome": "VALID"
@@ -1258,7 +1261,8 @@
   "qtiv3-examples/packaging/sharedStimulus/sharedStimulus.zip": {
     "outcome": "ERROR",
     "codes": [
-      "reference"
+      "reference",
+      "schematron"
     ]
   },
   "qtiv3-examples/packaging/simple/choice.xml": {

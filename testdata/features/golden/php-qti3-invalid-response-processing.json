@@ -193,7 +193,7 @@
       "outcome": "ERROR",
       "totalRun": 70,
       "valid": 10,
-      "warnings": 27
+      "warnings": 40
     },
     "valids": [
       {
@@ -301,6 +301,19 @@
       {
         "code": "schematron",
         "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_1_1.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
         "generator": "schematron|qti3-additional-checks.sch#variable-used",
         "location": {
           "column": 1,
@@ -309,6 +322,19 @@
           "resource": "/QUE_1_1.xml"
         },
         "message": "Outcome variable 'MODEL_ANSWER' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_1_2.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
         "title": "Schematron validation"
       },
       {
@@ -327,6 +353,19 @@
       {
         "code": "schematron",
         "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_3_1.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
         "generator": "schematron|qti3-additional-checks.sch#variable-used",
         "location": {
           "column": 1,
@@ -335,6 +374,19 @@
           "resource": "/QUE_3_1.xml"
         },
         "message": "Outcome variable 'MODEL_ANSWER' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_3_2.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
         "title": "Schematron validation"
       },
       {
@@ -353,6 +405,19 @@
       {
         "code": "schematron",
         "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_3_3.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
         "generator": "schematron|qti3-additional-checks.sch#variable-used",
         "location": {
           "column": 1,
@@ -361,6 +426,19 @@
           "resource": "/QUE_3_3.xml"
         },
         "message": "Outcome variable 'MODEL_ANSWER' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_3_4.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
         "title": "Schematron validation"
       },
       {
@@ -483,6 +561,19 @@
       {
         "code": "schematron",
         "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_8_4.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
         "generator": "schematron|qti3-additional-checks.sch#variable-used",
         "location": {
           "column": 1,
@@ -548,6 +639,19 @@
       {
         "code": "schematron",
         "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_14_1.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
         "generator": "schematron|qti3-additional-checks.sch#variable-used",
         "location": {
           "column": 1,
@@ -556,6 +660,19 @@
           "resource": "/QUE_14_1.xml"
         },
         "message": "Outcome variable 'MODEL_ANSWER' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_14_2.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
         "title": "Schematron validation"
       },
       {
@@ -574,6 +691,19 @@
       {
         "code": "schematron",
         "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_16_1.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
         "generator": "schematron|qti3-additional-checks.sch#variable-used",
         "location": {
           "column": 1,
@@ -582,6 +712,19 @@
           "resource": "/QUE_16_1.xml"
         },
         "message": "Outcome variable 'MODEL_ANSWER' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_16_2.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
         "title": "Schematron validation"
       },
       {
@@ -600,6 +743,19 @@
       {
         "code": "schematron",
         "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_16_3.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
         "generator": "schematron|qti3-additional-checks.sch#variable-used",
         "location": {
           "column": 1,
@@ -608,6 +764,19 @@
           "resource": "/QUE_16_3.xml"
         },
         "message": "Outcome variable 'MODEL_ANSWER' is declared but not used in response processing.",
+        "title": "Schematron validation"
+      },
+      {
+        "code": "schematron",
+        "detailsMessage": null,
+        "generator": "schematron|qti3-additional-checks.sch#correct-response-declared",
+        "location": {
+          "column": 1,
+          "line": 37,
+          "path": "/qti-assessment-item[1]/qti-response-processing[1]/qti-response-condition[1]/qti-response-if[1]/qti-match[1]/qti-correct[1]",
+          "resource": "/QUE_16_4.xml"
+        },
+        "message": "qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL.",
         "title": "Schematron validation"
       },
       {

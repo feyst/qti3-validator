@@ -15,6 +15,9 @@
   "[warning] The correct response of 'RESPONSE' names 'Z', which is not a choice of its interaction.",
   "[warning] The mapping of 'RESPONSE' has key 'Y', which is not a choice of its interaction."
  ],
+ "correct-response-declared.xml": [
+  "[warning] qti-correct uses the correct response of 'RESPONSE', which has none, so it is always NULL."
+ ],
  "identifier-unique.xml": [
   "Choice identifier 'A' is used by more than one choice in the same interaction.",
   "Choice identifier 'A' is used by more than one choice in the same interaction.",

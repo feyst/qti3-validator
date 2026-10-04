@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="correct" title="correct" adaptive="false" time-dependent="false">
+  <qti-response-declaration identifier="RESPONSE" cardinality="single" base-type="string"/>
+  <qti-response-declaration identifier="WITH_CORRECT" cardinality="single" base-type="string">
+    <qti-correct-response><qti-value>Maas</qti-value></qti-correct-response>
+  </qti-response-declaration>
+  <qti-response-declaration identifier="TEMPLATED" cardinality="single" base-type="integer"/>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float"/>
+  <qti-template-declaration identifier="A" cardinality="single" base-type="integer"/>
+  <qti-template-processing>
+    <qti-set-template-value identifier="A"><qti-random-integer min="1" max="9"/></qti-set-template-value>
+    <qti-set-correct-response identifier="TEMPLATED"><qti-variable identifier="A"/></qti-set-correct-response>
+  </qti-template-processing>
+  <qti-item-body>
+    <p><qti-text-entry-interaction response-identifier="RESPONSE"/></p>
+    <p><qti-text-entry-interaction response-identifier="WITH_CORRECT"/></p>
+    <p><qti-text-entry-interaction response-identifier="TEMPLATED"/></p>
+  </qti-item-body>
+  <qti-response-processing>
+    <qti-response-condition>
+      <qti-response-if>
+        <qti-and>
+          <qti-match><qti-variable identifier="RESPONSE"/><qti-correct identifier="RESPONSE"/></qti-match>
+          <qti-match><qti-variable identifier="WITH_CORRECT"/><qti-correct identifier="WITH_CORRECT"/></qti-match>
+          <qti-match><qti-variable identifier="TEMPLATED"/><qti-correct identifier="TEMPLATED"/></qti-match>
+        </qti-and>
+        <qti-set-outcome-value identifier="SCORE"><qti-base-value base-type="float">1</qti-base-value></qti-set-outcome-value>
+      </qti-response-if>
+    </qti-response-condition>
+  </qti-response-processing>
+</qti-assessment-item>

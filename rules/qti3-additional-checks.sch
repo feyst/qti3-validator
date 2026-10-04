@@ -308,6 +308,24 @@
   </sch:pattern>
 
   <!--
+    qti-correct "looks up the declaration of a response variable and returns
+    the associated qti-correct-response or NULL if no correct value was
+    declared". A comparison with NULL is never true, so response processing
+    that compares with a correct response the variable does not have can
+    never award the score. A correct response set by template processing
+    counts. A warning: the specification allows the NULL.
+  -->
+  <sch:pattern id="correct-response-declared">
+    <sch:rule context="qti:qti-assessment-item//qti:qti-correct">
+      <sch:let name="decl" value="//qti:qti-response-declaration[@identifier = current()/@identifier]"/>
+      <sch:assert role="warning" test="not($decl) or $decl/qti:qti-correct-response
+                                       or //qti:qti-template-processing//qti:qti-set-correct-response[@identifier = current()/@identifier]">
+        qti-correct uses the correct response of '<sch:value-of select="@identifier"/>', which has none, so it is always NULL.
+      </sch:assert>
+    </sch:rule>
+  </sch:pattern>
+
+  <!--
     "An expression used in a qti-template-rule must not refer to the value
     of a response variable or outcome variable."
   -->
