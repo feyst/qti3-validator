@@ -81,10 +81,10 @@ func readExpected(t *testing.T, name string) map[string][]string {
 
 // TestMatchesReference checks the rules embedded in the QTI 3.0.0 and LOM
 // schemas against results of the ISO Schematron reference implementation
-// (the XSLT skeleton, run by lxml 5 / libxml2 2.14.6 / libxslt) on generated
-// documents. The documents were made by testdata/schematron/generate.py and
-// chosen to fire 68 different QTI rules; the reference ran the QTI 3.0.0 and
-// LOM rules, so the findings of the additional checks are left out here.
+// (the XSLT skeleton, run by lxml 5 / libxml2 2.14.6 / libxslt) on random
+// documents, generated once from the names in the QTI 3.0 XSD and chosen to
+// fire 68 different QTI rules; the reference ran the QTI 3.0.0 and LOM rules,
+// so the findings of the additional checks are left out here.
 func TestMatchesReference(t *testing.T) {
 	c := versionRules(t, "3.0.0")
 	for name, want := range readExpected(t, "schematron/expected.json") {

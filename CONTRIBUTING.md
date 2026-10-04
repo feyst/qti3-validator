@@ -176,8 +176,8 @@ How the engine is checked:
     published, plus 3752 variants mutated to break XSD, 1EdTech and own rules
     (an unknown attribute, `max-choices` below `min-choices`, an undeclared
     response, duplicate choices and more); 4528 of them are well-formed;
-  - 2000 documents generated from the public QTI 3.0 XSD by
-    `testdata/schematron/generate.py`, which fire 68 different QTI rules.
+  - 2000 random documents generated once from the element and attribute
+    names in the public QTI 3.0 XSD, which fire 68 different QTI rules.
 
   For 1EdTech's rules (QTI 3.0.0 and LOM), all 6528 documents give the same
   messages as the reference (63,760 in total).
