@@ -1,11 +1,10 @@
 # syntax=docker/dockerfile:1
 
-ARG GO_VERSION=1.27.1
-
 # The build stage runs on the builder's own platform and cross-compiles the
 # binary for the target, so an arm64 image builds as fast as an amd64 one,
-# without emulation.
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
+# without emulation. The Go version is written out, not an ARG, so Dependabot
+# can update it; CI reads it from here too.
+FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine AS build
 WORKDIR /src
 
 COPY go.mod go.sum ./

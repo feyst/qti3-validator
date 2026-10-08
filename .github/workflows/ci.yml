@@ -5,9 +5,23 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  # Every night, so that dependency updates Dependabot merged are released:
+  # a merge by a workflow's own token starts no new run.
+  schedule:
+    - cron: '17 3 * * *'
+  # Actions → CI → Run workflow releases main with the chosen version bump,
+  # also when nothing in the image changed.
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 # A new push to a pull request cancels its running build; builds of main and
-# of tags always finish.
+# of tags always finish, one after the other, so two releases never pick the
+# same version.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -20,9 +34,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Test with the Go of the image, which Dependabot keeps up to date, so
+      # govulncheck sees the standard library the image is built with.
+      - name: Go version
+        id: go
+        run: echo "version=$(sed -n 's/^FROM .*golang:\([0-9.]*\).*/\1/p' Dockerfile)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: ${{ steps.go.outputs.version }}
       - name: Fetch schemas
         run: make schemas
       - name: Install tools
@@ -34,16 +53,55 @@ jobs:
       - name: Vulnerabilities
         run: make vuln
 
+  # Picks the next version for a build of main: a patch release when anything
+  # that goes into the image changed since the last tag vX.Y.Z, so code,
+  # dependencies, rules or the Go version; the chosen bump when started by
+  # hand. The first release is v0.1.0. Empty when there is nothing to release.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: next
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)
+          if [ -z "$last" ]; then
+            next=v0.1.0
+          else
+            if [ -z "$BUMP" ] && git diff --quiet "$last" HEAD -- \
+                go.mod go.sum Dockerfile cmd internal rules third_party ':!*_test.go'; then
+              echo "Nothing in the image changed since $last"
+              exit 0
+            fi
+            IFS=. read -r major minor patch <<< "${last#v}"
+            case "${BUMP:-patch}" in
+              major) next="v$((major + 1)).0.0" ;;
+              minor) next="v$major.$((minor + 1)).0" ;;
+              *)     next="v$major.$minor.$((patch + 1))" ;;
+            esac
+          fi
+          echo "Releasing $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
   # Builds the image for amd64 and arm64 and pushes it as
   # ghcr.io/feyst/qti3-validator, and as feyst/qti3-validator on Docker Hub
   # when the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are set. Tags:
   #   main           latest, main, sha-<commit>
+  #   release        1.2.3, 1.2 as well
   #   tag v1.2.3     1.2.3, 1.2, sha-<commit>
   #   pull request   pr-<number>, sha-<commit> (ghcr.io only)
-  # A pull request from a fork gets no token to push with, so its image is
-  # only built.
+  # A pull request from a fork or from Dependabot is only built: the first
+  # gets no token to push with, the second needs no image. The nightly run
+  # builds only when it releases.
   image:
-    needs: check
+    needs: [check, version]
+    if: github.event_name != 'schedule' || needs.version.outputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -51,16 +109,17 @@ jobs:
       id-token: write
       attestations: write
     env:
-      PUSH: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      PUSH: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]') }}
       DOCKERHUB: ${{ github.event_name != 'pull_request' && secrets.DOCKERHUB_TOKEN != '' }}
       IMAGE: feyst/qti3-validator
+      RELEASE: ${{ needs.version.outputs.tag }}
       # Put the OCI annotations on the multi-platform index too, where
       # registries read the description and source from.
       DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
     steps:
       - uses: actions/checkout@v7
 
-      - name: Image names
+      - name: Image names and release tags
         id: names
         run: |
           echo "ghcr=ghcr.io/$IMAGE" >> "$GITHUB_OUTPUT"
@@ -68,6 +127,14 @@ jobs:
             echo 'images<<EOF'
             echo "ghcr.io/$IMAGE"
             if [ "$DOCKERHUB" = true ]; then echo "docker.io/$IMAGE"; fi
+            echo EOF
+            # The highest priority makes the release the version in the binary.
+            echo 'release<<EOF'
+            if [ -n "$RELEASE" ]; then
+              v=${RELEASE#v}
+              echo "type=raw,value=$v,priority=1000"
+              echo "type=raw,value=${v%.*},priority=999"
+            fi
             echo EOF
           } >> "$GITHUB_OUTPUT"
 
@@ -83,6 +150,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+            ${{ steps.names.outputs.release }}
 
       - uses: docker/setup-buildx-action@v4
 
@@ -127,3 +195,44 @@ jobs:
           subject-name: ${{ steps.names.outputs.ghcr }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  # Docker Hub does not read the README from the repository or the image:
+  # this copies README.md to its overview, with relative links made absolute.
+  # The Docker Hub token needs the Read, Write, Delete scope for this.
+  dockerhub-readme:
+    needs: image
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        if: env.DOCKERHUB == 'true'
+      - uses: peter-evans/dockerhub-description@v5
+        if: env.DOCKERHUB == 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: feyst/qti3-validator
+          short-description: HTTP service that validates QTI 3 items, tests and packages against the 1EdTech schemas
+          readme-filepath: README.md
+          enable-url-completion: true
+
+  # Tags the commit and publishes a GitHub release once its image is pushed.
+  # A tag made with the workflow's own token starts no new run.
+  release:
+    needs: [version, image]
+    if: needs.version.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - run: |
+          v=${TAG#v}
+          notes="    docker pull ghcr.io/feyst/qti3-validator:$v
+              docker pull feyst/qti3-validator:$v"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$TAG" --generate-notes --notes "$notes"

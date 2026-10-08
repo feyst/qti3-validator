@@ -218,12 +218,29 @@ pushes it to `ghcr.io/feyst/qti3-validator`: `latest` and `main` from main,
 `1.2.3` and `1.2` from a tag `v1.2.3`, `pr-<number>` from a pull request, and
 `sha-<commit>` from each. With the repository secrets `DOCKERHUB_USERNAME` and
 `DOCKERHUB_TOKEN` set, the same tags except those of pull requests also go to
-`feyst/qti3-validator` on Docker Hub. The Dockerfile cross-compiles, so the
-arm64 image needs no emulation:
+`feyst/qti3-validator` on Docker Hub, and README.md becomes the overview there
+(the token then needs the Read, Write, Delete scope). The Dockerfile
+cross-compiles, so the arm64 image needs no emulation:
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 .
 ```
+
+### Releases
+
+Releases are automatic. When a build of main finds that anything that goes
+into the image changed since the last tag `vX.Y.Z` (code other than tests,
+`go.mod`, `go.sum`, the Dockerfile, the rules), it releases the next patch
+version: the image gets the tags `X.Y.Z` and `X.Y`, the binary reports that
+version, and the commit gets the tag and a GitHub release with notes.
+
+Dependabot checks Go modules and the golang image daily and the actions
+weekly. Its minor and patch updates are merged by themselves once CI passes,
+and a nightly run of CI releases them, so the image keeps up with security
+fixes without anyone doing anything. Major updates wait for review.
+
+For a minor or major release, start the workflow by hand: Actions → CI → Run
+workflow, and pick the bump.
 
 ## Tests, linters and benchmarks
 

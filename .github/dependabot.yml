@@ -1,14 +1,28 @@
+# Minor and patch updates are merged automatically once CI passes (see
+# workflows/dependabot.yml), and released by the next run of CI on main.
+# Each ecosystem's updates come in one pull request, so one release.
 version: 2
 updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: daily
+    groups:
+      go:
+        update-types: [minor, patch]
+  # The golang image the binary is built with, and with it the standard
+  # library's security fixes.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: daily
+    groups:
+      docker:
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-  - package-ecosystem: gomod
-    directory: /
-    schedule:
-      interval: weekly
-  - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
