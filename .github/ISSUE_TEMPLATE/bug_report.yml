@@ -1,0 +1,44 @@
+name: Bug report
+description: The validator gives a wrong result, fails or misbehaves
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The image tag, or the `generator` field of a report.
+      placeholder: feyst/qti3-validator:1.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: Request
+      description: How you called the service, for example the curl command.
+      render: sh
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Document or package
+      description: >-
+        Attach the smallest document or ZIP that shows the problem, or paste
+        the XML. Remove anything confidential first; this is public.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The report, or the relevant part of it, and any log lines.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: For a wrong result, the rule or spec text that says otherwise helps most.
+    validations:
+      required: true
