@@ -1,5 +1,10 @@
 # QTI 3 Validator
 
+[![CI](https://github.com/feyst/qti3-validator/actions/workflows/ci.yml/badge.svg)](https://github.com/feyst/qti3-validator/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/feyst/qti3-validator)](https://github.com/feyst/qti3-validator/releases/latest)
+[![Docker pulls](https://img.shields.io/docker/pulls/feyst/qti3-validator)](https://hub.docker.com/r/feyst/qti3-validator)
+[![License: MIT](https://img.shields.io/github/license/feyst/qti3-validator)](LICENSE)
+
 An HTTP service that checks QTI 3.0 and 3.0.1 items, tests and complete content
 packages against the official 1EdTech schemas and rules. Send it a document or a
 ZIP package; it tells you whether it is valid and, if not, exactly what is
@@ -227,3 +232,9 @@ container, Docker Compose, Kubernetes and logging.
 - [Custom validators](docs/custom-validators.md): your own rules and document types
 - [Running in production](docs/deployment.md)
 - [Contributing](CONTRIBUTING.md) and [Architecture](ARCHITECTURE.md): for developers
+- [Security](SECURITY.md): supported versions and reporting a vulnerability
+
+## License
+
+[MIT](LICENSE). The patched copy of `github.com/jacoelho/xsd` in `third_party/`
+and the fixtures from `php-qti3` in `testdata/` keep their own MIT licenses.

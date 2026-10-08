@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -23,7 +24,15 @@ import (
 
 func main() {
 	check := flag.Bool("check", false, "compile the schemas and exit; used in the image build")
+	healthcheck := flag.Bool("healthcheck", false, "exit 0 when the running service answers /health; used by the image's HEALTHCHECK")
 	flag.Parse()
+	if *healthcheck {
+		if err := runHealthcheck(); err != nil {
+			fmt.Fprintln(os.Stderr, "unhealthy:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if *check {
 		if err := runCheck(log); err != nil {

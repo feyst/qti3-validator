@@ -50,9 +50,11 @@ services:
     restart: unless-stopped
 ```
 
-The image contains no shell or `curl`, so a Docker `HEALTHCHECK` inside the
-container is not possible. Check `GET /health` from your orchestrator or load
-balancer instead.
+The image has a `HEALTHCHECK`: the image contains no shell or `curl`, so the
+binary checks `GET /health` itself with `/qti-validator -healthcheck`, on the
+port of `ADDR`. `docker ps` and Compose show the container as healthy or
+unhealthy; in Compose, `depends_on` with `condition: service_healthy` waits
+for it. Kubernetes ignores it and uses the probes below.
 
 ## Kubernetes
 

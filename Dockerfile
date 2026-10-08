@@ -51,4 +51,8 @@ USER 65534:65534
 # instead of 110-130 MiB, at no measurable cost in speed. Override it with -e.
 ENV GOMEMLIMIT=90MiB
 EXPOSE 8080
+# The binary checks /health itself: the image has no shell or curl. It reads
+# ADDR like the service, so a changed port is followed.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["/qti-validator", "-healthcheck"]
 ENTRYPOINT ["/qti-validator"]
