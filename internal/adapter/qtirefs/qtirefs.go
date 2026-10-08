@@ -12,8 +12,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/domain/qti"
 )
 
 const (

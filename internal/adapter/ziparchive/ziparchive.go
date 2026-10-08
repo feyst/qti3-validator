@@ -6,7 +6,7 @@ import (
 	"archive/zip"
 	"io"
 
-	"github.com/kennisnet/qti3-validator/internal/app"
+	"qti3-validator/internal/app"
 )
 
 var _ app.ArchiveOpener = Open

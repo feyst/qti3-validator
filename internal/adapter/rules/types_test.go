@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
-	"github.com/kennisnet/qti3-validator/internal/lib/xpath"
+	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/lib/xpath"
 )
 
 func typeFindings(t *testing.T, body string) []string {

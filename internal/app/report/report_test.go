@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 var testMeta = Meta{Generator: "qti-validator test", InputName: "input", Now: time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC)}

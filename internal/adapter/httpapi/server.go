@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/domain/qti"
 )
 
 // Name and Version identify the service in /version and in reports. Version

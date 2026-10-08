@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kennisnet/qti3-validator/internal/lib/xpath"
+	"qti3-validator/internal/lib/xpath"
 )
 
 // parsedNameTest is a test recognised as an attribute-name check; see

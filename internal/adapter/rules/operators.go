@@ -3,8 +3,8 @@ package rules
 import (
 	"strings"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
-	"github.com/kennisnet/qti3-validator/internal/lib/xpath"
+	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/lib/xpath"
 )
 
 // operandBase is what base type the operands of an operator must have.

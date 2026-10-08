@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 // ValidatePackage validates every XML file in a QTI content package. Entries

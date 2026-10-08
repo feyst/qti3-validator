@@ -7,10 +7,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
-	"github.com/kennisnet/qti3-validator/internal/lib/schematron"
-	"github.com/kennisnet/qti3-validator/internal/lib/xpath"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/lib/schematron"
+	"qti3-validator/internal/lib/xpath"
 )
 
 // AdditionalChecks is the source name of the validator's own rules,

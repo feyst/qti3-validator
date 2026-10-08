@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kennisnet/qti3-validator/internal/lib/xpath"
+	"qti3-validator/internal/lib/xpath"
 )
 
 // Engine runs compiled rules. It is immutable and safe for concurrent use.

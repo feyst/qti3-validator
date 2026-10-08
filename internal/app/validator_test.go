@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/domain/qti"
 )
 
 func TestValidAssessmentItem(t *testing.T) {

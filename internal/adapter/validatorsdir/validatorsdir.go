@@ -24,12 +24,12 @@ import (
 
 	"github.com/jacoelho/xsd"
 
-	"github.com/kennisnet/qti3-validator/internal/adapter/rules"
-	"github.com/kennisnet/qti3-validator/internal/adapter/xsdschema"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
-	"github.com/kennisnet/qti3-validator/internal/lib/schematron"
-	"github.com/kennisnet/qti3-validator/internal/lib/xmldoc"
-	"github.com/kennisnet/qti3-validator/internal/lib/xmlenc"
+	"qti3-validator/internal/adapter/rules"
+	"qti3-validator/internal/adapter/xsdschema"
+	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/lib/schematron"
+	"qti3-validator/internal/lib/xmldoc"
+	"qti3-validator/internal/lib/xmlenc"
 )
 
 // maxValidatorFileSize bounds each file read from the validators directory.

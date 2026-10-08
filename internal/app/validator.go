@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 // Validator runs the validation use cases. It is immutable and safe for

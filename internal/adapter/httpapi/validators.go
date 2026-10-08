@@ -6,7 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 // ValidatorInfo describes a validator in GET /api/validators, in the shape

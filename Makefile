@@ -3,7 +3,7 @@
 GOLANGCI_LINT_VERSION := v2.14.0
 GOVULNCHECK_VERSION   := v1.8.0
 GOBIN                 := $(shell go env GOPATH)/bin
-IMAGE                 := kennisnet/qti3-validator
+IMAGE                 := feyst/qti3-validator
 # The public 1EdTech QTI examples, pinned by commit; see CONTRIBUTING.md.
 CORPUS_REPO           := https://github.com/1EdTech/qti-examples.git
 CORPUS_COMMIT         := 0a92fbbb6d2e620a1f7fad19977be4c418246bc0
@@ -50,7 +50,7 @@ corpus: ## Fetch the public 1EdTech QTI examples and validate them all (go test 
 	git -C $(CORPUS_DIR) checkout -q --detach $(CORPUS_COMMIT)
 	go test -count=1 -run Corpus ./internal/feature
 
-image: ## Build the Docker image, tagged kennisnet/qti3-validator:dev and :latest
+image: ## Build the Docker image, tagged feyst/qti3-validator:dev and :latest
 	docker build -t $(IMAGE):dev -t $(IMAGE):latest .
 
 tools: ## Install the linters

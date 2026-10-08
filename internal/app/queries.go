@@ -3,7 +3,7 @@ package app
 import (
 	"io"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 // ValidateDocument asks to validate one XML document.

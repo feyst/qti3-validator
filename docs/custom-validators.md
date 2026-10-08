@@ -6,7 +6,7 @@ extra validators on `/validators`. The image contains that directory, empty:
 ```sh
 docker run --rm -p 8080:8080 \
   -v ./validators:/validators:ro \
-  kennisnet/qti3-validator
+  ghcr.io/feyst/qti3-validator
 ```
 
 Only files directly in the directory are used. Subdirectories and other files
@@ -59,7 +59,7 @@ with the same mount and `-check`:
 ```sh
 docker run --rm \
   -v ./validators:/validators:ro \
-  kennisnet/qti3-validator -check
+  ghcr.io/feyst/qti3-validator -check
 ```
 
 ## Limits

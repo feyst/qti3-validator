@@ -3,7 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
+
+# A new push to a pull request cancels its running build; builds of main and
+# of tags always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -27,9 +34,96 @@ jobs:
       - name: Vulnerabilities
         run: make vuln
 
+  # Builds the image for amd64 and arm64 and pushes it as
+  # ghcr.io/feyst/qti3-validator, and as feyst/qti3-validator on Docker Hub
+  # when the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are set. Tags:
+  #   main           latest, main, sha-<commit>
+  #   tag v1.2.3     1.2.3, 1.2, sha-<commit>
+  #   pull request   pr-<number>, sha-<commit> (ghcr.io only)
+  # A pull request from a fork gets no token to push with, so its image is
+  # only built.
   image:
+    needs: check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      PUSH: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      DOCKERHUB: ${{ github.event_name != 'pull_request' && secrets.DOCKERHUB_TOKEN != '' }}
+      IMAGE: feyst/qti3-validator
+      # Put the OCI annotations on the multi-platform index too, where
+      # registries read the description and source from.
+      DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
     steps:
       - uses: actions/checkout@v7
-      - name: Build image
-        run: docker build -t kennisnet/qti3-validator:ci .
+
+      - name: Image names
+        id: names
+        run: |
+          echo "ghcr=ghcr.io/$IMAGE" >> "$GITHUB_OUTPUT"
+          {
+            echo 'images<<EOF'
+            echo "ghcr.io/$IMAGE"
+            if [ "$DOCKERHUB" = true ]; then echo "docker.io/$IMAGE"; fi
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.names.outputs.images }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to ghcr.io
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # The Dockerfile cross-compiles, so arm64 needs no emulation.
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.PUSH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      # A signed statement of which workflow built the image from which
+      # commit; check it with `gh attestation verify oci://<image> -R <repo>`.
+      # Attestations need a public repository, or GitHub Enterprise.
+      - name: Attest
+        if: env.PUSH == 'true' && github.event_name != 'pull_request' && !github.event.repository.private
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ steps.names.outputs.ghcr }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

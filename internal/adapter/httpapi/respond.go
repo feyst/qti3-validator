@@ -9,7 +9,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 // Codes of request errors: the request could not be validated at all. Codes

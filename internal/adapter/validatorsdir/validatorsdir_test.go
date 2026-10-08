@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kennisnet/qti3-validator/internal/adapter/schemastore"
-	"github.com/kennisnet/qti3-validator/internal/adapter/xsdschema"
+	"qti3-validator/internal/adapter/schemastore"
+	"qti3-validator/internal/adapter/xsdschema"
 )
 
 const smallXSD = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:x"><xs:element name="x"/></xs:schema>`

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/kennisnet/qti3-validator/internal/adapter/schemastore"
-	"github.com/kennisnet/qti3-validator/internal/testutil"
+	"qti3-validator/internal/adapter/schemastore"
+	"qti3-validator/internal/testutil"
 )
 
 func TestMissingSchemaDependencyFailsAtStartup(t *testing.T) {

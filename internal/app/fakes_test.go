@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 // fakeSchema returns a fixed verdict and records what it checked.
