@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/bootstrap"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/bootstrap"
 )
 
 func BenchmarkCompile(b *testing.B) {

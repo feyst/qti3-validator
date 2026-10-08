@@ -3,7 +3,7 @@ package app
 import (
 	"io"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 // SchemaChecker validates a document against an XML Schema.

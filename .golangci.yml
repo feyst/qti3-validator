@@ -32,35 +32,35 @@ linters:
         domain:
           list-mode: strict
           files: ["**/internal/domain/**", "!$test"]
-          allow: ["$gostd", "github.com/kennisnet/qti3-validator/internal/domain"]
+          allow: ["$gostd", "qti3-validator/internal/domain"]
         app:
           files: ["**/internal/app/**", "!$test"]
           deny:
-            - pkg: github.com/kennisnet/qti3-validator/internal/adapter
+            - pkg: qti3-validator/internal/adapter
               desc: the application layer reaches adapters only through its ports
-            - pkg: github.com/kennisnet/qti3-validator/internal/bootstrap
+            - pkg: qti3-validator/internal/bootstrap
               desc: the composition root depends on the application, not the other way round
-            - pkg: github.com/kennisnet/qti3-validator/internal/config
+            - pkg: qti3-validator/internal/config
               desc: configuration is read by the composition root
             - pkg: github.com/jacoelho/xsd
               desc: XML Schema validation is the xsdschema adapter
-            - pkg: github.com/kennisnet/qti3-validator/internal/lib/schematron
+            - pkg: qti3-validator/internal/lib/schematron
               desc: Schematron is the rules adapter
         lib:
           files: ["**/internal/lib/**", "!$test"]
           deny:
-            - pkg: github.com/kennisnet/qti3-validator/internal/domain
+            - pkg: qti3-validator/internal/domain
               desc: generic libraries know nothing of QTI
-            - pkg: github.com/kennisnet/qti3-validator/internal/app
+            - pkg: qti3-validator/internal/app
               desc: generic libraries know nothing of the application
-            - pkg: github.com/kennisnet/qti3-validator/internal/adapter
+            - pkg: qti3-validator/internal/adapter
               desc: generic libraries know nothing of adapters
         httpapi:
           files: ["**/internal/adapter/httpapi/**", "!$test"]
           deny:
-            - pkg: github.com/kennisnet/qti3-validator/internal/adapter/
+            - pkg: qti3-validator/internal/adapter/
               desc: the HTTP adapter drives the application, not other adapters
-            - pkg: github.com/kennisnet/qti3-validator/internal/bootstrap
+            - pkg: qti3-validator/internal/bootstrap
               desc: the HTTP adapter receives the application from the composition root
             - pkg: github.com/jacoelho/xsd
               desc: XML Schema validation is the xsdschema adapter
@@ -107,5 +107,9 @@ formatters:
     - gofumpt
     - goimports
   settings:
+    # The module path has no dot, which gofumpt would take for the standard
+    # library without this.
+    gofumpt:
+      module-path: qti3-validator
     goimports:
-      local-prefixes: [github.com/kennisnet/qti3-validator]
+      local-prefixes: [qti3-validator]

@@ -26,10 +26,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kennisnet/qti3-validator/internal/adapter/httpapi"
-	"github.com/kennisnet/qti3-validator/internal/bootstrap"
-	"github.com/kennisnet/qti3-validator/internal/config"
-	"github.com/kennisnet/qti3-validator/internal/testutil"
+	"qti3-validator/internal/adapter/httpapi"
+	"qti3-validator/internal/bootstrap"
+	"qti3-validator/internal/config"
+	"qti3-validator/internal/testutil"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")

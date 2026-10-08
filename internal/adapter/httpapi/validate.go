@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/app/report"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/app/report"
+	"qti3-validator/internal/domain/qti"
 )
 
 // Default input names in the report, when the request names none.

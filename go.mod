@@ -1,4 +1,4 @@
-module github.com/kennisnet/qti3-validator
+module qti3-validator
 
 go 1.27.0
 

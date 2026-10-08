@@ -7,8 +7,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
-	"github.com/kennisnet/qti3-validator/internal/lib/xmldoc"
+	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/lib/xmldoc"
 )
 
 // manifestSchemaVersion reads manifest/metadata/schemaversion. It returns an

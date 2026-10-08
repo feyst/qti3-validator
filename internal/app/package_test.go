@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 func TestValidPackage(t *testing.T) {

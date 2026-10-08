@@ -5,14 +5,14 @@ package bootstrap
 import (
 	"sync"
 
-	"github.com/kennisnet/qti3-validator/internal/adapter/qtirefs"
-	"github.com/kennisnet/qti3-validator/internal/adapter/rules"
-	"github.com/kennisnet/qti3-validator/internal/adapter/schemastore"
-	"github.com/kennisnet/qti3-validator/internal/adapter/validatorsdir"
-	"github.com/kennisnet/qti3-validator/internal/adapter/xsdschema"
-	"github.com/kennisnet/qti3-validator/internal/adapter/ziparchive"
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/adapter/qtirefs"
+	"qti3-validator/internal/adapter/rules"
+	"qti3-validator/internal/adapter/schemastore"
+	"qti3-validator/internal/adapter/validatorsdir"
+	"qti3-validator/internal/adapter/xsdschema"
+	"qti3-validator/internal/adapter/ziparchive"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/domain/qti"
 )
 
 // Options configure NewValidator.

@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
-	"github.com/kennisnet/qti3-validator/internal/lib/xmldoc"
+	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/lib/xmldoc"
 )
 
 // ValidateDocument validates one XML document: against the XML Schema of

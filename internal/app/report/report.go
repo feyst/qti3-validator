@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/domain/qti"
 )
 
 // Report is the validation report both endpoints return, for a single XML

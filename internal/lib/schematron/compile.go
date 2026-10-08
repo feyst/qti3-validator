@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/kennisnet/qti3-validator/internal/lib/xpath"
+	"qti3-validator/internal/lib/xpath"
 )
 
 // Compiled is the build-time form of rule sets: abstract patterns are

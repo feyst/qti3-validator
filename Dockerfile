@@ -32,7 +32,7 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
     -trimpath \
-    -ldflags="-s -w -X github.com/kennisnet/qti3-validator/internal/adapter/httpapi.Version=${VERSION}" \
+    -ldflags="-s -w -X qti3-validator/internal/adapter/httpapi.Version=${VERSION}" \
     -o /out/qti-validator \
     ./cmd/qti-validator \
  && mkdir /out/tmp /out/validators

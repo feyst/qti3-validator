@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kennisnet/qti3-validator/internal/testutil"
+	"qti3-validator/internal/testutil"
 )
 
 // Pinned returns the URLs in schemas.lock.

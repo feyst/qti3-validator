@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kennisnet/qti3-validator/internal/adapter/httpapi"
-	"github.com/kennisnet/qti3-validator/internal/bootstrap"
-	"github.com/kennisnet/qti3-validator/internal/config"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/adapter/httpapi"
+	"qti3-validator/internal/bootstrap"
+	"qti3-validator/internal/config"
+	"qti3-validator/internal/domain/qti"
 )
 
 func main() {

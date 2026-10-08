@@ -10,10 +10,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/bootstrap"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
-	"github.com/kennisnet/qti3-validator/internal/testutil"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/bootstrap"
+	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/testutil"
 )
 
 // Validators for a mounted directory. house-rules.sch applies to every

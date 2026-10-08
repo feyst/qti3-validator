@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
-	"github.com/kennisnet/qti3-validator/internal/lib/xpath"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/lib/xpath"
 )
 
 // The ids of the type checks, as docs/additional-checks.md lists them.

@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kennisnet/qti3-validator/internal/adapter/schemastore"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
-	"github.com/kennisnet/qti3-validator/internal/lib/schematron"
-	"github.com/kennisnet/qti3-validator/internal/testutil"
+	"qti3-validator/internal/adapter/schemastore"
+	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/lib/schematron"
+	"qti3-validator/internal/testutil"
 )
 
 var (

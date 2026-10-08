@@ -20,8 +20,8 @@ import (
 	"net/url"
 	"path"
 
-	"github.com/kennisnet/qti3-validator/internal/lib/schematron"
-	"github.com/kennisnet/qti3-validator/internal/lib/xmlenc"
+	"qti3-validator/internal/lib/schematron"
+	"qti3-validator/internal/lib/xmlenc"
 )
 
 //go:embed schemas/purl.imsglobal.org schemas/schematron.json.gz

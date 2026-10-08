@@ -12,9 +12,9 @@ import (
 	"github.com/jacoelho/xsd"
 	"github.com/jacoelho/xsd/xsderrors"
 
-	"github.com/kennisnet/qti3-validator/internal/adapter/schemastore"
-	"github.com/kennisnet/qti3-validator/internal/app"
-	"github.com/kennisnet/qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/adapter/schemastore"
+	"qti3-validator/internal/app"
+	"qti3-validator/internal/domain/qti"
 )
 
 // Resolver resolves schema locations to the schema store. A missing schema

@@ -32,8 +32,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kennisnet/qti3-validator/internal/lib/schematron"
-	"github.com/kennisnet/qti3-validator/internal/lib/xmlenc"
+	"qti3-validator/internal/lib/schematron"
+	"qti3-validator/internal/lib/xmlenc"
 )
 
 const maxSchemaBytes = 64 << 20
