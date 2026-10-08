@@ -225,6 +225,22 @@ arm64 image needs no emulation:
 docker buildx build --platform linux/amd64,linux/arm64 .
 ```
 
+### Releases
+
+Releases are automatic. When a build of main finds that anything that goes
+into the image changed since the last tag `vX.Y.Z` (code other than tests,
+`go.mod`, `go.sum`, the Dockerfile, the rules), it releases the next patch
+version: the image gets the tags `X.Y.Z` and `X.Y`, the binary reports that
+version, and the commit gets the tag and a GitHub release with notes.
+
+Dependabot checks Go modules and the golang image daily and the actions
+weekly. Its minor and patch updates are merged by themselves once CI passes,
+and a nightly run of CI releases them, so the image keeps up with security
+fixes without anyone doing anything. Major updates wait for review.
+
+For a minor or major release, start the workflow by hand: Actions → CI → Run
+workflow, and pick the bump.
+
 ## Tests, linters and benchmarks
 
 `make` is the entry point; `make help` lists the targets.

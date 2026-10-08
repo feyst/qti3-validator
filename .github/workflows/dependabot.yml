@@ -1,0 +1,25 @@
+name: Dependabot
+
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  # Turns on auto-merge for Dependabot's minor and patch updates, so GitHub
+  # merges them once the required checks pass. Major updates wait for a
+  # person. Needs "Allow auto-merge" and required checks on main.
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v3
+      - if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR"
+        env:
+          PR: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
