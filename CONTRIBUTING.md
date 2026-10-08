@@ -218,8 +218,9 @@ pushes it to `ghcr.io/feyst/qti3-validator`: `latest` and `main` from main,
 `1.2.3` and `1.2` from a tag `v1.2.3`, `pr-<number>` from a pull request, and
 `sha-<commit>` from each. With the repository secrets `DOCKERHUB_USERNAME` and
 `DOCKERHUB_TOKEN` set, the same tags except those of pull requests also go to
-`feyst/qti3-validator` on Docker Hub. The Dockerfile cross-compiles, so the
-arm64 image needs no emulation:
+`feyst/qti3-validator` on Docker Hub, and README.md becomes the overview there
+(the token then needs the Read, Write, Delete scope). The Dockerfile
+cross-compiles, so the arm64 image needs no emulation:
 
 ```sh
 docker buildx build --platform linux/amd64,linux/arm64 .

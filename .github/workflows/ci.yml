@@ -196,6 +196,28 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+  # Docker Hub does not read the README from the repository or the image:
+  # this copies README.md to its overview, with relative links made absolute.
+  # The Docker Hub token needs the Read, Write, Delete scope for this.
+  dockerhub-readme:
+    needs: image
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        if: env.DOCKERHUB == 'true'
+      - uses: peter-evans/dockerhub-description@v5
+        if: env.DOCKERHUB == 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: feyst/qti3-validator
+          short-description: HTTP service that validates QTI 3 items, tests and packages against the 1EdTech schemas
+          readme-filepath: README.md
+          enable-url-completion: true
+
   # Tags the commit and publishes a GitHub release once its image is pushed.
   # A tag made with the workflow's own token starts no new run.
   release:
