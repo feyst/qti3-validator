@@ -32,7 +32,7 @@ docker run --rm -p 8080:8080 \
   --read-only \
   --tmpfs /tmp \
   --memory 256m \
-  kennisnet/qti3-validator
+  ghcr.io/feyst/qti3-validator
 ```
 
 ## Docker Compose
@@ -40,7 +40,7 @@ docker run --rm -p 8080:8080 \
 ```yaml
 services:
   qti-validator:
-    image: kennisnet/qti3-validator
+    image: ghcr.io/feyst/qti3-validator
     ports:
       - "8080:8080"
     read_only: true
@@ -59,7 +59,7 @@ balancer instead.
 ```yaml
 containers:
   - name: qti-validator
-    image: kennisnet/qti3-validator
+    image: ghcr.io/feyst/qti3-validator
     ports:
       - containerPort: 8080
     resources:

@@ -20,7 +20,7 @@ wrong and where.
 Start the service:
 
 ```sh
-docker run --rm -p 8080:8080 kennisnet/qti3-validator
+docker run --rm -p 8080:8080 ghcr.io/feyst/qti3-validator
 ```
 
 Validate a package:
@@ -204,7 +204,7 @@ For example:
 docker run --rm -p 8080:8080 \
   -e MAX_PACKAGE_SIZE=52428800 \
   -e MAX_CONCURRENT=4 \
-  kennisnet/qti3-validator
+  ghcr.io/feyst/qti3-validator
 ```
 
 [Running in production](docs/deployment.md) covers memory, a read-only

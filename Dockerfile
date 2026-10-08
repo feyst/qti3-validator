@@ -2,7 +2,10 @@
 
 ARG GO_VERSION=1.27.1
 
-FROM golang:${GO_VERSION}-alpine AS build
+# The build stage runs on the builder's own platform and cross-compiles the
+# binary for the target, so an arm64 image builds as fast as an amd64 one,
+# without emulation.
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
 WORKDIR /src
 
 COPY go.mod go.sum ./
@@ -19,17 +22,20 @@ COPY . .
 # file fails the build instead of silently changing validation.
 RUN go run ./cmd/fetchschemas
 
+# Compile the schemas once at build time, so a schema the validator cannot
+# compile fails the build rather than the container start. This runs a binary
+# for the builder's platform: the target's binary may not run here.
+RUN CGO_ENABLED=0 go run ./cmd/qti-validator -check
+
 ARG VERSION=0.1.0
-RUN CGO_ENABLED=0 go build \
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
     -trimpath \
     -ldflags="-s -w -X github.com/kennisnet/qti3-validator/internal/adapter/httpapi.Version=${VERSION}" \
     -o /out/qti-validator \
     ./cmd/qti-validator \
  && mkdir /out/tmp /out/validators
-
-# Compile the schemas once at build time, so a schema the validator cannot
-# compile fails the build rather than the container start.
-RUN /out/qti-validator -check
 
 FROM scratch
 

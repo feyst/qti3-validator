@@ -209,8 +209,20 @@ Go 1.27 or newer is required.
 ### Docker
 
 ```sh
-make image   # tags kennisnet/qti3-validator:dev and :latest
-docker run --rm -p 8080:8080 kennisnet/qti3-validator
+make image   # tags feyst/qti3-validator:dev and :latest
+docker run --rm -p 8080:8080 feyst/qti3-validator
+```
+
+CI builds the image for linux/amd64 and linux/arm64 after the checks pass, and
+pushes it to `ghcr.io/feyst/qti3-validator`: `latest` and `main` from main,
+`1.2.3` and `1.2` from a tag `v1.2.3`, `pr-<number>` from a pull request, and
+`sha-<commit>` from each. With the repository secrets `DOCKERHUB_USERNAME` and
+`DOCKERHUB_TOKEN` set, the same tags except those of pull requests also go to
+`feyst/qti3-validator` on Docker Hub. The Dockerfile cross-compiles, so the
+arm64 image needs no emulation:
+
+```sh
+docker buildx build --platform linux/amd64,linux/arm64 .
 ```
 
 ## Tests, linters and benchmarks
@@ -306,7 +318,7 @@ is merged, and the numbers here updated.
 
 Environment:
 Docker 29.8.2 on WSL2 (kernel 6.18.33.2), Intel Core Ultra 7 268V, 8 CPUs,
-16 GB. Image `kennisnet/qti3-validator:dev` from this Dockerfile (13.5 MB), default
+16 GB. Image `feyst/qti3-validator:dev` from this Dockerfile (13.5 MB), default
 configuration (`MAX_CONCURRENT` = 8). RSS is `VmRSS`/`VmHWM` from
 `/proc/<pid>/status` of the container process. Load was generated with
 `curl` through `xargs -P`. Every validation includes XSD, 1EdTech's
