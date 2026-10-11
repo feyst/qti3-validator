@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"qti3-validator/internal/lib/xpath"
 )
 
 const ownRules = "../../../rules/qti3-additional-checks.sch"
@@ -61,8 +63,59 @@ func TestIndexCounts(t *testing.T) {
 		if want == "" {
 			want = in
 		}
-		if got := indexCounts(in, ns); got != want {
+		if got := indexCounts(in, ns, "qtiv"); got != want {
 			t.Errorf("indexCounts(%q)\n got %q\nwant %q", in, got, want)
+		}
+	}
+}
+
+// The indexed counts bind a prefix of their own to the extension
+// namespace, one the schema does not use; the schema's own expressions
+// cannot call the extension function by its name.
+func TestIndexedCountsBindTheirOwnPrefix(t *testing.T) {
+	ruleSet := func(ns map[string]string, test string) RuleSet {
+		return RuleSet{Source: "s", Namespaces: ns, Patterns: []Pattern{{ID: "p", Rules: []Rule{{
+			Context:    "q:a",
+			Assertions: []Assertion{{Test: test, Message: []MessagePart{{Text: "duplicate"}}}},
+		}}}}}
+	}
+	const unique = "count(//q:*[self::q:a][@id = current()/@id]) = 1"
+	for _, tc := range []struct {
+		ns   map[string]string
+		want string // prefix of the call
+	}{
+		{map[string]string{"q": "urn:q"}, "qtiv"},
+		{map[string]string{"q": "urn:q", "qtiv": "urn:other", "qtiv2": "urn:other2"}, "qtiv3"},
+		{map[string]string{"q": "urn:q", "e": xpath.ExtensionNamespace}, "e"},
+	} {
+		c, err := Precompile(ruleSet(tc.ns, unique))
+		if err != nil {
+			t.Fatal(err)
+		}
+		test := c.Sets[0].Patterns[0].Rules[0].Assertions[0].Test
+		if !strings.HasPrefix(test, tc.want+":count-by-attribute(") {
+			t.Errorf("namespaces %v: test %s", tc.ns, test)
+		}
+		for p, uri := range tc.ns {
+			if c.Sets[0].Namespaces[p] != uri {
+				t.Errorf("namespaces %v: prefix %s rebound in %v", tc.ns, p, c.Sets[0].Namespaces)
+			}
+		}
+		e, err := New(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		failures, err := e.Validate(nil, parseDoc(t, `<r xmlns="urn:q"><a id="x"/><a id="y"/><a id="x"/></r>`), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(failures) != 2 {
+			t.Errorf("namespaces %v: %d failures, want 2", tc.ns, len(failures))
+		}
+	}
+	for _, ns := range []map[string]string{{"q": "urn:q"}, {"q": "urn:q", "qtiv": "urn:other"}} {
+		if _, err := Precompile(ruleSet(ns, "qtiv:count-by-attribute(/, 'descendant', '{urn:q}a', 'id', current()/@id) = 1")); err == nil {
+			t.Errorf("namespaces %v: a rule calls the extension function", ns)
 		}
 	}
 }
@@ -103,6 +156,15 @@ func TestIndexedCountsMatchXPath(t *testing.T) {
 	for range 150 {
 		docs = append(docs, randomDoc(r))
 	}
+	// Deeply nested interactions, with identifiers that repeat across
+	// levels and within one.
+	var deep strings.Builder
+	deep.WriteString(itemOpen + `<qti-item-body>`)
+	for i := range 40 {
+		fmt.Fprintf(&deep, `<qti-custom-interaction><qti-simple-choice identifier="%c"/><div><qti-gap identifier="%c"/></div>`, 'a'+i%3, 'a'+i%5)
+	}
+	deep.WriteString(strings.Repeat(`</qti-custom-interaction>`, 40) + `</qti-item-body></qti-assessment-item>`)
+	docs = append(docs, deep.String())
 	findings := 0
 	for i, src := range docs {
 		doc := parseDoc(t, src)
@@ -220,6 +282,16 @@ func randomDoc(r *rand.Rand) string {
 	return b.String()
 }
 
+// nestedInteractions opens depth interactions, one inside the other, each
+// with a choice of its own identifier.
+func nestedInteractions(depth int) string {
+	var b strings.Builder
+	for i := range depth {
+		fmt.Fprintf(&b, `<qti-custom-interaction><qti-simple-choice identifier="n%d"/>`, i)
+	}
+	return b.String()
+}
+
 // One interaction with many choices, or a test with many references, must
 // not take time quadratic in their number.
 func TestIndexedCountsScale(t *testing.T) {
@@ -232,6 +304,8 @@ func TestIndexedCountsScale(t *testing.T) {
 		{"declarations", itemOpen, `<qti-outcome-declaration identifier="O%d"/>`, `</qti-assessment-item>`, 0},
 		{"item references", testOpen + `<qti-test-part identifier="P"><qti-assessment-section identifier="S">`, `<qti-assessment-item-ref identifier="I%d"/>`, `</qti-assessment-section></qti-test-part></qti-assessment-test>`, 0},
 		{"duplicate choices", itemOpen + `<qti-item-body><qti-choice-interaction>`, `<qti-simple-choice identifier="c%d"/>`, `</qti-choice-interaction></qti-item-body></qti-assessment-item>`, 3},
+		// Each choice counts in its own interaction: 200 scopes, nested.
+		{"nested interactions", itemOpen + `<qti-item-body>` + nestedInteractions(200), `<qti-simple-choice identifier="c%d"/>`, strings.Repeat(`</qti-custom-interaction>`, 200) + `</qti-item-body></qti-assessment-item>`, 2},
 	} {
 		const n = 20000
 		var b strings.Builder
@@ -260,7 +334,7 @@ func TestIndexedCountsScale(t *testing.T) {
 		if len(unique) != 2*tc.dups {
 			t.Errorf("%s: want %d uniqueness findings, got %v", tc.name, 2*tc.dups, unique)
 		}
-		if took > 5*time.Second { // quadratic took minutes
+		if took > slowdown*5*time.Second { // quadratic took minutes
 			t.Errorf("%s: took %v", tc.name, took)
 		}
 	}

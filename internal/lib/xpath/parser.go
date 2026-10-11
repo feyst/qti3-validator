@@ -463,7 +463,21 @@ func (p *parser) parseCall(t token) (expr, error) {
 	if err := p.expectPunct(")"); err != nil {
 		return nil, err
 	}
-	fn, ok := functions[t.text]
+	var fn function
+	var ok bool
+	if prefix, local, prefixed := strings.Cut(t.text, ":"); prefixed {
+		// A prefixed name is an extension function, found by its
+		// namespace URI rather than by the prefix as written.
+		uri, err := p.namespace(prefix)
+		if err != nil {
+			return nil, err
+		}
+		if uri == ExtensionNamespace {
+			fn, ok = extensionFunctions[local]
+		}
+	} else {
+		fn, ok = functions[t.text]
+	}
 	if !ok {
 		if unsupportedFunctions[t.text] {
 			return nil, fmt.Errorf("function %s() is not supported", t.text)
