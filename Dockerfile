@@ -4,7 +4,7 @@
 # binary for the target, so an arm64 image builds as fast as an amd64 one,
 # without emulation. The Go version is written out, not an ARG, so Dependabot
 # can update it; CI reads it from here too.
-FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS build
 WORKDIR /src
 
 COPY go.mod go.sum ./

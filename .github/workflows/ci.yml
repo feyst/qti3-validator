@@ -70,20 +70,29 @@ jobs:
         env:
           BUMP: ${{ inputs.bump }}
         run: |
-          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)
+          # Only plain vX.Y.Z tags count; a prerelease such as v1.1.0-rc.1
+          # is neither a base to compare with nor one to count on from.
+          releases() { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; }
+          # The next number counts on from the highest release of all, so it
+          # never repeats one, also when two tags share a commit or a tag
+          # sits outside main.
+          last=$(git tag --list 'v*' | releases | sort -V | tail -n 1)
+          # Whether anything changed is asked of the nearest release in
+          # main's history.
+          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' 2>/dev/null || true)
           if [ -z "$last" ]; then
             next=v0.1.0
           else
-            if [ -z "$BUMP" ] && git diff --quiet "$last" HEAD -- \
+            if [ -z "$BUMP" ] && [ -n "$base" ] && git diff --quiet "$base" HEAD -- \
                 go.mod go.sum Dockerfile cmd internal rules third_party ':!*_test.go'; then
-              echo "Nothing in the image changed since $last"
+              echo "Nothing in the image changed since $base"
               exit 0
             fi
             IFS=. read -r major minor patch <<< "${last#v}"
             case "${BUMP:-patch}" in
-              major) next="v$((major + 1)).0.0" ;;
-              minor) next="v$major.$((minor + 1)).0" ;;
-              *)     next="v$major.$minor.$((patch + 1))" ;;
+              major) next="v$((10#$major + 1)).0.0" ;;
+              minor) next="v$((10#$major)).$((10#$minor + 1)).0" ;;
+              *)     next="v$((10#$major)).$((10#$minor)).$((10#$patch + 1))" ;;
             esac
           fi
           echo "Releasing $next"
