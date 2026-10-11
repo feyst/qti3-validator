@@ -31,7 +31,7 @@ func unsupportedDocument(res qti.DocumentResult) bool {
 //   - any other root is valid only inside some other element, so it is
 //     validated inside one that allows it (fragmentContexts);
 //   - a root that none of those elements allows is not checked, which a
-//     warning says.
+//     warning says. docs/report.md lists both kinds.
 //
 // An IDREF without its ID is no error: the ID may be in the document that
 // includes the fragment. XIncludes are not resolved, and the Schematron
@@ -151,6 +151,9 @@ const (
 	contextItemEnd = `</c:qti-assessment-item>`
 	contextTest    = `<c:qti-assessment-test xmlns:c="` + qti.NamespaceASI + `" identifier="fragment" title="fragment">`
 	contextTestEnd = `</c:qti-assessment-test>`
+	contextBody    = contextItem + `<c:qti-item-body>`
+	contextBodyEnd = `</c:qti-item-body>` + contextItemEnd
+	contextOutcome = contextItem + `<c:qti-outcome-declaration identifier="OUTCOME" cardinality="single" base-type="float">`
 	contextPart    = `<c:qti-test-part identifier="part" navigation-mode="linear" submission-mode="individual">`
 	contextSection = `<c:qti-assessment-section identifier="section" title="section" visible="true">`
 )
@@ -221,6 +224,65 @@ var fragmentContexts = []fragmentContext{
 	{open: contextTest + contextPart + contextSection + `</c:qti-assessment-section></c:qti-test-part>`, close: contextTestEnd},
 	// The parts of a test part, such as qti-item-session-control.
 	{open: contextTest + contextPart, close: contextSection + `</c:qti-assessment-section></c:qti-test-part>` + contextTestEnd},
+	// The choices of the other interactions: qti-simple-associable-choice,
+	// qti-simple-match-set (the first of the two a match interaction has),
+	// qti-gap-text and qti-gap-img, qti-inline-choice, qti-hotspot-choice
+	// and qti-associable-hotspot.
+	{
+		open:  contextBody + `<c:qti-associate-interaction response-identifier="RESPONSE">`,
+		close: `</c:qti-associate-interaction>` + contextBodyEnd,
+	},
+	{
+		open: contextBody + `<c:qti-match-interaction response-identifier="RESPONSE">`,
+		close: `<c:qti-simple-match-set><c:qti-simple-associable-choice identifier="choice" match-max="1"/></c:qti-simple-match-set>` +
+			`</c:qti-match-interaction>` + contextBodyEnd,
+	},
+	{
+		open:  contextBody + `<c:qti-gap-match-interaction response-identifier="RESPONSE">`,
+		close: `<c:p><c:qti-gap identifier="gap"/></c:p></c:qti-gap-match-interaction>` + contextBodyEnd,
+	},
+	{
+		open:  contextBody + `<c:p><c:qti-inline-choice-interaction response-identifier="RESPONSE">`,
+		close: `</c:qti-inline-choice-interaction></c:p>` + contextBodyEnd,
+	},
+	{
+		open:  contextBody + `<c:qti-hotspot-interaction response-identifier="RESPONSE"><c:img src="image.png" alt=""/>`,
+		close: `</c:qti-hotspot-interaction>` + contextBodyEnd,
+	},
+	{
+		open:  contextBody + `<c:qti-graphic-associate-interaction response-identifier="RESPONSE"><c:img src="image.png" alt=""/>`,
+		close: `</c:qti-graphic-associate-interaction>` + contextBodyEnd,
+	},
+	// The content of feedback and of a rubric block: qti-content-body.
+	{
+		open:  contextItem + `<c:qti-modal-feedback outcome-identifier="FEEDBACK" identifier="feedback" show-hide="show">`,
+		close: `</c:qti-modal-feedback>` + contextItemEnd,
+	},
+	// The values of a declaration: qti-value, qti-map-entry and
+	// qti-area-map-entry.
+	{
+		open:  contextOutcome + `<c:qti-default-value>`,
+		close: `</c:qti-default-value></c:qti-outcome-declaration>` + contextItemEnd,
+	},
+	{
+		open:  contextItem + `<c:qti-response-declaration identifier="RESPONSE" cardinality="single" base-type="string"><c:qti-mapping>`,
+		close: `</c:qti-mapping></c:qti-response-declaration>` + contextItemEnd,
+	},
+	{
+		open:  contextItem + `<c:qti-response-declaration identifier="RESPONSE" cardinality="single" base-type="point"><c:qti-area-mapping>`,
+		close: `</c:qti-area-mapping></c:qti-response-declaration>` + contextItemEnd,
+	},
+	// The lookup tables of an outcome declaration, and their entries.
+	{open: contextOutcome, close: `</c:qti-outcome-declaration>` + contextItemEnd},
+	{open: contextOutcome + `<c:qti-match-table>`, close: `</c:qti-match-table></c:qti-outcome-declaration>` + contextItemEnd},
+	{open: contextOutcome + `<c:qti-interpolation-table>`, close: `</c:qti-interpolation-table></c:qti-outcome-declaration>` + contextItemEnd},
+	// The parts of an item reference: qti-weight, qti-variable-mapping and
+	// qti-template-default.
+	{
+		open: `<c:qti-assessment-section xmlns:c="` + qti.NamespaceASI + `" identifier="section" title="section" visible="true">` +
+			`<c:qti-assessment-item-ref identifier="item" href="item.xml">`,
+		close: `</c:qti-assessment-item-ref></c:qti-assessment-section>`,
+	},
 }
 
 func init() {

@@ -365,6 +365,8 @@ func itemFor(e qti.Finding, resource, schema, version string) Item {
 		it.Title, it.Generator, it.Outcome = "QTI fragment", "document-type", OutcomeNameWarning
 	case qti.CodeTooLarge, qti.CodeLimitExceeded:
 		it.Title, it.Generator = "Limits", "limits"
+	case qti.CodeWarningsOmitted:
+		it.Title, it.Generator, it.Outcome = "Limits", "limits", OutcomeNameWarning
 	case qti.CodeTooComplex:
 		// Not a verdict on the document: the checks did not finish.
 		it.Title, it.Generator, it.Outcome = "Limits", "limits", OutcomeNameException

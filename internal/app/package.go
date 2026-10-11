@@ -128,25 +128,35 @@ type fileOutcome struct {
 
 // decide validates the undecided files that a document of the package
 // includes as fragments, and adds the outcome of every file to the
-// package's.
+// package's. Out of time, the files from there on are not validated as
+// fragments: each says so itself, and a finding of the package names them.
 func (v *Validator) decide(ctx context.Context, outcomes []fileOutcome, res *qti.PackageResult,
 	contents *qti.PackageContents, maxSize int64, req qti.VersionRequest,
 ) {
 	included := qti.IncludedFiles(*contents)
+	stopped := false
 	for _, u := range outcomes {
 		name := u.entry.Name()
 		if u.undecided && included[name] {
+			if stop, ok := stopFinding(ctx.Err()); ok && !stopped {
+				stopped = true
+				stop.Message += "; " + name + " and the included files after it were not validated as QTI fragments"
+				res.Fail(qti.OutcomeTooComplex, stop)
+			}
 			// Read once more, now as a fragment. The bytes were counted
 			// against the package's budget the first time.
 			again := maxSize
 			fr, outcome, doc := v.validateEntry(ctx, u.entry, maxSize, &again, req, qti.ResourceFragment)
-			// Included XML outside the QTI namespace, such as MathML, that
-			// the manifest does not list as QTI stays skipped.
-			if !res.Files[u.index].Skipped || !notQTI(fr) {
-				res.Files[u.index], u.outcome = fr, outcome
-				if doc != nil {
-					contents.Documents[name] = *doc
-				}
+			if notQTI(fr) {
+				// Included XML outside the QTI namespace, such as MathML, is
+				// not QTI content. It is skipped, also when the manifest
+				// lists it as a file of a QTI resource; only a fragment
+				// resource, which is not undecided, makes it an error.
+				fr.Valid, fr.Skipped, outcome = true, true, qti.OutcomeValid
+			}
+			res.Files[u.index], u.outcome = fr, outcome
+			if doc != nil {
+				contents.Documents[name] = *doc
 			}
 		}
 		res.Outcome = res.Outcome.Worse(u.outcome)

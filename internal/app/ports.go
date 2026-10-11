@@ -62,7 +62,7 @@ type RuleLimits struct {
 	// no limit.
 	Errors int
 	// Warnings is the number of warnings kept; the rules go on looking for
-	// errors after it, and add one warning with qti.CodeLimitExceeded that
+	// errors after it, and add one warning with qti.CodeWarningsOmitted that
 	// says how many warnings they left out. Zero means no limit.
 	Warnings int
 }

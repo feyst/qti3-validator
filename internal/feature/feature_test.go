@@ -193,11 +193,19 @@ var cases = []featureCase{
   <p>Kies het juiste antwoord.</p>
 </qti-uitleg>
 `))},
-	// A fragment whose root the validator cannot check on its own: a
-	// warning, and no schema check counted for it.
-	{name: "toets-fragment-not-checked", contentType: "application/zip", body: toets(includedBy("items/gatenkoppel.xml",
+	// A fragment whose root is a part of an interaction: validated as inside
+	// a qti-gap-match-interaction.
+	{name: "toets-fragment-interaction-part", contentType: "application/zip", body: toets(includedBy("items/gatenkoppel.xml",
 		`<file href="fragments/waal.xml"/>`, `<qti-gap-text identifier="MAAS" match-max="1">Maas</qti-gap-text>`, "fragments/waal.xml", `<?xml version="1.0" encoding="UTF-8"?>
 <qti-gap-text xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="WAAL" match-max="1">Waal</qti-gap-text>
+`))},
+	// A fragment whose root the validator cannot check on its own, a card of
+	// a catalog: a warning, and no schema check counted for it.
+	{name: "toets-fragment-not-checked", contentType: "application/zip", body: toets(includedBy("items/keuze.xml",
+		`<file href="fragments/kaart.xml"/>`, `<qti-item-body>`, "fragments/kaart.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<qti-card xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" support="glossary-on-screen">
+  <qti-html-content><p>De hoofdstad is de stad die de grondwet zo noemt.</p></qti-html-content>
+</qti-card>
 `))},
 	// A manifest that is a valid QTI item: not a manifest, and none of the
 	// checks of an item are counted for it.

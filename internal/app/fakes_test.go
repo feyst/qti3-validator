@@ -127,3 +127,16 @@ func validatePkg(t *testing.T, v *Validator, limits qti.PackageLimits) qti.Packa
 	t.Helper()
 	return v.ValidatePackage(t.Context(), ValidatePackage{Package: bytes.NewReader(nil), Limits: limits})
 }
+
+// fakeReferences makes every item include the given files with XInclude.
+type fakeReferences []string
+
+func (f fakeReferences) ReadReferences(data []byte) (qti.DocumentReferences, error) {
+	var refs qti.DocumentReferences
+	if bytes.HasPrefix(data, []byte("<qti-assessment-item")) {
+		for _, href := range f {
+			refs.References = append(refs.References, qti.Reference{Kind: qti.RefAsset, Href: href, Element: "xi:include", Include: true})
+		}
+	}
+	return refs, nil
+}

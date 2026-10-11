@@ -249,22 +249,50 @@ func (c *refChecker) exists(kind RefKind, target string) bool {
 // the sections it includes with qti-assessment-section-ref, however deeply
 // nested. The rules see one document at a time, so an identifier used in two
 // of these documents is reported here; one used twice in one document is
-// left to the rules (test-identifier-unique).
+// left to the rules (test-identifier-unique). Duplicates are reported on the
+// test only: a section document is not a scope of its own, and the tests
+// that include it report it. Its "ITEM.VARIABLE" references are checked
+// against the item refs it can see itself.
 func (c *refChecker) checkTests(names []string) {
 	for _, name := range names {
 		doc := c.p.Documents[name]
 		vrs := doc.Refs.VariableRefs
-		if doc.Schema != "qti-assessment-test" && len(vrs) == 0 {
+		isTest := doc.Schema == "qti-assessment-test"
+		if !isTest && len(vrs) == 0 {
 			continue
 		}
-		items, dups := c.testItems(name)
-		for _, d := range dups {
-			c.add(name, 0, 0, CheckItemRefUnique, false,
-				"qti-assessment-item-ref identifier %q is used in both %s (for %s) and %s (for %s) of test %s; item-ref identifiers must be unique within a test.",
-				d.identifier, d.first.doc, d.first.target, d.second.doc, d.second.target, name)
+		found := c.testItems(name)
+		if isTest {
+			for _, d := range found.dups {
+				c.add(name, 0, 0, CheckItemRefUnique, false,
+					"qti-assessment-item-ref identifier %q is used in both %s (for %s) and %s (for %s) of test %s; item-ref identifiers must be unique within a test.",
+					d.identifier, d.first.doc, d.first.target, d.second.doc, d.second.target, name)
+			}
+			for _, section := range found.repeated {
+				c.checkRepeatedSection(name, section)
+			}
 		}
-		c.checkVariables(name, vrs, items)
+		c.checkVariables(name, vrs, found.items)
 	}
+}
+
+// checkRepeatedSection reports a section document that a test includes more
+// than once: each of its item refs, and of the sections it includes, is
+// then in the test more than once.
+func (c *refChecker) checkRepeatedSection(test, section string) {
+	identifiers := c.testItems(section).identifiers
+	if len(identifiers) == 0 {
+		return
+	}
+	more := ""
+	if n := len(identifiers) - 1; n == 1 {
+		more = " and 1 other"
+	} else if n > 1 {
+		more = fmt.Sprintf(" and %d others", n)
+	}
+	c.add(test, 0, 0, CheckItemRefUnique, false,
+		"%s is included more than once in test %s, which puts its qti-assessment-item-ref identifiers (%q%s) in the test more than once; item-ref identifiers must be unique within a test.",
+		section, test, identifiers[0], more)
 }
 
 // checkVariables checks the "ITEM.VARIABLE" references of a test against the
@@ -301,16 +329,23 @@ type testItemRefs struct {
 	// items maps an identifier to the item file it refers to, or to "" when
 	// it refers to different files.
 	items map[string]string
-	first map[string]itemRefSite
+	// identifiers are the identifiers, once each, in the order they were
+	// found.
+	identifiers []string
+	first       map[string]itemRefSite
 	// dups are the identifiers used in more than one document, once each,
 	// in the order they were found.
 	dups     []duplicateItemRef
 	reported map[string]bool
+	// repeated are the section documents that are included more than once,
+	// once each, in the order they were found.
+	repeated []string
 }
 
 func (r *testItemRefs) add(identifier string, site itemRefSite) {
 	if prev, ok := r.first[identifier]; !ok {
 		r.first[identifier] = site
+		r.identifiers = append(r.identifiers, identifier)
 	} else if prev.doc != site.doc && !r.reported[identifier] {
 		r.reported[identifier] = true
 		r.dups = append(r.dups, duplicateItemRef{identifier: identifier, first: prev, second: site})
@@ -322,21 +357,25 @@ func (r *testItemRefs) add(identifier string, site itemRefSite) {
 	r.items[identifier] = target
 }
 
-// testItems maps the item-ref identifiers of a test to the item files they
-// refer to: the item refs of the test and of the section documents it
-// includes. An identifier that refers to different files maps to "". It also
-// returns the identifiers used in more than one of these documents.
-func (c *refChecker) testItems(test string) (map[string]string, []duplicateItemRef) {
+// testItems collects the item refs of a test, or of a section: those of the
+// document itself and of the section documents it includes. It maps their
+// identifiers to the item files they refer to, an identifier that refers to
+// different files to "", and finds the identifiers used in more than one of
+// these documents and the sections included more than once.
+func (c *refChecker) testItems(test string) testItemRefs {
 	found := testItemRefs{items: map[string]string{}, first: map[string]itemRefSite{}, reported: map[string]bool{}}
-	visited := map[string]bool{}
+	visits := map[string]int{}
 	queue := []string{test}
 	for len(queue) > 0 {
 		doc := queue[0]
 		queue = queue[1:]
-		if visited[doc] {
+		visits[doc]++
+		if visits[doc] == 2 && doc != test {
+			found.repeated = append(found.repeated, doc)
+		}
+		if visits[doc] > 1 {
 			continue
 		}
-		visited[doc] = true
 		refs := c.p.Documents[doc].Refs
 		for _, ir := range refs.ItemRefs {
 			if target, local, inside := resolve(doc, ir.Href); local && inside {
@@ -352,7 +391,7 @@ func (c *refChecker) testItems(test string) (map[string]string, []duplicateItemR
 			}
 		}
 	}
-	return found.items, found.dups
+	return found
 }
 
 // resolve resolves href against the document it is in. local is false for a

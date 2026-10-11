@@ -105,7 +105,7 @@ func TestMaxErrorsCountsErrorsOnly(t *testing.T) {
 		v := testValidator(t).WithLimits(qti.Limits{MaxErrors: tc.maxErrors})
 		res := v.ValidateDocument(context.Background(), app.ValidateDocument{Document: strings.NewReader(doc)})
 		warnings, note := res.Warnings, ""
-		if n := len(warnings); n > 0 && warnings[n-1].Code == qti.CodeLimitExceeded {
+		if n := len(warnings); n > 0 && warnings[n-1].Code == qti.CodeWarningsOmitted {
 			warnings, note = warnings[:n-1], warnings[n-1].Message
 		}
 		if res.Valid || res.Outcome != qti.OutcomeInvalid || len(res.Errors) != 1 || len(warnings) != tc.warnings || note != tc.note ||

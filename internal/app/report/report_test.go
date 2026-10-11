@@ -127,11 +127,11 @@ func TestReportWarningsStayValid(t *testing.T) {
 	if r.Warnings[0].Code != string(qti.CodeVersionOverridden) || r.Warnings[0].Generator != "version" {
 		t.Fatalf("warning %+v", r.Warnings[0])
 	}
-	// The note that rule warnings were left out is a warning too, though its
-	// code is an error elsewhere.
-	res.Warnings = []qti.Finding{{Code: qti.CodeLimitExceeded, Message: "3 further warnings"}}
+	// The note that rule warnings were left out is a warning with a code of
+	// its own: limit_exceeded is always an error.
+	res.Warnings = []qti.Finding{{Code: qti.CodeWarningsOmitted, Message: "3 further warnings"}}
 	r = ForDocument(res, testMeta)
-	if r.Summary.Outcome != OutcomeNameWarning || !r.IsValid() || len(r.Errors) != 0 ||
+	if r.Summary.Outcome != OutcomeNameWarning || !r.IsValid() || len(r.Errors) != 0 || r.Warnings[0].Code != "warnings_omitted" ||
 		r.Warnings[0].Outcome != OutcomeNameWarning || r.Warnings[0].Title != "Limits" || r.Warnings[0].Generator != "limits" {
 		t.Fatalf("summary %+v, warnings %+v", r.Summary, r.Warnings)
 	}

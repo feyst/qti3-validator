@@ -115,7 +115,7 @@ func Chain(checkers ...*Checker) *Checker {
 // CheckRules implements app.RuleChecker. The rule sets and the type checks
 // run in order until limits.Errors errors were found; warnings do not count
 // towards that, and only the first limits.Warnings of them are kept; when
-// more were found, a last warning with code limit_exceeded says how many. A
+// more were found, a last warning with code warnings_omitted says how many. A
 // nil Checker has no rules.
 //
 // All rule sets share one budget of XPath steps for the document:
@@ -187,7 +187,7 @@ func withOmitted(findings []app.RuleFinding, omitted int, limits app.RuleLimits)
 	if omitted == 1 {
 		msg = fmt.Sprintf("1 further warning of the rules was left out: only the first %d are reported (MAX_ERRORS).", limits.Warnings)
 	}
-	return append(findings, app.RuleFinding{Warning: true, Finding: qti.Finding{Code: qti.CodeLimitExceeded, Message: msg}})
+	return append(findings, app.RuleFinding{Warning: true, Finding: qti.Finding{Code: qti.CodeWarningsOmitted, Message: msg}})
 }
 
 // roomLeft returns the limits for the next rule set after the errors and

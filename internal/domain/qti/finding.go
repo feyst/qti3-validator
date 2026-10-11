@@ -14,7 +14,8 @@ const (
 	CodeSchematron          Code = "schematron"
 	CodeUnsupportedVersion  Code = "unsupported_version"
 	CodeVersionOverridden   Code = "version_overridden"
-	CodeLimitExceeded       Code = "limit_exceeded"
+	CodeLimitExceeded       Code = "limit_exceeded"   // nested too deep, or another parser limit
+	CodeWarningsOmitted     Code = "warnings_omitted" // the note that warnings were left out; a warning
 	CodeTooLarge            Code = "too_large"
 	CodeTooComplex          Code = "too_complex" // validation stopped before it finished
 	CodeInternal            Code = "internal"

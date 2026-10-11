@@ -132,7 +132,9 @@ func verdictFor(err error) app.SchemaVerdict {
 		if diag.Code() == xsderrors.CodeValidationRoot {
 			v.RootUndeclared = true
 		}
-		// The library has no code of its own for an IDREF without its ID.
+		// The library has no code of its own for an IDREF without its ID:
+		// it is a validation.type error like any other, told apart by the
+		// start of its message (app's TestFragmentUnresolvedIDRef pins it).
 		if diag.Code() == xsderrors.CodeValidationType && strings.HasPrefix(diag.Message(), unresolvedIDRef) {
 			v.UnresolvedIDRefs = append(v.UnresolvedIDRefs, len(v.Findings))
 		}
@@ -179,7 +181,9 @@ func classify(diag *xsderrors.Error) (qti.Code, qti.Outcome) {
 }
 
 // unresolvedIDRef starts the library's message for an IDREF whose ID is not
-// in the document.
+// in the document. The library reports these at the end of the document,
+// after every other error, so the ones a fragment drops never take the room
+// of another error under MaxErrors.
 const unresolvedIDRef = "IDREF does not resolve"
 
 const namespaceXSD = "http://www.w3.org/2001/XMLSchema"

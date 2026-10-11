@@ -308,7 +308,7 @@ func TestLimitsCountErrorsAndWarningsApart(t *testing.T) {
 		}
 		note = ""
 		for i, f := range findings {
-			if f.Code == qti.CodeLimitExceeded {
+			if f.Code == qti.CodeWarningsOmitted {
 				if !f.Warning || i != len(findings)-1 {
 					t.Errorf("%+v: the note is finding %d of %d, warning %v; want the last, a warning", limits, i+1, len(findings), f.Warning)
 				}

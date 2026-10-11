@@ -14,7 +14,7 @@
         "detailsMessage": null,
         "generator": "validation",
         "location": {
-          "resource": "/fragments/waal.xml"
+          "resource": "/fragments/kaart.xml"
         },
         "message": "Not run: the fragment cannot be checked apart from the document that includes it.",
         "title": "XML Schema and Schematron"
@@ -194,10 +194,10 @@
         "detailsMessage": null,
         "generator": "document-type",
         "location": {
-          "path": "/qti-gap-text",
-          "resource": "/fragments/waal.xml"
+          "path": "/qti-card",
+          "resource": "/fragments/kaart.xml"
         },
-        "message": "the content of this QTI fragment was not checked: its root element qti-gap-text is valid only where it is included, and the validator cannot check it apart from that document",
+        "message": "the content of this QTI fragment was not checked: its root element qti-card is valid only where it is included, and the validator cannot check it apart from that document",
         "title": "QTI fragment"
       }
     ]

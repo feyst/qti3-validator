@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -379,6 +380,61 @@ func TestPackageOutOfTimeWhileReading(t *testing.T) {
 	}
 	if e := res.Errors[0]; !strings.Contains(e.Message, "item-2.xml and the files after it were not validated") {
 		t.Fatalf("package: %+v", e)
+	}
+}
+
+// Out of time while the included files are validated as fragments, a
+// package stops the same way: the fragment that was running reports
+// too_complex, and the package names the ones that were not validated.
+func TestPackageOutOfTimeInFragments(t *testing.T) {
+	const div = `<div xmlns="` + qti.NamespaceASI + `"/>`
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	schema := &fakeSchema{verdict: validVerdict}
+	// The manifest and the item are checked first; the fragments only once
+	// the item is known to include them.
+	schema.during = func() {
+		if schema.checked == 3 {
+			cancel()
+		}
+	}
+	cfg := Config{
+		Versions:   map[string]Profile{},
+		References: fakeReferences{"frag-a.xml", "frag-b.xml", "frag-c.xml"},
+		OpenArchive: func(io.ReaderAt, int64, int) (Archive, error) {
+			return fakeArchive{
+				fakeEntry{name: qti.ManifestName, data: manifest("3.0.0")},
+				fakeEntry{name: "frag-a.xml", data: div},
+				fakeEntry{name: "item.xml", data: item},
+				fakeEntry{name: "frag-b.xml", data: div},
+				fakeEntry{name: "frag-c.xml", data: div},
+			}, nil
+		},
+	}
+	for _, name := range qti.SupportedVersions() {
+		cfg.Versions[name] = Profile{Schema: schema}
+	}
+	v, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := v.ValidatePackage(ctx, ValidatePackage{Package: bytes.NewReader(nil)})
+	if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Files) != 5 || schema.checked != 3 {
+		t.Fatalf("got %+v after %d schema checks", res, schema.checked)
+	}
+	for _, name := range []string{"frag-a.xml", "frag-b.xml", "frag-c.xml"} {
+		if f := fileResult(t, res, name); f.Valid || f.Skipped || len(f.Errors) != 1 || f.Errors[0].Code != qti.CodeTooComplex {
+			t.Errorf("%s: %+v", name, f)
+		}
+	}
+	var stops []string
+	for _, e := range res.Errors {
+		if e.Code == qti.CodeTooComplex {
+			stops = append(stops, e.Message)
+		}
+	}
+	if len(stops) != 1 || !strings.Contains(stops[0], "cancelled; frag-b.xml and the included files after it were not validated as QTI fragments") {
+		t.Fatalf("package: %+v", res.Errors)
 	}
 }
 

@@ -221,3 +221,81 @@ func TestItemRefIdentifierUniqueAcrossDocuments(t *testing.T) {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }
+
+// Duplicate item-ref identifiers are reported on tests only: a section that
+// has a variable reference is not a test, and is not reported as one.
+func TestItemRefIdentifierUniqueNotOnSections(t *testing.T) {
+	item := PackageDocument{Schema: "qti-assessment-item", Refs: DocumentReferences{Declared: []string{"SCORE"}}}
+	p := PackageContents{
+		Files: []string{"test.xml", "s0.xml", "s1.xml", "i1.xml"},
+		Documents: map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s0.xml")}}},
+			"s0.xml": {Schema: "qti-assessment-section", Refs: DocumentReferences{
+				ItemRefs:   []ItemRef{{Identifier: "I1", Href: "i1.xml"}},
+				References: []Reference{ref(RefSection, "s1.xml")},
+				// One that resolves, and one that does not: the variable
+				// check of a section stays.
+				VariableRefs: []VariableRef{{Item: "I1", Variable: "SCORE"}, {Item: "I1", Variable: "NOPE"}},
+			}},
+			"s1.xml": {Schema: "qti-assessment-section", Refs: DocumentReferences{ItemRefs: []ItemRef{{Identifier: "I1", Href: "i1.xml"}}}},
+			"i1.xml": item,
+		},
+	}
+	want := []string{"s0.xml " + CheckTestItemVariable, "test.xml " + CheckItemRefUnique}
+	if got := checks(CheckReferences(p)); !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// A section document that a test includes twice puts its item refs, and
+// those of the sections it includes, in the test twice.
+func TestItemRefIdentifierUniqueSectionIncludedTwice(t *testing.T) {
+	item := PackageDocument{Schema: "qti-assessment-item"}
+	section := func(refs []Reference, items ...ItemRef) PackageDocument {
+		return PackageDocument{Schema: "qti-assessment-section", Refs: DocumentReferences{ItemRefs: items, References: refs}}
+	}
+	for _, tc := range []struct {
+		name string
+		docs map[string]PackageDocument
+		want []string
+	}{
+		{"twice by the test", map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s1.xml"), ref(RefSection, "s1.xml")}}},
+			"s1.xml":   section(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+		}, []string{`test.xml: s1.xml is included more than once in test test.xml, which puts its qti-assessment-item-ref identifiers ("I1") in the test more than once; item-ref identifiers must be unique within a test.`}},
+		{"by the test and by a section, with item refs in a nested section", map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s0.xml"), ref(RefSection, "s1.xml")}}},
+			"s0.xml":   section([]Reference{ref(RefSection, "s1.xml")}),
+			"s1.xml":   section([]Reference{ref(RefSection, "s2.xml")}, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+			"s2.xml":   section(nil, ItemRef{Identifier: "I2", Href: "i1.xml"}, ItemRef{Identifier: "I3", Href: "i1.xml"}),
+		}, []string{`test.xml: s1.xml is included more than once in test test.xml, which puts its qti-assessment-item-ref identifiers ("I1" and 2 others) in the test more than once; item-ref identifiers must be unique within a test.`}},
+		{"a section without item refs", map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s1.xml"), ref(RefSection, "s1.xml")}}},
+			"s1.xml":   section(nil),
+		}, nil},
+		{"once", map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s1.xml")}}},
+			"s1.xml":   section(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+		}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := PackageContents{Files: []string{"i1.xml"}, Documents: tc.docs}
+			tc.docs["i1.xml"] = item
+			for name := range tc.docs {
+				if name != "i1.xml" {
+					p.Files = append(p.Files, name)
+				}
+			}
+			var got []string
+			for _, f := range CheckReferences(p) {
+				if f.Rule != CheckItemRefUnique || f.Warning {
+					t.Errorf("unexpected: %+v", f)
+				}
+				got = append(got, f.File+": "+f.Message)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("got\n%q\nwant\n%q", got, tc.want)
+			}
+		})
+	}
+}

@@ -67,6 +67,39 @@ func TestFragmentRoot(t *testing.T) {
 		{"else branch with invalid content", `<qti-response-else` + asi + `><qti-exit-test/></qti-response-else>`, false, "qti-exit-test"},
 		{"item reference", `<qti-assessment-item-ref` + asi + ` identifier="i" href="item-1.xml"/>`, true, ""},
 		{"test part", `<qti-test-part` + asi + ` identifier="p" navigation-mode="linear" submission-mode="individual"/>`, false, "missing required child"},
+		// The parts of the other interactions, of declarations and of an
+		// item reference.
+		{"associable choice", `<qti-simple-associable-choice` + asi + ` identifier="A" match-max="1">A</qti-simple-associable-choice>`, true, ""},
+		{"associable choice without its attribute", `<qti-simple-associable-choice` + asi + ` identifier="A">A</qti-simple-associable-choice>`, false, "match-max"},
+		{
+			"match set", `<qti-simple-match-set` + asi + `><qti-simple-associable-choice identifier="A" match-max="1">A</qti-simple-associable-choice>` +
+				`</qti-simple-match-set>`, true, "",
+		},
+		{"match set with invalid content", `<qti-simple-match-set` + asi + `><qti-simple-choice identifier="A">A</qti-simple-choice></qti-simple-match-set>`, false, "qti-simple-choice"},
+		{"gap text", `<qti-gap-text` + asi + ` identifier="A" match-max="1">A</qti-gap-text>`, true, ""},
+		{"gap text without its attribute", `<qti-gap-text` + asi + ` identifier="A">A</qti-gap-text>`, false, "match-max"},
+		{"gap image", `<qti-gap-img` + asi + ` identifier="A" match-max="1"><img src="media/picture.png" alt="a"/></qti-gap-img>`, true, ""},
+		{"inline choice", `<qti-inline-choice` + asi + ` identifier="A">A</qti-inline-choice>`, true, ""},
+		{"inline choice with invalid content", `<qti-inline-choice` + asi + ` identifier="A"><div>A</div></qti-inline-choice>`, false, "div"},
+		{"hotspot choice", `<qti-hotspot-choice` + asi + ` identifier="A" shape="rect" coords="0,0,10,10"/>`, true, ""},
+		{"hotspot choice without its attributes", `<qti-hotspot-choice` + asi + ` identifier="A"/>`, false, "shape"},
+		{"associable hotspot", `<qti-associable-hotspot` + asi + ` identifier="A" shape="rect" coords="0,0,10,10" match-max="1"/>`, true, ""},
+		{"content body", `<qti-content-body` + asi + `><p>Well done</p></qti-content-body>`, true, ""},
+		{"content body with invalid content", `<qti-content-body` + asi + `><qti-value>1</qti-value></qti-content-body>`, false, "qti-value"},
+		{"value", `<qti-value` + asi + `>1</qti-value>`, true, ""},
+		{"value with invalid content", `<qti-value` + asi + `><nonsense/></qti-value>`, false, "child elements"},
+		{"map entry", `<qti-map-entry` + asi + ` map-key="A" mapped-value="1"/>`, true, ""},
+		{"map entry without its attributes", `<qti-map-entry` + asi + `/>`, false, "map-key"},
+		{"area map entry", `<qti-area-map-entry` + asi + ` shape="rect" coords="0,0,10,10" mapped-value="1"/>`, true, ""},
+		{"match table", `<qti-match-table` + asi + `><qti-match-table-entry source-value="1" target-value="float"/></qti-match-table>`, true, ""},
+		{"match table entry", `<qti-match-table-entry` + asi + ` source-value="1" target-value="float"/>`, true, ""},
+		{"match table entry without its attributes", `<qti-match-table-entry` + asi + `/>`, false, "source-value"},
+		{"interpolation table", `<qti-interpolation-table` + asi + `><qti-interpolation-table-entry source-value="1" target-value="2"/></qti-interpolation-table>`, true, ""},
+		{"interpolation table entry", `<qti-interpolation-table-entry` + asi + ` source-value="1" target-value="2"/>`, true, ""},
+		{"weight", `<qti-weight` + asi + ` identifier="W" value="1.0"/>`, true, ""},
+		{"weight without its value", `<qti-weight` + asi + ` identifier="W"/>`, false, "value"},
+		{"variable mapping", `<qti-variable-mapping` + asi + ` source-identifier="a" target-identifier="b"/>`, true, ""},
+		{"template default", `<qti-template-default` + asi + ` template-identifier="T"><qti-null/></qti-template-default>`, true, ""},
 		// Elements of the fragment in no namespace stay there.
 		{"prefixed root", `<q:qti-response-condition xmlns:q="` + qti.NamespaceASI + `"><qti-response-if/></q:qti-response-condition>`, false, "qti-response-if"},
 	} {
@@ -95,7 +128,7 @@ func TestFragmentRoot(t *testing.T) {
 // A root that is valid only in a place the validator does not know is not
 // checked, and the result says so: a warning, and no schema check counted.
 func TestFragmentNotChecked(t *testing.T) {
-	f, res := fragmentResult(t, `<qti-value`+asi+`><nonsense/></qti-value>`)
+	f, res := fragmentResult(t, `<qti-card`+asi+`><nonsense/></qti-card>`)
 	if !f.Valid || !res.Valid || !notChecked(f) || f.Ran != (qti.Checks{}) || f.Schema != qti.SchemaFragment || len(f.Errors) != 0 {
 		t.Fatalf("got %+v", f)
 	}
@@ -137,10 +170,72 @@ func TestFragmentFindingLocation(t *testing.T) {
 	}
 }
 
+// In a fragment an IDREF without its ID is no error: the ID may be in the
+// document that includes it. In a whole document it stays one.
+func TestFragmentUnresolvedIDRef(t *testing.T) {
+	const content = `<p data-catalog-idref="nope">x</p><p data-catalog-idref="zz">y</p>`
+	for name, fragment := range map[string]string{
+		"a global root":         `<div` + asi + `>` + content + `</div>`,
+		"a root in a context":   `<qti-simple-choice` + asi + ` identifier="A" data-catalog-idref="zz"><span data-catalog-idref="nope">x</span></qti-simple-choice>`,
+		"on the root, and more": `<p` + asi + ` data-catalog-idref="a">` + strings.Repeat(`<span data-catalog-idref="zz">y</span>`, 5) + `</p>`,
+	} {
+		f, res := fragmentResult(t, fragment)
+		if !f.Valid || !res.Valid || f.Ran != (qti.Checks{Schema: true}) || len(f.Errors) != 0 || len(f.Warnings) != 0 {
+			t.Errorf("%s: got %+v", name, f)
+		}
+	}
+	// Other errors of the fragment stay, each IDREF or not.
+	f, _ := fragmentResult(t, `<div`+asi+`>`+content+`<bogus/></div>`)
+	if f.Valid || len(f.Errors) != 1 || !strings.Contains(f.Errors[0].Message, "bogus") {
+		t.Errorf("with another error: %+v", f.Errors)
+	}
+
+	// The same content inside a whole item.
+	item := strings.Replace(readTestdata(t, "package/item-1.xml"), "<qti-item-body>", "<qti-item-body><div>"+content+"</div>", 1)
+	res := validateString(t, item, "")
+	if res.Valid || len(res.Errors) != 2 {
+		t.Fatalf("whole item: %+v", res)
+	}
+	for i, id := range []string{"nope", "zz"} {
+		if e := res.Errors[i]; e.Code != qti.CodeValidation || !strings.Contains(e.Message, "IDREF") || !strings.HasSuffix(e.Message, id) {
+			t.Errorf("whole item: %+v", e)
+		}
+	}
+}
+
+// The IDREFs that are no error in a fragment do not take the room of its
+// errors under MAX_ERRORS.
+func TestFragmentUnresolvedIDRefsLeaveRoomForErrors(t *testing.T) {
+	idrefs := strings.Repeat(`<span data-catalog-idref="zz">y</span>`, 5)
+	const bogus = `<span><bogus/></span>`
+	for _, tc := range []struct {
+		name, fragment string
+		errors         int
+	}{
+		{"only IDREFs", `<div` + asi + `>` + idrefs + `</div>`, 0},
+		{"IDREFs before errors", `<div` + asi + `>` + idrefs + bogus + bogus + `</div>`, 2},
+		{"IDREFs before more errors than the limit", `<div` + asi + `>` + idrefs + bogus + bogus + bogus + `</div>`, 2},
+		{"in a context", `<qti-prompt` + asi + `>` + idrefs + bogus + bogus + `</qti-prompt>`, 2},
+	} {
+		data := makeZip(t, withResources(t, fragmentResource, includeFragment(t, "frag.xml"), entry{"items/frag.xml", tc.fragment})...)
+		res := testValidator(t).WithLimits(qti.Limits{MaxErrors: 2}).ValidatePackage(context.Background(),
+			app.ValidatePackage{Package: bytes.NewReader(data), Size: int64(len(data))})
+		f := fileResult(t, res, "items/frag.xml")
+		if len(f.Errors) != tc.errors || f.Valid != (tc.errors == 0) {
+			t.Errorf("%s: got %+v", tc.name, f)
+		}
+		for _, e := range f.Errors {
+			if e.Code != qti.CodeValidation || strings.Contains(e.Message, "IDREF") {
+				t.Errorf("%s: %+v", tc.name, e)
+			}
+		}
+	}
+}
+
 // Every element the schema declares is either validated as the root of a
 // fragment or reported as not checked; none passes silently. The elements
-// that are not checked are parts of interactions, declarations, catalogs
-// and companion materials.
+// that are not checked are parts of catalogs, of companion materials and
+// of portable custom interactions, and a few others.
 func TestFragmentEveryElement(t *testing.T) {
 	for _, version := range qti.Versions() {
 		elements, err := xsdschema.DeclaredElements(xsdschema.Resolver{Store: schemastore.Embedded()}, version.ASI)
@@ -171,23 +266,25 @@ func TestFragmentEveryElement(t *testing.T) {
 	}
 }
 
-const uncheckedRoots = "param qti-adaptive-engine-ref qti-adaptive-settings-ref qti-area-map-entry qti-associable-hotspot " +
-	"qti-calculator qti-calculator-info qti-calculator-type qti-card qti-card-entry qti-catalog qti-content-body " +
-	"qti-context-variable qti-description qti-digital-material qti-file-href qti-gap-img qti-gap-text qti-hotspot-choice " +
-	"qti-html-content qti-increment-si qti-increment-us qti-inline-choice qti-interaction-markup qti-interaction-module " +
-	"qti-interaction-modules qti-interpolation-table qti-interpolation-table-entry qti-label qti-major-increment " +
-	"qti-map-entry qti-match-table qti-match-table-entry qti-metadata-ref qti-minimum-length qti-minor-increment " +
-	"qti-physical-material qti-position-object-interaction qti-protractor qti-resource-icon qti-rule qti-rule-system-si " +
-	"qti-rule-system-us qti-simple-associable-choice qti-simple-match-set qti-template-default qti-template-variable " +
-	"qti-usagedata-ref qti-value qti-variable-mapping qti-weight"
+const uncheckedRoots = "param qti-adaptive-engine-ref qti-adaptive-settings-ref qti-calculator qti-calculator-info " +
+	"qti-calculator-type qti-card qti-card-entry qti-catalog qti-context-variable qti-description " +
+	"qti-digital-material qti-file-href qti-html-content qti-increment-si qti-increment-us " +
+	"qti-interaction-markup qti-interaction-module qti-interaction-modules qti-label qti-major-increment " +
+	"qti-metadata-ref qti-minimum-length qti-minor-increment qti-physical-material " +
+	"qti-position-object-interaction qti-protractor qti-resource-icon qti-rule qti-rule-system-si " +
+	"qti-rule-system-us qti-template-variable qti-usagedata-ref"
 
 const sharedDiv = `<div` + asi + `><p>Shared text</p></div>`
 
-// listAsItemFile lists items/frag.xml among the files of the item's
-// resource.
-func listAsItemFile(entries []entry) []entry {
+// listAsItemFile lists a file, items/frag.xml unless one is named, among the
+// files of the item's resource.
+func listAsItemFile(entries []entry, file ...string) []entry {
+	name := "items/frag.xml"
+	if len(file) > 0 {
+		name = file[0]
+	}
 	entries[0].data = strings.Replace(entries[0].data, `<file href="items/item-1.xml"/>`,
-		`<file href="items/item-1.xml"/><file href="items/frag.xml"/>`, 1)
+		`<file href="items/item-1.xml"/><file href="`+name+`"/>`, 1)
 	return entries
 }
 
@@ -244,9 +341,10 @@ func TestPackageNotIncludedFileIsNoFragment(t *testing.T) {
 }
 
 // An included file that is a QTI document is validated as that document,
-// with or without a fragment resource; included XML outside the QTI
-// namespace that the manifest does not list, and a file included as text,
-// stay skipped.
+// with or without a fragment resource. Included XML outside the QTI
+// namespace is skipped, whether the manifest does not list it or lists it
+// as a file of the item; only a fragment resource makes it an error. A file
+// included as text stays skipped too.
 func TestPackageIncludedDocumentAndOtherXML(t *testing.T) {
 	item2 := strings.Replace(readTestdata(t, "package/item-1.xml"), `identifier="item-1"`, `identifier="item-2"`, 1)
 	for _, resources := range []string{
@@ -260,14 +358,28 @@ func TestPackageIncludedDocumentAndOtherXML(t *testing.T) {
 	}
 
 	const math = `<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi></math>`
-	res := validatePackageWith(t, makeZip(t, withResources(t, "", includeFragment(t, "../shared/formula.xml"), entry{"shared/formula.xml", math})...), "")
-	if f := fileResult(t, res, "shared/formula.xml"); !f.Valid || !f.Skipped {
-		t.Fatalf("MathML: %+v", f)
+	for name, entries := range map[string][]entry{
+		"not listed":         withResources(t, "", includeFragment(t, "../shared/formula.xml"), entry{"shared/formula.xml", math}),
+		"listed by the item": listAsItemFile(withResources(t, "", includeFragment(t, "formula.xml"), entry{"items/formula.xml", math}), "items/formula.xml"),
+	} {
+		res := validatePackageWith(t, makeZip(t, entries...), "")
+		file := entries[len(entries)-1].name
+		f := fileResult(t, res, file)
+		if !res.Valid || !f.Valid || !f.Skipped || f.Ran != (qti.Checks{}) {
+			t.Fatalf("MathML, %s: %+v, package %+v", name, f, res)
+		}
+		r := report.ForPackage(res, report.Meta{InputName: "p.zip", Now: time.Now()})
+		if len(r.Fatals) != 0 || len(r.Errors) != 0 || !slices.ContainsFunc(r.NotRun, func(it report.Item) bool {
+			return it.Code == "skipped" && it.Location.Resource == "/"+file
+		}) {
+			t.Fatalf("MathML, %s: report %+v", name, r)
+		}
 	}
-	// Listed as a file of a QTI resource it must be QTI content.
-	res = validatePackageWith(t, makeZip(t, listAsItemFile(withResources(t, "", includeFragment(t, "frag.xml"), entry{"items/frag.xml", math}))...), "")
-	if f := fileResult(t, res, "items/frag.xml"); f.Valid || f.Errors[0].Code != qti.CodeUnsupportedDocument {
-		t.Fatalf("listed MathML: %+v", f)
+	// A fragment resource says it is QTI content, which it is not.
+	f, res := fragmentResult(t, math)
+	if res.Valid || f.Valid || f.Skipped || len(f.Errors) != 1 || f.Errors[0].Code != qti.CodeUnsupportedDocument ||
+		!strings.Contains(f.Errors[0].Message, "is not in the QTI namespace") {
+		t.Fatalf("MathML as a fragment resource: %+v", f)
 	}
 
 	text := includeFragment(t, "frag.xml")
