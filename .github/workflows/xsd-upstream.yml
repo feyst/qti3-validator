@@ -1,0 +1,82 @@
+name: XSD library
+
+# Dependabot cannot update github.com/jacoelho/xsd: go.mod replaces it with
+# the patched copy in third_party/xsd. That library parses every upload, so
+# its fixes matter. This compares the version of the copy, the one go.mod
+# requires, with the latest upstream release once a week, and opens an issue
+# with the steps to take when a newer one is out.
+on:
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UPSTREAM: jacoelho/xsd
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare with the latest upstream release
+        run: |
+          # The version of the copy: the one go.mod requires, as a single
+          # line or inside a require block.
+          current=$(awk -v m="github.com/$UPSTREAM" '$1 == "require" && $2 == m { print $3 } $1 == m { print $2 }' go.mod | head -n 1)
+          latest=$(gh api "repos/$UPSTREAM/releases/latest" --jq .tag_name)
+          version='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          if ! [[ $current =~ $version && $latest =~ $version ]]; then
+            echo "::error::Cannot compare the vendored version '$current' with the upstream release '$latest'"
+            exit 1
+          fi
+          echo "Vendored $current, upstream $latest"
+          if [ "$current" = "$latest" ] || [ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n 1)" != "$latest" ]; then
+            echo "Up to date"
+            exit 0
+          fi
+
+          title="$UPSTREAM $latest is available"
+          cat > body.md <<EOF
+          The copy of [\`github.com/$UPSTREAM\`](https://github.com/$UPSTREAM) in \`third_party/xsd\` is $current; upstream released [$latest](https://github.com/$UPSTREAM/releases/tag/$latest) ([changes](https://github.com/$UPSTREAM/compare/$current...$latest)).
+
+          Dependabot does not see this library, because \`go.mod\` replaces it with the patched copy. It parses every upload, so take over upstream's fixes:
+
+          1. Read the changes. If the release contains the fix of [$UPSTREAM#134](https://github.com/$UPSTREAM/pull/134), the patch is no longer needed: remove the \`replace\` line from \`go.mod\`, \`third_party/xsd\` and the patch, run \`go get github.com/$UPSTREAM@$latest\`, and skip to step 6.
+          2. Check out upstream at the release: \`git clone --branch $latest --depth 1 https://github.com/$UPSTREAM.git /tmp/xsd\`.
+          3. Apply the patch there: \`git -C /tmp/xsd apply --3way "\$PWD/third_party/xsd-element-type-recursion.patch"\`. Resolve what does not apply, and run upstream's tests (\`go test ./...\` in \`/tmp/xsd\`).
+          4. Stage the result (\`git -C /tmp/xsd add -A\`), write the patch again (\`git -C /tmp/xsd diff --cached > third_party/xsd-element-type-recursion.patch\`), and replace \`third_party/xsd\` with the patched sources: \`LICENSE\`, \`go.mod\` and the \`.go\` files that are not tests, in the same directories.
+          5. Set the version in \`go.mod\` (\`require github.com/$UPSTREAM $latest\`) and where CONTRIBUTING.md names it.
+          6. Run \`make check\` and \`make corpus\`, and measure memory as CONTRIBUTING.md describes under "Performance and memory".
+
+          The steps are also in CONTRIBUTING.md, under "Updating the XSD library". This issue was opened by the workflow \`.github/workflows/xsd-upstream.yml\`, which updates it when a newer release appears. Close it to skip this release.
+          EOF
+
+          # One issue at a time: an open issue about an older release is
+          # brought up to date, and a release whose issue was closed is not
+          # reported again.
+          issues() { gh issue list --repo "$GITHUB_REPOSITORY" --state "$1" --limit 1000 --json number,title; }
+          about='^'"$UPSTREAM"' v[0-9.]+ is available$'
+          if [ -n "$(issues closed | jq -r --arg t "$title" '.[] | select(.title == $t) | .number')" ]; then
+            echo "The issue \"$title\" was closed; not opening it again"
+            exit 0
+          fi
+          open=$(issues open | jq -r --arg re "$about" '[.[] | select(.title | test($re))] | sort_by(.number) | .[0] | .number // empty, .title // empty')
+          number=$(sed -n 1p <<< "$open")
+          if [ -z "$number" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+          elif [ "$(sed -n 2p <<< "$open")" = "$title" ]; then
+            echo "Issue #$number is open for $latest"
+          else
+            gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "Upstream released $latest; the description is updated."
+          fi

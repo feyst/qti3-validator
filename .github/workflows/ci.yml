@@ -19,11 +19,19 @@ on:
         options: [patch, minor, major]
         default: patch
 
-# A new push to a pull request cancels its running build; builds of main and
-# of tags always finish, one after the other, so two releases never pick the
-# same version.
+# A new push to a pull request cancels its running build. Builds of main and
+# of tags are never cancelled once they run, and run one after the other, but
+# GitHub keeps only one run waiting per group: a newer one takes the place of
+# an older one that has not started. For a push or the nightly run that loses
+# nothing, since the newer run builds a commit that holds the older one. A
+# run started by hand would lose its version bump that way, so each gets a
+# group of its own and always runs.
+#
+# This is why the order of runs does not decide the version: two runs can
+# release at the same time, and the version job reserves the number (see
+# there).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -33,13 +41,13 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Test with the Go of the image, which Dependabot keeps up to date, so
       # govulncheck sees the standard library the image is built with.
       - name: Go version
         id: go
         run: echo "version=$(sed -n 's/^FROM .*golang:\([0-9.]*\).*/\1/p' Dockerfile)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ steps.go.outputs.version }}
       - name: Fetch schemas
@@ -57,12 +65,20 @@ jobs:
   # that goes into the image changed since the last tag vX.Y.Z, so code,
   # dependencies, rules or the Go version; the chosen bump when started by
   # hand. The first release is v0.1.0. Empty when there is nothing to release.
+  #
+  # The version is reserved by creating its tag here, before anything is
+  # built: a tag can be created only once, so two runs that release at the
+  # same time never get the same version, whatever their order. The release
+  # job publishes the release on that tag; when the run fails before that,
+  # the unreserve job removes the tag again.
   version:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to create the tag
     outputs:
       tag: ${{ steps.next.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: next
@@ -76,27 +92,43 @@ jobs:
           # The next number counts on from the highest release of all, so it
           # never repeats one, also when two tags share a commit or a tag
           # sits outside main.
-          last=$(git tag --list 'v*' | releases | sort -V | tail -n 1)
+          highest() { git tag --list 'v*' | releases | sort -V | tail -n 1; }
           # Whether anything changed is asked of the nearest release in
-          # main's history.
+          # main's history. Tests, their data and their helpers are not in
+          # the image.
           base=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' 2>/dev/null || true)
-          if [ -z "$last" ]; then
-            next=v0.1.0
-          else
-            if [ -z "$BUMP" ] && [ -n "$base" ] && git diff --quiet "$base" HEAD -- \
-                go.mod go.sum Dockerfile cmd internal rules third_party ':!*_test.go'; then
-              echo "Nothing in the image changed since $base"
+          if [ -n "$(highest)" ] && [ -z "$BUMP" ] && [ -n "$base" ] && git diff --quiet "$base" HEAD -- \
+              go.mod go.sum Dockerfile cmd internal rules third_party \
+              ':(exclude)*_test.go' ':(exclude,glob)internal/**/testdata/**' ':(exclude)internal/testutil'; then
+            echo "Nothing in the image changed since $base"
+            exit 0
+          fi
+          # A push creates the tag or fails; it also succeeds, without
+          # creating anything, when the tag is already on this commit, so
+          # only "*", a new reference, counts.
+          reserve() { git push --porcelain origin "$GITHUB_SHA:refs/tags/$1" 2>&1 | grep -q '^\*'; }
+          for _ in 1 2 3 4 5; do
+            last=$(highest)
+            if [ -z "$last" ]; then
+              next=v0.1.0
+            else
+              IFS=. read -r major minor patch <<< "${last#v}"
+              case "${BUMP:-patch}" in
+                major) next="v$((10#$major + 1)).0.0" ;;
+                minor) next="v$((10#$major)).$((10#$minor + 1)).0" ;;
+                *)     next="v$((10#$major)).$((10#$minor)).$((10#$patch + 1))" ;;
+              esac
+            fi
+            if reserve "$next"; then
+              echo "Releasing $next"
+              echo "tag=$next" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            IFS=. read -r major minor patch <<< "${last#v}"
-            case "${BUMP:-patch}" in
-              major) next="v$((10#$major + 1)).0.0" ;;
-              minor) next="v$((10#$major)).$((10#$minor + 1)).0" ;;
-              *)     next="v$((10#$major)).$((10#$minor)).$((10#$patch + 1))" ;;
-            esac
-          fi
-          echo "Releasing $next"
-          echo "tag=$next" >> "$GITHUB_OUTPUT"
+            echo "$next is taken, by a run that released meanwhile"
+            git fetch --quiet --tags origin
+          done
+          echo "::error::Could not reserve a version"
+          exit 1
 
   # Builds the image for amd64 and arm64 and pushes it as
   # ghcr.io/feyst/qti3-validator, and as feyst/qti3-validator on Docker Hub
@@ -117,6 +149,9 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+    outputs:
+      # Whether the image went to Docker Hub too, for the release notes.
+      dockerhub: ${{ steps.names.outputs.dockerhub }}
     env:
       PUSH: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]') }}
       DOCKERHUB: ${{ github.event_name != 'pull_request' && secrets.DOCKERHUB_TOKEN != '' }}
@@ -126,13 +161,26 @@ jobs:
       # registries read the description and source from.
       DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The version job reserved the release for this commit. After a failed
+      # run the tag is gone and another run may have taken the number: then
+      # only a re-run of all jobs, which reserves again, may push it.
+      - name: Check the reserved version
+        if: env.RELEASE != ''
+        run: |
+          at=$(git ls-remote origin "refs/tags/$RELEASE" | cut -f1)
+          if [ "$at" != "$GITHUB_SHA" ]; then
+            echo "::error::$RELEASE is not reserved for this commit; re-run all jobs"
+            exit 1
+          fi
 
       - name: Image names and release tags
         id: names
         run: |
-          echo "ghcr=ghcr.io/$IMAGE" >> "$GITHUB_OUTPUT"
           {
+            echo "ghcr=ghcr.io/$IMAGE"
+            echo "dockerhub=$DOCKERHUB"
             echo 'images<<EOF'
             echo "ghcr.io/$IMAGE"
             if [ "$DOCKERHUB" = true ]; then echo "docker.io/$IMAGE"; fi
@@ -148,7 +196,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.names.outputs.images }}
           flavor: latest=false
@@ -161,11 +209,11 @@ jobs:
             type=sha
             ${{ steps.names.outputs.release }}
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to ghcr.io
         if: env.PUSH == 'true'
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -173,14 +221,14 @@ jobs:
 
       - name: Log in to Docker Hub
         if: env.DOCKERHUB == 'true'
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # The Dockerfile cross-compiles, so arm64 needs no emulation.
       - id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -199,7 +247,7 @@ jobs:
       # Attestations need a public repository, or GitHub Enterprise.
       - name: Attest
         if: env.PUSH == 'true' && github.event_name != 'pull_request' && !github.event.repository.private
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.names.outputs.ghcr }}
           subject-digest: ${{ steps.build.outputs.digest }}
@@ -215,9 +263,9 @@ jobs:
     env:
       DOCKERHUB: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.DOCKERHUB == 'true'
-      - uses: peter-evans/dockerhub-description@v5
+      - uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         if: env.DOCKERHUB == 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -227,7 +275,7 @@ jobs:
           readme-filepath: README.md
           enable-url-completion: true
 
-  # Tags the commit and publishes a GitHub release once its image is pushed.
+  # Publishes a GitHub release on the reserved tag once its image is pushed.
   # A tag made with the workflow's own token starts no new run.
   release:
     needs: [version, image]
@@ -238,10 +286,42 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.version.outputs.tag }}
+      IMAGE: feyst/qti3-validator
+      DOCKERHUB: ${{ needs.image.outputs.dockerhub }}
     steps:
       - run: |
           v=${TAG#v}
-          notes="    docker pull ghcr.io/feyst/qti3-validator:$v
-              docker pull feyst/qti3-validator:$v"
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+          # Indented: a code block in the notes. Docker Hub is named only
+          # when the image was pushed there.
+          notes="    docker pull ghcr.io/$IMAGE:$v"
+          if [ "$DOCKERHUB" = true ]; then
+            notes=$(printf '%s\n    docker pull %s:%s' "$notes" "$IMAGE" "$v")
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "$TAG" --generate-notes --notes "$notes"
+
+  # Gives the version back when the run did not release it: the tag is
+  # removed, so the next run takes the same number, unless it is no longer
+  # this run's or a release was published on it after all.
+  unreserve:
+    needs: [version, check, image, release]
+    if: always() && needs.version.outputs.tag != '' && needs.release.result != 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "$TAG is released; keeping the tag"
+            exit 0
+          fi
+          at=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha 2> /dev/null || true)
+          if [ "$at" != "$GITHUB_SHA" ]; then
+            echo "$TAG is not this run's; leaving it"
+            exit 0
+          fi
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG"
+          echo "Removed the tag $TAG"

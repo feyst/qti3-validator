@@ -34,16 +34,20 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
     -ldflags="-s -w -X qti3-validator/internal/adapter/httpapi.Version=${VERSION}" \
     -o /out/qti-validator \
     ./cmd/qti-validator \
- && mkdir /out/tmp /out/validators
+ && mkdir -p /out/root/validators \
+ && mkdir -m 1777 /out/root/tmp
 
 FROM scratch
 
-# Package uploads are spooled to /tmp instead of being held in memory.
-COPY --from=build --chmod=1777 /out/tmp /tmp
+# The directories of the image, copied as entries of one tree so that each
+# keeps its mode: COPY --chmod=1777 drops the sticky bit, and copying a
+# directory onto /tmp gives it mode 0755.
+#   /tmp          mode 1777; package uploads are spooled here instead of
+#                 being held in memory.
+#   /validators   empty by default: mount a directory with .xsd and .sch
+#                 files here to add validators.
+COPY --from=build /out/root/ /
 COPY --from=build /out/qti-validator /qti-validator
-# Empty by default: mount a directory with .xsd and .sch files here to add
-# validators.
-COPY --from=build /out/validators /validators
 
 USER 65534:65534
 # A soft memory limit for the Go runtime: the garbage collector works harder
