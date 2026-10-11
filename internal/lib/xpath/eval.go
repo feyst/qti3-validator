@@ -335,7 +335,12 @@ func (e *pathExpr) walk(nodes NodeSet, c *evalCtx) (NodeSet, error) {
 	for _, s := range e.steps {
 		if len(nodes) > 1 && s.byNode && (s.axis == axisDescendant || s.axis == axisDescendantOrSelf) && optimise {
 			// What such a step selects from a node inside the subtree of
-			// another it selects from that other node as well.
+			// another it selects from that other node as well. Finding the
+			// outermost nodes looks at every node, which the step itself,
+			// answered from an index, would not be charged for.
+			if err := c.s.charge(len(nodes)); err != nil {
+				return nil, err
+			}
 			nodes = outermost(nodes)
 		}
 		var out NodeSet
