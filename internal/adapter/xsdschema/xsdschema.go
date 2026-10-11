@@ -190,15 +190,33 @@ const namespaceXSD = "http://www.w3.org/2001/XMLSchema"
 
 // DeclaredElements reads the names of the elements the schema at schemaURL
 // declares in its target namespace: at the top level, and locally inside
-// its types and groups. Elements of imported schemas, which are in other
-// namespaces, are not part of it.
+// its types and groups, and which of them it declares with more than one
+// type. Elements of imported schemas, which are in other namespaces, are not
+// part of it.
 func DeclaredElements(r Resolver, schemaURL string) (app.SchemaElements, error) {
 	f, err := r.Store.Open(schemaURL)
 	if err != nil {
 		return app.SchemaElements{}, err
 	}
 	defer f.Close()
-	elements := app.SchemaElements{Global: map[string]bool{}, Local: map[string]bool{}}
+	elements := app.SchemaElements{Global: map[string]bool{}, Local: map[string]bool{}, ManyTyped: map[string]bool{}}
+	// The types an element name is declared with. A declaration without a
+	// type attribute has a type of its own.
+	types, anonymous := map[string]map[string]bool{}, 0
+	declare := func(t xml.StartElement) {
+		name, typ := attr(t, "name"), attr(t, "type")
+		if typ == "" {
+			anonymous++
+			typ = fmt.Sprintf("#%d", anonymous)
+		}
+		if types[name] == nil {
+			types[name] = map[string]bool{}
+		}
+		types[name][typ] = true
+		if len(types[name]) > 1 {
+			elements.ManyTyped[name] = true
+		}
+	}
 	dec := xml.NewDecoder(f)
 	qualified := false // whether local elements are in the target namespace
 	for depth := 0; ; {
@@ -222,8 +240,10 @@ func DeclaredElements(r Resolver, schemaURL string) (app.SchemaElements, error) 
 			case t.Name != xml.Name{Space: namespaceXSD, Local: "element"} || attr(t, "name") == "":
 			case depth == 2:
 				elements.Global[attr(t, "name")] = true
+				declare(t)
 			case attr(t, "form") == "qualified" || qualified && attr(t, "form") == "":
 				elements.Local[attr(t, "name")] = true
+				declare(t)
 			}
 		case xml.EndElement:
 			depth--

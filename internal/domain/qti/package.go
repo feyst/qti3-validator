@@ -3,6 +3,7 @@ package qti
 import (
 	"net/url"
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -43,18 +44,32 @@ func ClassifyResourceType(t string) ResourceKind {
 	return ResourceOther
 }
 
-// IncludedFiles returns the files of a package that one of its documents
-// includes as XML with XInclude: the fragments of the package, whether or
-// not the manifest lists them as such.
-func IncludedFiles(p PackageContents) map[string]bool {
-	included := map[string]bool{}
+// Inclusion is a place where a document of a package includes a file as XML
+// with XInclude.
+type Inclusion struct {
+	Document string // the document that includes the file
+	Within   string // the path of the element the XInclude stands in (Reference.Within)
+}
+
+// Inclusions returns the files of a package that one of its documents
+// includes as XML with XInclude, each with the places where it is included:
+// the fragments of the package, whether or not the manifest lists them as
+// such. The places are in the order of the names of the documents, and of
+// the XIncludes in a document.
+func Inclusions(p PackageContents) map[string][]Inclusion {
+	names := make([]string, 0, len(p.Documents))
 	for name := range p.Documents {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	included := map[string][]Inclusion{}
+	for _, name := range names {
 		for _, ref := range p.Documents[name].Refs.References {
 			if !ref.Include {
 				continue
 			}
 			if target, ok := PackagePath(name, ref.Href); ok {
-				included[target] = true
+				included[target] = append(included[target], Inclusion{Document: name, Within: ref.Within})
 			}
 		}
 	}

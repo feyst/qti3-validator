@@ -20,10 +20,10 @@ func TestManifestResources(t *testing.T) {
 <other xmlns="urn:x"><resource type="imsqti_item_xmlv3p0" href="not-a-cp-element.xml"/></other>
 </manifest>`
 	got := manifestResources([]byte(m))
-	want := map[string]qti.ResourceKind{
-		"pkg/content/items/item.xml":   qti.ResourceDocument,
-		"pkg/content/items/shared.xml": qti.ResourceFragment, // a fragment, though the item lists it too
-		"pkg/content/items/img a.png":  qti.ResourceDocument,
+	want := map[string]manifestFile{
+		"pkg/content/items/item.xml":   {kind: qti.ResourceDocument, href: true},
+		"pkg/content/items/shared.xml": {kind: qti.ResourceFragment, href: true}, // a fragment, though the item lists it too
+		"pkg/content/items/img a.png":  {kind: qti.ResourceDocument},             // a file of the item, not its href
 	}
 	if !maps.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)

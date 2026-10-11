@@ -39,6 +39,10 @@ type SchemaElements struct {
 	// Local are the elements declared inside a type or a group, which are
 	// valid only where that type allows them.
 	Local map[string]bool
+	// ManyTyped are the elements declared with more than one type: which
+	// one such an element has depends on the element it stands in, as a
+	// qti-rubric-block of an item is another type than one of a section.
+	ManyTyped map[string]bool
 }
 
 // Declares reports whether the schema declares an element of that name,

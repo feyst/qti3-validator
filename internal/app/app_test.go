@@ -383,6 +383,35 @@ func TestPackageOutOfTimeWhileReading(t *testing.T) {
 	}
 }
 
+// Out of time before the fragments are validated, which comes after every
+// file was read, a fragment resource says so too: it is not reported as a
+// file that is no QTI document.
+func TestPackageOutOfTimeBeforeFragments(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	schema := &fakeSchema{verdict: validVerdict}
+	schema.during = func() {
+		if schema.checked == 2 {
+			cancel() // in the item
+		}
+	}
+	v := newTestValidator(t, schema, nil,
+		fakeEntry{name: qti.ManifestName, data: strings.Replace(manifest("3.0.0"), `</resources>`,
+			`<resource type="imsqti_fragment_xmlv3p0" href="frag.xml"/></resources>`, 1)},
+		fakeEntry{name: "frag.xml", data: `<div xmlns="` + qti.NamespaceASI + `"/>`},
+		fakeEntry{name: "item.xml", data: item},
+		fakeEntry{name: "item-2.xml", data: item},
+	)
+	res := v.ValidatePackage(ctx, ValidatePackage{Package: bytes.NewReader(nil)})
+	if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Files) != 3 || len(res.Errors) != 1 ||
+		!strings.Contains(res.Errors[0].Message, "item-2.xml and the files after it were not validated") {
+		t.Fatalf("got %+v", res)
+	}
+	if f := fileResult(t, res, "frag.xml"); f.Valid || f.Skipped || len(f.Errors) != 1 || f.Errors[0].Code != qti.CodeTooComplex {
+		t.Fatalf("frag.xml: %+v", f)
+	}
+}
+
 // Out of time while the included files are validated as fragments, a
 // package stops the same way: the fragment that was running reports
 // too_complex, and the package names the ones that were not validated.
@@ -433,7 +462,7 @@ func TestPackageOutOfTimeInFragments(t *testing.T) {
 			stops = append(stops, e.Message)
 		}
 	}
-	if len(stops) != 1 || !strings.Contains(stops[0], "cancelled; frag-b.xml and the included files after it were not validated as QTI fragments") {
+	if len(stops) != 1 || !strings.Contains(stops[0], "cancelled; frag-b.xml and the QTI fragments after it were not validated") {
 		t.Fatalf("package: %+v", res.Errors)
 	}
 }

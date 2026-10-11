@@ -207,6 +207,42 @@ var cases = []featureCase{
   <qti-html-content><p>De hoofdstad is de stad die de grondwet zo noemt.</p></qti-html-content>
 </qti-card>
 `))},
+	// A fragment whose root is another type in another element: the rubric
+	// block of a section, which needs no use attribute. The test includes it
+	// in a section, so it is validated as inside a qti-assessment-section.
+	{name: "toets-fragment-section-rubric", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`  <resources>`, `  <resources>
+    <resource identifier="aanwijzing" type="imsqti_fragment_xmlv3p0" href="fragments/aanwijzing.xml">
+      <file href="fragments/aanwijzing.xml"/>
+    </resource>`),
+		"test.xml": replace(`<qti-assessment-section identifier="kennis" title="Kennis" visible="true">`,
+			`<qti-assessment-section identifier="kennis" title="Kennis" visible="true">
+      <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="fragments/aanwijzing.xml"/>`),
+		"fragments/aanwijzing.xml": with(sectionRubric),
+	})},
+	// The same rubric block, included by an item in its body: there it is
+	// the rubric block of an item, which must have a use attribute. The
+	// error says where the fragment was checked.
+	{name: "toets-fragment-section-rubric-in-item", contentType: "application/zip", body: toets(includedBy("items/keuze.xml",
+		`<file href="fragments/aanwijzing.xml"/>`, `<qti-item-body>`, "fragments/aanwijzing.xml", sectionRubric))},
+	// A fragment resource that no document includes: a qti-content-body
+	// that holds a feedback block. That is valid as the content of a
+	// feedback block, though not as that of modal feedback or a rubric
+	// block, so the fragment is valid.
+	{name: "toets-fragment-content-body", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`  <resources>`, `  <resources>
+    <resource identifier="terugkoppeling" type="imsqti_fragment_xmlv3p0" href="fragments/terugkoppeling.xml">
+      <file href="fragments/terugkoppeling.xml"/>
+    </resource>`),
+		"fragments/terugkoppeling.xml": with(`<?xml version="1.0" encoding="UTF-8"?>
+<qti-content-body xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0">
+  <p>Dat is niet juist.</p>
+  <qti-feedback-block outcome-identifier="FEEDBACK" identifier="UITLEG">
+    <qti-content-body><p>Amsterdam is de hoofdstad; de regering zit in Den Haag.</p></qti-content-body>
+  </qti-feedback-block>
+</qti-content-body>
+`),
+	})},
 	// A manifest that is a valid QTI item: not a manifest, and none of the
 	// checks of an item are counted for it.
 	{name: "toets-manifest-is-item", contentType: "application/zip", body: func(t *testing.T) []byte {
@@ -278,6 +314,16 @@ func includedBy(item, listing, at, name, content string) map[string]func(string)
 		name: with(content),
 	}
 }
+
+// sectionRubric is a fragment with the rubric block of a section or a test:
+// it has no use attribute, which the rubric block of an item must have.
+const sectionRubric = `<?xml version="1.0" encoding="UTF-8"?>
+<qti-rubric-block xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" view="candidate">
+  <qti-content-body>
+    <p>Lees elke vraag goed voordat je antwoordt.</p>
+  </qti-content-body>
+</qti-rubric-block>
+`
 
 // secondTest is a test whose item ref "keuze" is items/meerkeuze.xml, which
 // declares SCORE but not FEEDBACK.
