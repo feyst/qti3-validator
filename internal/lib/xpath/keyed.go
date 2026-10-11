@@ -136,7 +136,9 @@ func (k *keyedPath) lookup(p *pathExpr, root *Node, c *evalCtx) (NodeSet, error)
 		}
 		keys = make([]string, len(x))
 		for i, n := range x {
-			keys[i] = n.StringValue()
+			if keys[i], err = c.s.stringValue(n); err != nil {
+				return nil, err
+			}
 		}
 	default:
 		return p.walk(NodeSet{root}, c)

@@ -58,7 +58,14 @@ func (e *Expr) EvaluateString(ctx Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return toString(v), nil
+	if ctx.Session == nil {
+		return toString(v), nil
+	}
+	s, err := ctx.Session.stringOf(v)
+	if err != nil {
+		return "", fmt.Errorf("xpath %q: %w", e.source, err)
+	}
+	return s, nil
 }
 
 // Select evaluates an expression that must return a node-set.
@@ -113,7 +120,8 @@ func (e *negateExpr) eval(c *evalCtx) (Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	return -toNumber(v), nil
+	n, err := c.s.numberOf(v)
+	return -n, err
 }
 
 type unionExpr struct{ left, right expr }
@@ -174,7 +182,14 @@ func (e *binaryExpr) eval(c *evalCtx) (Value, error) {
 	case "=", "!=", "<", "<=", ">", ">=":
 		return compare(c, e.op, l, r)
 	}
-	a, b := toNumber(l), toNumber(r)
+	a, err := c.s.numberOf(l)
+	if err != nil {
+		return nil, err
+	}
+	b, err := c.s.numberOf(r)
+	if err != nil {
+		return nil, err
+	}
 	switch e.op {
 	case "+":
 		return a + b, nil
@@ -203,7 +218,10 @@ func compare(c *evalCtx, op string, l, r Value) (bool, error) {
 			}
 		}
 		for _, a := range ln {
-			av := a.StringValue()
+			av, err := c.s.stringValue(a)
+			if err != nil {
+				return false, err
+			}
 			found, err := anyNode(c, rn, func(bv string) bool { return compareAtoms(op, av, bv) })
 			if found || err != nil {
 				return found, err
@@ -224,13 +242,18 @@ func compare(c *evalCtx, op string, l, r Value) (bool, error) {
 	return compareAtoms(op, l, r), nil
 }
 
-// anyNode reports whether the string-value of a node in ns satisfies f.
+// anyNode reports whether the string-value of a node in ns satisfies f. A
+// string-value that has to be built is charged by its size as well.
 func anyNode(c *evalCtx, ns NodeSet, f func(string) bool) (bool, error) {
 	if err := c.s.charge(len(ns)); err != nil {
 		return false, err
 	}
 	for _, n := range ns {
-		if f(n.StringValue()) {
+		v, err := c.s.stringValue(n)
+		if err != nil {
+			return false, err
+		}
+		if f(v) {
 			return true, nil
 		}
 	}

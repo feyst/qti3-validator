@@ -87,7 +87,7 @@ func TestStringSetChargesBytes(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("<r>")
 	for i := range 100 {
-		fmt.Fprintf(&b, "<a>%d%s</a>", i, strings.Repeat("x", 10*setBytesPerStep))
+		fmt.Fprintf(&b, "<a>%d<i/>%s</a>", i, strings.Repeat("x", 10*stringBytesPerStep))
 	}
 	b.WriteString("<b>y</b></r>")
 	doc, err := Parse(strings.NewReader(b.String()))
@@ -102,7 +102,7 @@ func TestStringSetChargesBytes(t *testing.T) {
 	if _, err := e.Evaluate(Context{Node: doc.Root, Session: s}); err != nil {
 		t.Fatal(err)
 	}
-	if s.setBytes < 100*10*setBytesPerStep {
+	if s.setBytes < 100*10*stringBytesPerStep {
 		t.Fatalf("the set of //a was not built: %d bytes kept", s.setBytes)
 	}
 	if steps := stepsUsed(s); steps < 100*10 {

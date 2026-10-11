@@ -185,17 +185,28 @@ func normalize(s string) string {
 // normalizeMessage collapses whitespace runs in the text parts to one space
 // and trims the message as a whole.
 func normalizeMessage(parts []MessagePart) []MessagePart {
+	// Adjacent text parts, such as the CDATA sections of a message, are
+	// one text: they are joined once, not each to the text so far.
 	var out []MessagePart
+	var run strings.Builder
+	inRun := false
+	endRun := func() {
+		if inRun {
+			out = append(out, MessagePart{Text: collapseSpace(run.String())})
+			run.Reset()
+			inRun = false
+		}
+	}
 	for _, p := range parts {
 		if p.Select == "" {
-			p.Text = collapseSpace(p.Text)
-			if n := len(out); n > 0 && out[n-1].Select == "" {
-				out[n-1].Text = collapseSpace(out[n-1].Text + p.Text)
-				continue
-			}
+			run.WriteString(p.Text)
+			inRun = true
+			continue
 		}
+		endRun()
 		out = append(out, p)
 	}
+	endRun()
 	if n := len(out); n > 0 && out[0].Select == "" {
 		out[0].Text = strings.TrimLeft(out[0].Text, " ")
 	}

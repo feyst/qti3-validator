@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"qti3-validator/internal/lib/xpath"
 )
@@ -275,5 +276,67 @@ func TestMergeOfRulesIsCharged(t *testing.T) {
 	t.Logf("%d nodes: %d steps for two rules merged, %d for one rule", n, merged, ordered)
 	if merged-ordered < n*9 { // log2(512)
 		t.Errorf("merging %d nodes cost %d steps more than not merging, want at least %d", n, merged-ordered, n*9)
+	}
+}
+
+// The text parts of a message are joined as before: adjacent ones into one
+// text, whitespace collapsed, the message trimmed.
+func TestNormalizeMessage(t *testing.T) {
+	text := func(s string) MessagePart { return MessagePart{Text: s} }
+	sel := MessagePart{Select: "@x"}
+	show := func(parts []MessagePart) string {
+		var out []string
+		for _, p := range parts {
+			if p.Select != "" {
+				out = append(out, "{"+p.Select+"}")
+			} else {
+				out = append(out, "["+p.Text+"]")
+			}
+		}
+		return strings.Join(out, "")
+	}
+	for want, parts := range map[string][]MessagePart{
+		"":                    nil,
+		"[a b c]":             {text("  a "), text(" b\n"), text("\tc  ")},
+		"[a b]":               {text("a"), text(" "), text(""), text(" b")},
+		"[ab]":                {text("a"), text("b")},
+		"[a ]{@x}[ b]":        {text(" a "), sel, text(" b ")},
+		"{@x}{@x}":            {text("  "), sel, text(""), sel, text(" ")},
+		"{@x}[ ]{@x}":         {sel, text(" "), text("\n"), sel},
+		"[x ]{@x}[ y z ]{@x}": {text("x "), sel, text(" y"), text(" z "), sel},
+	} {
+		if got := show(normalizeMessage(parts)); got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	}
+}
+
+// A message in many CDATA sections is read in time in proportion to its
+// size: each section used to be joined to the text so far.
+func TestLongMessagesExtractInLinearTime(t *testing.T) {
+	schema := func(n int) string {
+		return `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron"><sch:pattern id="p"><sch:rule context="a"><sch:assert test="@x">` +
+			strings.Repeat("<![CDATA[twelve bytes]]>", n) + `</sch:assert></sch:rule></sch:pattern></sch:schema>`
+	}
+	const n = 20_000 / slowdown // the race detector makes it slow, not quadratic
+	best := func(src string, sections int) time.Duration {
+		least := time.Duration(1<<63 - 1)
+		for range 3 {
+			start := time.Now()
+			rs, err := Extract("x", strings.NewReader(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			least = min(least, time.Since(start))
+			if got := len(rs.Patterns[0].Rules[0].Assertions[0].Message[0].Text); got != 12*sections {
+				t.Fatalf("a message of %d bytes, want %d", got, 12*sections)
+			}
+		}
+		return least
+	}
+	a, b := best(schema(n), n), best(schema(4*n), 4*n)
+	t.Logf("%d sections in %v, %d in %v", n, a, 4*n, b)
+	if b > 9*a+20*time.Millisecond {
+		t.Errorf("%d sections took %v and %d took %v: not linear", n, a, 4*n, b)
 	}
 }
