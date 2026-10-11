@@ -41,12 +41,21 @@ func manifestSchemaVersion(data []byte) qti.DeclaredVersion {
 	}
 }
 
+// A manifestFile is what the manifest says of a file of one of its QTI
+// resources.
+type manifestFile struct {
+	kind qti.ResourceKind
+	// href reports that the file is the href of a resource: the document
+	// the resource is, not merely one of its files.
+	href bool
+}
+
 // manifestResources says, for the files of the manifest's QTI resources,
 // what they must be, by their path inside the package. xml:base is applied
 // as the reference checks apply it. The href of a resource is what its type
 // says; a file of a resource is a fragment when any fragment resource lists
 // it, so an item may list the fragments it includes among its files.
-func manifestResources(data []byte) map[string]qti.ResourceKind {
+func manifestResources(data []byte) map[string]manifestFile {
 	hrefs := map[string]qti.ResourceKind{}
 	files := map[string]qti.ResourceKind{}
 	dec := xml.NewDecoder(bytes.NewReader(data))
@@ -86,12 +95,14 @@ func manifestResources(data []byte) map[string]qti.ResourceKind {
 			}
 		}
 	}
+	out := make(map[string]manifestFile, len(hrefs)+len(files))
 	for f, k := range files {
-		if _, ok := hrefs[f]; !ok {
-			hrefs[f] = k
-		}
+		out[f] = manifestFile{kind: k}
 	}
-	return hrefs
+	for f, k := range hrefs {
+		out[f] = manifestFile{kind: k, href: true}
+	}
+	return out
 }
 
 // xmlBase returns the xml:base of an element.

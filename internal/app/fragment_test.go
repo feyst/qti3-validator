@@ -100,6 +100,26 @@ func TestFragmentRoot(t *testing.T) {
 		{"weight without its value", `<qti-weight` + asi + ` identifier="W"/>`, false, "value"},
 		{"variable mapping", `<qti-variable-mapping` + asi + ` source-identifier="a" target-identifier="b"/>`, true, ""},
 		{"template default", `<qti-template-default` + asi + ` template-identifier="T"><qti-null/></qti-template-default>`, true, ""},
+		// Roots that are another type in another element. Item-1 includes
+		// the fragment in its qti-item-body, so a rubric block, a feedback
+		// block and a template block are those of an item body; nothing may
+		// include a qti-content-body there, so that one is valid when it is
+		// the content of any element that has one (TestFragmentWhereIncluded).
+		{"rubric block of an item", `<qti-rubric-block` + asi + ` view="candidate" use="instructions"><qti-content-body><p>Read</p></qti-content-body></qti-rubric-block>`, true, ""},
+		{"rubric block of a section, in an item", `<qti-rubric-block` + asi + ` view="candidate"><qti-content-body><p>Read</p></qti-content-body></qti-rubric-block>`, false, "missing required attribute use"},
+		{
+			"content body with a feedback block", `<qti-content-body` + asi + `><p>Well done</p><qti-feedback-block outcome-identifier="FB" identifier="more">` +
+				`<qti-content-body><p>More</p></qti-content-body></qti-feedback-block></qti-content-body>`, true, "",
+		},
+		{
+			"feedback block with an interaction", `<qti-feedback-block` + asi + ` outcome-identifier="FB" identifier="f"><qti-content-body>` +
+				`<qti-extended-text-interaction response-identifier="RESPONSE"/></qti-content-body></qti-feedback-block>`, true, "",
+		},
+		{
+			"template block with an expression", `<qti-template-block` + asi + ` template-identifier="T" identifier="t"><qti-content-body>` +
+				`<qti-math-constant name="pi"/></qti-content-body></qti-template-block>`, false, "qti-math-constant",
+		},
+		{"template inline", `<qti-template-inline` + asi + ` template-identifier="T" identifier="t">text</qti-template-inline>`, true, ""},
 		// Elements of the fragment in no namespace stay there.
 		{"prefixed root", `<q:qti-response-condition xmlns:q="` + qti.NamespaceASI + `"><qti-response-if/></q:qti-response-condition>`, false, "qti-response-if"},
 	} {
@@ -117,7 +137,7 @@ func TestFragmentRoot(t *testing.T) {
 				root := strings.TrimPrefix(strings.Fields(tc.fragment)[0], "<")
 				root = root[strings.Index(root, ":")+1:]
 				if e.Code != qti.CodeValidation || !strings.Contains(e.Message, tc.message) || e.Line != 1 ||
-					e.Path != "/"+root || strings.Contains(e.Message, "validator-context") {
+					!strings.HasPrefix(e.Path+"/", "/"+root+"/") || strings.Contains(e.Message, "validator-context") {
 					t.Fatalf("got %+v", e)
 				}
 			}
@@ -246,24 +266,90 @@ func TestFragmentEveryElement(t *testing.T) {
 			elements.Global["qti-response-condition"] || elements.Declares("qti-bogus-element") {
 			t.Fatalf("%s: elements %+v", version.Name, elements)
 		}
-		var unchecked []string
+		var unchecked, severalPlaces []string
 		for name := range elements.Local {
-			res := validatePackageWith(t, makeZip(t, withResources(t, fragmentResource,
-				includeFragment(t, "frag.xml"), entry{"items/frag.xml", `<` + name + asi + `><nonsense/></` + name + `>`})...), version.Name)
-			f := fileResult(t, res, "items/frag.xml")
-			switch {
-			case notChecked(f) && f.Valid && f.Ran == (qti.Checks{}):
+			// Included by an item, and as a fragment resource that no
+			// document includes: checked, or not, either way.
+			var results []qti.FileResult
+			for _, files := range [][]entry{{includeFragment(t, "frag.xml")}, nil} {
+				files = append(files, entry{"items/frag.xml", `<` + name + asi + `><nonsense/></` + name + `>`})
+				res := validatePackageWith(t, makeZip(t, withResources(t, fragmentResource, files...)...), version.Name)
+				results = append(results, fileResult(t, res, "items/frag.xml"))
+			}
+			for _, f := range results {
+				switch {
+				case notChecked(f) && f.Valid && f.Ran == (qti.Checks{}):
+				case !f.Valid && f.Ran.Schema && len(f.Errors) > 0:
+				default:
+					t.Errorf("%s: %s passed without a check: %+v", version.Name, name, f)
+				}
+			}
+			if notChecked(results[0]) != notChecked(results[1]) {
+				t.Errorf("%s: %s is checked in one package and not in the other: %+v", version.Name, name, results)
+			}
+			if notChecked(results[0]) {
 				unchecked = append(unchecked, name)
-			case !f.Valid && f.Ran.Schema && len(f.Errors) > 0:
-			default:
-				t.Errorf("%s: %s passed without a check: %+v", version.Name, name, f)
+			}
+			places := app.FragmentContextPaths(testValidator(t), version.Name, name)
+			if len(places) > 1 {
+				severalPlaces = append(severalPlaces, name)
+			}
+			// A root that is another type in another element has a place
+			// for each of its types, or is not checked at all.
+			if want, ok := manyTypedRoots[name]; elements.ManyTyped[name] != ok && !notChecked(results[0]) || ok && !slices.Equal(places, want) {
+				t.Errorf("%s: %s is validated in\n%q\nwant\n%q", version.Name, name, places, want)
 			}
 		}
 		sort.Strings(unchecked)
 		if got := strings.Join(unchecked, " "); got != uncheckedRoots {
 			t.Errorf("%s: not checked:\n%s\nwant:\n%s", version.Name, got, uncheckedRoots)
 		}
+		var manyTyped []string
+		for name := range elements.ManyTyped {
+			manyTyped = append(manyTyped, name)
+		}
+		sort.Strings(manyTyped)
+		if got := strings.Join(manyTyped, " "); got != "qti-content-body qti-feedback-block qti-file-href qti-major-increment "+
+			"qti-minor-increment qti-rubric-block qti-template-block qti-template-inline" {
+			t.Errorf("%s: declared with more than one type: %s", version.Name, got)
+		}
+		// docs/report.md says how many roots may stand in several places.
+		if len(severalPlaces) != 42 {
+			sort.Strings(severalPlaces)
+			t.Errorf("%s: %d roots are validated in more than one place: %s", version.Name, len(severalPlaces), strings.Join(severalPlaces, " "))
+		}
 	}
+}
+
+// manyTypedRoots are the roots the schema declares with more than one type,
+// and that are checked: the elements each is validated in, one for each of
+// its types, and for a qti-rubric-block of a test the three that have it.
+var manyTypedRoots = map[string][]string{
+	"qti-rubric-block": {
+		"/qti-assessment-item/qti-item-body", "/qti-assessment-section", "/qti-assessment-test", "/qti-assessment-test/qti-test-part",
+	},
+	"qti-content-body": {
+		"/qti-assessment-item/qti-modal-feedback",
+		"/qti-assessment-item/qti-item-body/qti-feedback-block",
+		"/qti-assessment-item/qti-item-body/qti-rubric-block",
+		"/qti-assessment-item/qti-item-body/qti-template-block",
+		"/qti-assessment-item/qti-item-body/qti-rubric-block/qti-content-body/qti-template-block",
+		"/qti-assessment-test/qti-test-feedback",
+		"/qti-assessment-section/qti-rubric-block",
+	},
+	"qti-feedback-block": {
+		"/qti-assessment-item/qti-item-body", "/div", "/qti-assessment-item/qti-item-body/qti-template-block/qti-content-body",
+	},
+	"qti-template-block": {
+		"/qti-assessment-item/qti-item-body", "/div",
+		"/qti-assessment-item/qti-item-body/qti-rubric-block/qti-content-body",
+		"/qti-assessment-item/qti-item-body/qti-template-block/qti-content-body",
+	},
+	"qti-template-inline": {
+		"/div", "/p",
+		"/qti-assessment-item/qti-item-body/qti-rubric-block/qti-content-body",
+		"/qti-assessment-item/qti-item-body/qti-template-block/qti-content-body",
+	},
 }
 
 const uncheckedRoots = "param qti-adaptive-engine-ref qti-adaptive-settings-ref qti-calculator qti-calculator-info " +
@@ -426,6 +512,237 @@ func TestMountedManifest(t *testing.T) {
 		if f.Valid != valid || f.Schema != "meta" || !f.Ran.Schema ||
 			slices.ContainsFunc(f.Errors, func(e qti.Finding) bool { return e.Code == qti.CodeUnsupportedDocument }) {
 			t.Fatalf("%s: got %+v", doc, f)
+		}
+	}
+}
+
+// includePlaces are places where a document of the test package includes
+// items/frag.xml: the file, the text of it the XInclude is put at, and what
+// replaces that text, with INCLUDE for the XInclude.
+var includePlaces = map[string][3]string{
+	"item body":          {"items/item-1.xml", `<qti-item-body>`, `<qti-item-body>INCLUDE`},
+	"div in item body":   {"items/item-1.xml", `<qti-item-body>`, `<qti-item-body><div>INCLUDE</div>`},
+	"li in item body":    {"items/item-1.xml", `<qti-item-body>`, `<qti-item-body><ul><li>INCLUDE</li></ul>`},
+	"item rubric body":   {"items/item-1.xml", `<qti-item-body>`, `<qti-item-body><qti-rubric-block view="candidate" use="instructions"><qti-content-body>INCLUDE</qti-content-body></qti-rubric-block>`},
+	"item rubric":        {"items/item-1.xml", `<qti-item-body>`, `<qti-item-body><qti-rubric-block view="candidate" use="instructions">INCLUDE</qti-rubric-block>`},
+	"template body":      {"items/item-1.xml", `<qti-item-body>`, `<qti-item-body><qti-template-block template-identifier="T" identifier="t"><qti-content-body>INCLUDE</qti-content-body></qti-template-block>`},
+	"feedback block":     {"items/item-1.xml", `<qti-item-body>`, `<qti-item-body><qti-feedback-block outcome-identifier="FB" identifier="f">INCLUDE</qti-feedback-block>`},
+	"feedback body":      {"items/item-1.xml", `<qti-item-body>`, `<qti-item-body><qti-feedback-block outcome-identifier="FB" identifier="f"><qti-content-body>INCLUDE</qti-content-body></qti-feedback-block>`},
+	"modal feedback":     {"items/item-1.xml", `</qti-assessment-item>`, `<qti-modal-feedback outcome-identifier="FB" identifier="f" show-hide="show">INCLUDE</qti-modal-feedback></qti-assessment-item>`},
+	"section":            {"test.xml", `visible="true">`, `visible="true">INCLUDE`},
+	"section rubric":     {"test.xml", `visible="true">`, `visible="true"><qti-rubric-block view="candidate">INCLUDE</qti-rubric-block>`},
+	"test part":          {"test.xml", `submission-mode="individual">`, `submission-mode="individual">INCLUDE`},
+	"another fragment":   {"items/other.xml", ``, `<qti-rubric-block` + asi + ` view="candidate">INCLUDE</qti-rubric-block>`},
+	"math in item body":  {"items/item-1.xml", `<qti-item-body>`, `<qti-item-body><m:math xmlns:m="http://www.w3.org/1998/Math/MathML">INCLUDE</m:math>`},
+	"section, by a path": {"test.xml", `visible="true">`, `visible="true"><xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="./items/../items/frag.xml"/>`},
+}
+
+// fragmentIn validates the test package with the fragment items/frag.xml,
+// which its documents include in the given places; in none, the manifest
+// lists it as a fragment resource that no document includes. It returns the
+// result of the fragment.
+func fragmentIn(t *testing.T, fragment string, places ...string) qti.FileResult {
+	t.Helper()
+	resources := ""
+	if len(places) == 0 {
+		resources = fragmentResource
+	}
+	entries := withResources(t, resources, entry{"items/frag.xml", fragment})
+	for _, place := range places {
+		p, ok := includePlaces[place]
+		if !ok {
+			t.Fatalf("no place %q", place)
+		}
+		href := "frag.xml"
+		if p[0] == "test.xml" {
+			href = "items/frag.xml"
+		}
+		include := strings.ReplaceAll(p[2], "INCLUDE", `<xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="`+href+`"/>`)
+		i := slices.IndexFunc(entries, func(e entry) bool { return e.name == p[0] })
+		switch {
+		case i < 0:
+			entries = append(entries, entry{p[0], include})
+		case !strings.Contains(entries[i].data, p[1]):
+			t.Fatalf("%s has no %s", p[0], p[1])
+		default:
+			entries[i].data = strings.Replace(entries[i].data, p[1], include, 1)
+		}
+	}
+	return fileResult(t, validatePackageWith(t, makeZip(t, entries...), ""), "items/frag.xml")
+}
+
+// A root that is another type in another element is validated as the type
+// it has where the documents of the package include it: it must be valid in
+// each of those places. Where that is not known, as for a fragment resource
+// that no document includes, it is an error only when it is valid nowhere.
+func TestFragmentWhereIncluded(t *testing.T) {
+	body := func(content string) string { return `<qti-content-body>` + content + `</qti-content-body>` }
+	// The rubric block of a section needs no use attribute, that of an item
+	// does; the one of an item may hold a qti-printed-variable.
+	sectionRubric := `<qti-rubric-block` + asi + ` view="candidate">` + body(`<p>Read carefully</p>`) + `</qti-rubric-block>`
+	itemRubric := `<qti-rubric-block` + asi + ` view="candidate" use="instructions">` + body(`<qti-printed-variable identifier="T"/>`) + `</qti-rubric-block>`
+	noRubric := `<qti-rubric-block` + asi + ` view="candidate" use="instructions">` + body(`<qti-value>1</qti-value>`) + `</qti-rubric-block>`
+	feedback := func(ns, content string) string {
+		return `<qti-feedback-block` + ns + ` outcome-identifier="FB" identifier="f">` + body(content) + `</qti-feedback-block>`
+	}
+	// The content of a feedback block may hold another feedback block, that
+	// of modal feedback and of a rubric block may not.
+	contentBody := `<qti-content-body` + asi + `><p>Well done</p>` + feedback("", `<p>More</p>`) + `</qti-content-body>`
+	const interaction = `<qti-extended-text-interaction response-identifier="RESPONSE"/>`
+	template := func(content string) string {
+		return `<qti-template-block` + asi + ` template-identifier="T" identifier="t">` + body(content) + `</qti-template-block>`
+	}
+	const (
+		inItem    = " (checked as a child of qti-item-body, where items/item-1.xml includes the fragment)"
+		inSection = " (checked as a child of qti-assessment-section, where test.xml includes the fragment)"
+	)
+	for _, tc := range []struct {
+		name, fragment string
+		places         []string
+		errors         []string // the path and the message of each
+	}{
+		{"section rubric, not included", sectionRubric, nil, nil},
+		{"section rubric, in a section", sectionRubric, []string{"section"}, nil},
+		{"section rubric, in a section by another path", sectionRubric, []string{"section, by a path"}, nil},
+		{"section rubric, in a test part", sectionRubric, []string{"test part"}, nil},
+		{"section rubric, in an item body", sectionRubric, []string{"item body"}, []string{"/qti-rubric-block missing required attribute use" + inItem}},
+		// Valid in the section, not in the item: it must be valid in both.
+		{"section rubric, in an item body and a section", sectionRubric, []string{"section", "item body"}, []string{"/qti-rubric-block missing required attribute use" + inItem}},
+		{"item rubric, not included", itemRubric, nil, nil},
+		{"item rubric, in an item body", itemRubric, []string{"item body"}, nil},
+		{"item rubric, in a section", itemRubric, []string{"section"}, []string{"/qti-rubric-block/qti-content-body unexpected child element qti-printed-variable" + inSection}},
+		// Valid nowhere: the errors of each place, in the order of the
+		// documents that include it.
+		{"invalid rubric, in an item body and a section", noRubric, []string{"section", "item body"}, []string{
+			"/qti-rubric-block/qti-content-body unexpected child element qti-value" + inItem,
+			"/qti-rubric-block/qti-content-body unexpected child element qti-value" + inSection,
+		}},
+		{"invalid rubric, not included", noRubric, nil, []string{
+			"/qti-rubric-block/qti-content-body unexpected child element qti-value (checked as a child of qti-item-body: the fragment " +
+				"is valid in none of the 4 places the validator knows for a qti-rubric-block, and has the fewest errors in this one)",
+		}},
+		// Places the validator has no element for: valid when it is valid
+		// in any element. In a document that is a fragment itself, the
+		// rubric block around it may be that of an item or of a section.
+		{"section rubric, in a list item", sectionRubric, []string{"li in item body"}, nil},
+		{"section rubric, in MathML", sectionRubric, []string{"math in item body"}, nil},
+		{"content body, in a fragment", contentBody, []string{"another fragment"}, nil},
+
+		{"content body, not included", contentBody, nil, nil},
+		{"content body, in a feedback block", contentBody, []string{"feedback block"}, nil},
+		{"content body, in modal feedback", contentBody, []string{"modal feedback"}, []string{
+			"/qti-content-body unexpected child element qti-feedback-block (checked as a child of qti-modal-feedback, where items/item-1.xml includes the fragment)",
+		}},
+		{"content body, in an item rubric", contentBody, []string{"item rubric"}, []string{
+			"/qti-content-body unexpected child element qti-feedback-block (checked as a child of qti-rubric-block of qti-item-body, where items/item-1.xml includes the fragment)",
+		}},
+		{"content body, in a section rubric", contentBody, []string{"section rubric"}, []string{
+			"/qti-content-body unexpected child element qti-feedback-block (checked as a child of qti-rubric-block of qti-assessment-section, where test.xml includes the fragment)",
+		}},
+		{"invalid content body", `<qti-content-body` + asi + `><qti-value>1</qti-value></qti-content-body>`, nil, []string{
+			"/qti-content-body unexpected child element qti-value (checked as a child of qti-modal-feedback: the fragment " +
+				"is valid in none of the 7 places the validator knows for a qti-content-body, and has the fewest errors in this one)",
+		}},
+
+		// A feedback block of a template block holds no interactions, and a
+		// template block of a rubric block no feedback blocks.
+		{"feedback block with an interaction, in an item body", feedback(asi, interaction), []string{"item body"}, nil},
+		{"feedback block with an interaction, in a div", feedback(asi, interaction), []string{"div in item body"}, nil},
+		{"feedback block with an interaction, in a template block", feedback(asi, interaction), []string{"template body"}, []string{
+			"/qti-feedback-block/qti-content-body unexpected child element qti-extended-text-interaction (checked as a child of " +
+				"qti-content-body of qti-template-block of qti-item-body, where items/item-1.xml includes the fragment)",
+		}},
+		{"template block with a feedback block, in an item body", template(feedback("", `<p>x</p>`)), []string{"item body"}, nil},
+		{"template block with a feedback block, in an item rubric", template(feedback("", `<p>x</p>`)), []string{"item rubric body"}, []string{
+			"/qti-template-block/qti-content-body unexpected child element qti-feedback-block (checked as a child of " +
+				"qti-content-body of qti-rubric-block of qti-item-body, where items/item-1.xml includes the fragment)",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := fragmentIn(t, tc.fragment, tc.places...)
+			var got []string
+			for _, e := range f.Errors {
+				if e.Code != qti.CodeValidation || e.Line != 1 || e.File != "items/frag.xml" {
+					t.Errorf("got %+v", e)
+				}
+				got = append(got, e.Path+" "+e.Message)
+			}
+			if !slices.Equal(got, tc.errors) || f.Valid != (len(tc.errors) == 0) || f.Skipped || f.Schema != qti.SchemaFragment || !f.Ran.Schema {
+				t.Fatalf("got %+v\nerrors\n%q\nwant\n%q", f, got, tc.errors)
+			}
+		})
+	}
+}
+
+// The findings of a fragment that is validated where it is included are
+// located in the fragment as it is, whichever element that is.
+func TestFragmentWhereIncludedFindingLocation(t *testing.T) {
+	const fragment = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n  <qti-rubric-block" + asi + ` view="candidate">` +
+		"\n<qti-content-body><qti-value>1</qti-value></qti-content-body></qti-rubric-block>"
+	f := fragmentIn(t, fragment, "section", "item body")
+	if len(f.Errors) != 3 {
+		t.Fatalf("got %+v", f.Errors)
+	}
+	// In the item body the root lacks its use attribute; the content is an
+	// error there and in the section.
+	for i, want := range []qti.Finding{
+		{Line: 2, Column: 3, Path: "/qti-rubric-block"},
+		{Line: 3, Column: 19, Path: "/qti-rubric-block/qti-content-body"},
+		{Line: 3, Column: 19, Path: "/qti-rubric-block/qti-content-body"},
+	} {
+		if e := f.Errors[i]; e.Line != want.Line || e.Column != want.Column || e.Path != want.Path {
+			t.Errorf("error %d: %+v", i, e)
+		}
+	}
+}
+
+// The errors of all the places where a fragment is not valid are within
+// MAX_ERRORS together.
+func TestFragmentWhereIncludedMaxErrors(t *testing.T) {
+	const fragment = `<qti-rubric-block` + asi + ` view="candidate"><qti-content-body><qti-value>1</qti-value></qti-content-body></qti-rubric-block>`
+	entries := withResources(t, "", includeFragment(t, "frag.xml"), entry{"items/frag.xml", fragment})
+	entries[1].data = strings.Replace(entries[1].data, `visible="true">`,
+		`visible="true"><xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="items/frag.xml"/>`, 1)
+	data := makeZip(t, entries...)
+	res := testValidator(t).WithLimits(qti.Limits{MaxErrors: 2}).ValidatePackage(context.Background(),
+		app.ValidatePackage{Package: bytes.NewReader(data), Size: int64(len(data))})
+	if f := fileResult(t, res, "items/frag.xml"); f.Valid || len(f.Errors) != 2 {
+		t.Fatalf("got %+v", f)
+	}
+}
+
+// A document of a QTI resource that is not QTI 3, such as a QTI 2 item, is
+// an error, also when another document includes it with XInclude: only a
+// file that is merely listed as a file of a resource, or not listed, is
+// skipped as XML that is not QTI content.
+func TestPackageIncludedDocumentThatIsNotQTI3(t *testing.T) {
+	const qti2 = `<assessmentItem xmlns="http://www.imsglobal.org/xsd/imsqti_v2p1" identifier="x"/>`
+	const resource = `<resource identifier="old" type="imsqti_item_xmlv3p0" href="items/frag.xml"><file href="items/frag.xml"/></resource>`
+	for name, tc := range map[string]struct {
+		entries []entry
+		skipped bool
+	}{
+		"the document of an item resource, included":      {withResources(t, resource, includeFragment(t, "frag.xml"), entry{"items/frag.xml", qti2}), false},
+		"the document of an item resource, not included":  {withResources(t, resource, entry{"items/frag.xml", qti2}), false},
+		"a file of the item that includes it":             {listAsItemFile(withResources(t, "", includeFragment(t, "frag.xml"), entry{"items/frag.xml", qti2})), true},
+		"a file of the item, and the document of another": {listAsItemFile(withResources(t, resource, includeFragment(t, "frag.xml"), entry{"items/frag.xml", qti2})), false},
+		"not listed, included":                            {withResources(t, "", includeFragment(t, "frag.xml"), entry{"items/frag.xml", qti2}), true},
+	} {
+		res := validatePackageWith(t, makeZip(t, tc.entries...), "")
+		f := fileResult(t, res, "items/frag.xml")
+		if tc.skipped {
+			if !res.Valid || !f.Valid || !f.Skipped {
+				t.Errorf("%s: got %+v", name, f)
+			}
+			continue
+		}
+		if res.Valid || f.Valid || f.Skipped || len(f.Errors) != 1 || f.Errors[0].Code != qti.CodeUnsupportedDocument ||
+			!strings.Contains(f.Errors[0].Message, "{http://www.imsglobal.org/xsd/imsqti_v2p1}assessmentItem is not a supported QTI 3 document") {
+			t.Errorf("%s: got %+v, package valid %v", name, f, res.Valid)
+		}
+		r := report.ForPackage(res, report.Meta{InputName: "p.zip", Now: time.Now()})
+		if r.Summary.Fatals != 1 || len(r.Fatals) != 1 || r.Fatals[0].Location.Resource != "/items/frag.xml" {
+			t.Errorf("%s: report %+v", name, r.Summary)
 		}
 	}
 }

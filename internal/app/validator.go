@@ -18,7 +18,7 @@ type Validator struct {
 	openArchive ArchiveOpener
 	references  ReferenceReader
 	// fragments remembers, per QTI version, where the roots of fragments
-	// are validated. It is shared by the validators WithLimits returns.
+	// may be validated. It is shared by the validators WithLimits returns.
 	fragments map[string]*contextCache
 }
 
@@ -56,7 +56,7 @@ func New(cfg Config) (*Validator, error) {
 			return nil, fmt.Errorf("no schema for QTI %s", name)
 		}
 		v.versions[name] = p
-		v.fragments[name] = &contextCache{byRoot: map[string]int{}}
+		v.fragments[name] = &contextCache{byRoot: map[string][]int{}}
 	}
 	for _, ct := range cfg.CustomTypes {
 		name := ct.Type.Name()

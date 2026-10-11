@@ -66,6 +66,7 @@ func (Reader) ReadReferences(data []byte) (qti.DocumentReferences, error) {
 type reader struct {
 	refs     qti.DocumentReferences
 	root     xml.Name
+	open     []string      // the elements around the current one, as Reference.Within names them
 	bases    qti.BaseStack // xml:base of the enclosing manifest elements
 	inCard   bool          // inside qti-file-href, whose text is the reference
 	cardLine int
@@ -77,6 +78,12 @@ func (r *reader) start(t xml.StartElement, line, col int) {
 	if r.root.Local == "" {
 		r.root = t.Name
 		r.refs.Root = t.Name.Local
+	}
+	within := r.open
+	if t.Name.Space == qti.NamespaceASI {
+		r.open = append(r.open, t.Name.Local)
+	} else {
+		r.open = append(r.open, "{"+t.Name.Space+"}"+t.Name.Local)
 	}
 	add := func(kind qti.RefKind, href string) {
 		if href != "" {
@@ -97,6 +104,7 @@ func (r *reader) start(t xml.StartElement, line, col int) {
 			// parse="text" includes a file as text, whatever it holds.
 			if n := len(r.refs.References); attr(t, "", "href") != "" && attr(t, "", "parse") != "text" {
 				r.refs.References[n-1].Include = true
+				r.refs.References[n-1].Within = "/" + strings.Join(within, "/")
 			}
 		}
 	case qti.NamespaceASI:
@@ -109,6 +117,7 @@ func (r *reader) start(t xml.StartElement, line, col int) {
 }
 
 func (r *reader) end(t xml.EndElement) {
+	r.open = r.open[:len(r.open)-1]
 	if t.Name.Space == qti.NamespaceManifest {
 		r.bases.Pop()
 	}

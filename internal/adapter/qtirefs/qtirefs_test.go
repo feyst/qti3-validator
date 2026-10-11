@@ -52,9 +52,50 @@ func TestReadReferences(t *testing.T) {
 		if r.Include != (r.Href == "inc.xml") {
 			t.Errorf("%s: Include is %v", r.Href, r.Include)
 		}
+		// And it says where in the document the file is included.
+		if want := map[bool]string{true: "/qti-assessment-item/qti-item-body"}[r.Include]; r.Within != want {
+			t.Errorf("%s: Within is %q, want %q", r.Href, r.Within, want)
+		}
 	}
 	if refs.Root != "qti-assessment-item" || len(refs.Declared) != 2 || refs.References[2].Line != 7 {
 		t.Fatalf("got %+v", refs)
+	}
+}
+
+// An XInclude says in which element it stands, by the path from the root:
+// the names of the QTI elements, and those of other elements with their
+// namespace.
+func TestReadIncludeWithin(t *testing.T) {
+	const xi = `<xi:include xmlns:xi="http://www.w3.org/2001/XInclude" `
+	section := `<qti-assessment-section xmlns="` + qti.NamespaceASI + `" identifier="s" title="s" visible="true">
+  ` + xi + `href="rubric.xml"/>
+  <qti-rubric-block view="candidate"><qti-content-body>` + xi + `href="text.xml"/><p>x</p>
+    <div><m:math xmlns:m="http://www.w3.org/1998/Math/MathML">` + xi + `href="formula.xml"/></m:math>` + xi + `href="after.xml"/></div>
+  </qti-content-body></qti-rubric-block>
+  ` + xi + `href="last.xml"/>
+</qti-assessment-section>`
+	refs, err := Reader{}.ReadReferences([]byte(section))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range refs.References {
+		got = append(got, r.Href+" "+r.Within)
+	}
+	want := []string{
+		"rubric.xml /qti-assessment-section",
+		"text.xml /qti-assessment-section/qti-rubric-block/qti-content-body",
+		"formula.xml /qti-assessment-section/qti-rubric-block/qti-content-body/div/{http://www.w3.org/1998/Math/MathML}math",
+		"after.xml /qti-assessment-section/qti-rubric-block/qti-content-body/div",
+		"last.xml /qti-assessment-section",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %q", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("include %d: got %s, want %s", i, got[i], want[i])
+		}
 	}
 }
 

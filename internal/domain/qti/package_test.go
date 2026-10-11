@@ -1,6 +1,7 @@
 package qti
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -68,17 +69,28 @@ func TestBaseStack(t *testing.T) {
 	}
 }
 
-func TestIncludedFiles(t *testing.T) {
-	got := IncludedFiles(PackageContents{Documents: map[string]PackageDocument{
+func TestInclusions(t *testing.T) {
+	got := Inclusions(PackageContents{Documents: map[string]PackageDocument{
+		"items/b.xml": {Refs: DocumentReferences{References: []Reference{
+			{Kind: RefAsset, Href: "shared/frag.xml", Include: true, Within: "/qti-assessment-item/qti-item-body/div"},
+		}}},
 		"items/a.xml": {Refs: DocumentReferences{References: []Reference{
-			{Kind: RefAsset, Href: "shared/frag.xml", Include: true},
-			{Kind: RefAsset, Href: "../frag%202.xml#p", Include: true},
+			{Kind: RefAsset, Href: "shared/frag.xml", Include: true, Within: "/qti-assessment-item/qti-item-body"},
+			{Kind: RefAsset, Href: "../frag%202.xml#p", Include: true, Within: "/qti-assessment-item"},
 			{Kind: RefAsset, Href: "https://example.org/frag.xml", Include: true},
 			{Kind: RefAsset, Href: "../../outside.xml", Include: true},
 			{Kind: RefAsset, Href: "style.css"},
 		}}},
 	}})
-	if len(got) != 2 || !got["items/shared/frag.xml"] || !got["frag 2.xml"] {
+	want := map[string][]Inclusion{
+		// In the order of the documents.
+		"items/shared/frag.xml": {
+			{Document: "items/a.xml", Within: "/qti-assessment-item/qti-item-body"},
+			{Document: "items/b.xml", Within: "/qti-assessment-item/qti-item-body/div"},
+		},
+		"frag 2.xml": {{Document: "items/a.xml", Within: "/qti-assessment-item"}},
+	}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v", got)
 	}
 }

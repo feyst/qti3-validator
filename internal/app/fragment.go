@@ -29,14 +29,18 @@ func unsupportedDocument(res qti.DocumentResult) bool {
 //   - a root the schema declares as a global element, as it does for the
 //     HTML content elements, is validated against it;
 //   - any other root is valid only inside some other element, so it is
-//     validated inside one that allows it (fragmentContexts);
+//     validated inside the elements that allow it (fragmentContexts): those
+//     that are like the places where the documents of the package include
+//     it, which are in included, and otherwise all of them (checkInContexts);
 //   - a root that none of those elements allows is not checked, which a
 //     warning says. docs/report.md lists both kinds.
 //
 // An IDREF without its ID is no error: the ID may be in the document that
 // includes the fragment. XIncludes are not resolved, and the Schematron
 // rules do not run: they need the whole document.
-func (v *Validator) validateFragment(ctx context.Context, data []byte, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
+func (v *Validator) validateFragment(ctx context.Context, data []byte, req qti.VersionRequest, limits qti.Limits,
+	included []qti.Inclusion,
+) qti.DocumentResult {
 	root, at, err := rootStart(data)
 	if err != nil {
 		return detectionFailure(err)
@@ -64,15 +68,172 @@ func (v *Validator) validateFragment(ctx context.Context, data []byte, req qti.V
 			res = fragmentNotChecked(docType, root.Local)
 		}
 	default:
-		c, ok := v.fragments[version].contextFor(profile.Schema, root.Local)
-		if !ok {
+		allowing := v.fragments[version].contextsFor(profile.Schema, root.Local)
+		if len(allowing) == 0 {
 			res = fragmentNotChecked(docType, root.Local)
 			break
 		}
-		res = c.check(ctx, profile.Schema, docType, data, at, limits)
+		f := fragment{schema: profile.Schema, docType: docType, data: data, root: root.Local, at: at, limits: limits}
+		res = f.checkInContexts(ctx, allowing, placesOf(allowing, included, elements.ManyTyped), elements.ManyTyped)
 	}
 	res.Version = version
 	return res
+}
+
+// fragmentPlaces are the places where the documents of a package include a
+// fragment; none for a fragment that no document includes.
+type fragmentPlaces struct{ included []qti.Inclusion }
+
+// A fragment is a fragment whose root is not a global element of the schema.
+type fragment struct {
+	schema  SchemaChecker
+	docType qti.DocumentType
+	data    []byte
+	root    string
+	at      position // of the root
+	limits  qti.Limits
+}
+
+// A place is where a fragment must be valid: in one of its contexts. An
+// exact place is like the places where documents include the fragment; the
+// other one, which comes last, stands for the places the validator knows no
+// context for, and for a fragment that no document includes: its contexts
+// are all those that allow the root.
+type place struct {
+	contexts  []int // indexes in fragmentContexts
+	exact     bool
+	documents []string // that include the fragment there, once each
+}
+
+// placesOf returns the places where a fragment must be valid: one for every
+// set of contexts that the places where it is included select, among the
+// contexts that allow its root.
+func placesOf(allowing []int, included []qti.Inclusion, manyTyped map[string]bool) []place {
+	var exact []place
+	other := place{contexts: allowing}
+	inexact := len(included) == 0
+	for _, in := range included {
+		within := strings.Split(strings.TrimPrefix(in.Within, "/"), "/")
+		var like []int
+		for _, i := range allowing {
+			if fragmentContexts[i].like(within, manyTyped) {
+				like = append(like, i)
+			}
+		}
+		at := &other
+		if len(like) == 0 {
+			inexact = true
+		} else {
+			n := slices.IndexFunc(exact, func(p place) bool { return slices.Equal(p.contexts, like) })
+			if n < 0 {
+				exact = append(exact, place{contexts: like, exact: true})
+				n = len(exact) - 1
+			}
+			at = &exact[n]
+		}
+		// The places come by document, so one that is there twice is the last.
+		if n := len(at.documents); n == 0 || at.documents[n-1] != in.Document {
+			at.documents = append(at.documents, in.Document)
+		}
+	}
+	if inexact {
+		return append(exact, other)
+	}
+	return exact
+}
+
+// checkInContexts validates a fragment in every place where it must be
+// valid. In a place it is valid when one of the contexts of the place
+// accepts it; when none does, the errors are those of the context with the
+// fewest. So a fragment that documents include must be valid wherever it is
+// included, and one whose place is not known is an error only when it is
+// valid nowhere.
+//
+// The errors of a root that the schema declares with more than one type
+// say in which element they were found, as another element gives other
+// errors (note).
+func (f fragment) checkInContexts(ctx context.Context, allowing []int, places []place, manyTyped map[string]bool) qti.DocumentResult {
+	results := map[int]qti.DocumentResult{} // of the contexts tried so far
+	valid := -1                             // a context that accepts the fragment
+	var failed []int                        // the contexts whose errors are reported, in the order of the places
+	notes := map[int]string{}
+	for _, p := range places {
+		i, invalid := f.checkInPlace(ctx, p, results)
+		switch _, reported := notes[i]; {
+		case !invalid && results[i].Outcome != qti.OutcomeValid:
+			return results[i] // stopped, or the fragment cannot be read in a context
+		case !invalid:
+			valid = i
+		case !reported:
+			failed = append(failed, i)
+			notes[i] = f.note(fragmentContexts[i], p, len(allowing), manyTyped)
+		}
+	}
+	if len(failed) == 0 {
+		return results[valid]
+	}
+	out := results[failed[0]]
+	out.Errors = nil
+	for _, i := range failed {
+		for _, e := range results[i].Errors {
+			e.Message += notes[i]
+			out.Errors = append(out.Errors, e)
+		}
+	}
+	if limit := f.limits.MaxErrors; limit > 0 && len(out.Errors) > limit {
+		out.Errors = out.Errors[:limit]
+	}
+	return out
+}
+
+// checkInPlace validates a fragment in the contexts of a place, each of
+// which is validated once for all places. It returns the context that
+// decides: the first that accepts the fragment, or that could not validate
+// it. When they all find errors, invalid is true, and the context is the
+// first of those with the fewest errors.
+func (f fragment) checkInPlace(ctx context.Context, p place, results map[int]qti.DocumentResult) (decides int, invalid bool) {
+	best := -1
+	for _, i := range p.contexts {
+		res, tried := results[i]
+		if !tried {
+			res = fragmentContexts[i].check(ctx, f.schema, f.docType, f.data, f.at, f.limits)
+			results[i] = res
+		}
+		if res.Outcome != qti.OutcomeInvalid {
+			return i, false
+		}
+		if best < 0 || len(res.Errors) < len(results[best].Errors) {
+			best = i
+		}
+	}
+	return best, true
+}
+
+// note is what the errors of a fragment say after their message: in which
+// element they were found, and why there. Only a root that is another type
+// in another element has one: any other root has the same errors wherever
+// it stands.
+func (f fragment) note(c fragmentContext, p place, allowing int, manyTyped map[string]bool) string {
+	if allowing == 1 || !manyTyped[f.root] {
+		return ""
+	}
+	in := c.name(manyTyped)
+	if !p.exact {
+		return fmt.Sprintf(" (checked as a child of %s: the fragment is valid in none of the %d places the validator knows for a %s, "+
+			"and has the fewest errors in this one)", in, allowing, f.root)
+	}
+	docs, verb := p.documents, "include"
+	switch n := len(docs); {
+	case n == 1:
+		verb = "includes"
+	case n > 3:
+		docs = append(slices.Clone(docs[:3]), fmt.Sprintf("%d other documents", n-3))
+	}
+	names := docs[0]
+	if n := len(docs); n > 1 {
+		names = strings.Join(docs[:n-1], ", ") + " and " + docs[n-1]
+	}
+	return fmt.Sprintf(" (checked as a child of %s, where %s %s the fragment)", in, names, verb)
 }
 
 // fragmentNotChecked is the result of a fragment whose root is an element
@@ -142,8 +303,9 @@ const contextPrefix = "qti3-validator-context"
 // fragment keep their numbers.
 type fragmentContext struct {
 	open, close string
-	path        string // of the element the fragment's root becomes a child of
-	depth       int    // of that element
+	path        string   // of the element the fragment's root becomes a child of
+	elements    []string // of that path
+	depth       int      // of that element
 }
 
 const (
@@ -156,12 +318,26 @@ const (
 	contextOutcome = contextItem + `<c:qti-outcome-declaration identifier="OUTCOME" cardinality="single" base-type="float">`
 	contextPart    = `<c:qti-test-part identifier="part" navigation-mode="linear" submission-mode="individual">`
 	contextSection = `<c:qti-assessment-section identifier="section" title="section" visible="true">`
+
+	contextFeedbackBlock = `<c:qti-feedback-block outcome-identifier="FEEDBACK" identifier="feedback" show-hide="show">`
+	contextRubricBlock   = `<c:qti-rubric-block view="candidate" use="instructions">`
+	contextTemplateBlock = `<c:qti-template-block template-identifier="TEMPLATE" identifier="template" show-hide="show">`
+	contextSectionRoot   = `<c:qti-assessment-section xmlns:c="` + qti.NamespaceASI + `" identifier="section" title="section" visible="true">`
 )
 
-// fragmentContexts are tried in this order; the first that allows the root
-// of a fragment is the one it is validated in. The rules of response,
-// outcome and template processing come first, then the content of an item
-// body, then the parts of items, tests and interactions.
+// fragmentContexts are the places a fragment is validated in: every one
+// that allows its root is one it may stand in. They are tried in this
+// order, which matters only for the errors of a fragment that is valid in
+// none of them: of the contexts with the fewest errors, the first one is
+// reported. The rules of response, outcome and template processing come
+// first, then the content of an item body, then the parts of items, tests
+// and interactions.
+//
+// Most elements have one type wherever they stand. The ones the schema
+// declares with more than one type (SchemaElements.ManyTyped) are another
+// type in another context, so those have a context for each of their types:
+// qti-rubric-block, qti-content-body, qti-feedback-block, qti-template-block
+// and qti-template-inline.
 var fragmentContexts = []fragmentContext{
 	// Outcome rules, such as qti-outcome-condition.
 	{open: `<c:qti-outcome-processing xmlns:c="` + qti.NamespaceASI + `">`, close: `</c:qti-outcome-processing>`},
@@ -215,8 +391,9 @@ var fragmentContexts = []fragmentContext{
 		close: `</c:qti-assessment-stimulus>`,
 	},
 	// The parts of a section, such as qti-assessment-item-ref and
-	// qti-rubric-block.
-	{open: `<c:qti-assessment-section xmlns:c="` + qti.NamespaceASI + `" identifier="section" title="section" visible="true">`, close: `</c:qti-assessment-section>`},
+	// qti-rubric-block: the rubric block of a test, which is another type
+	// than the one of an item body above.
+	{open: contextSectionRoot, close: `</c:qti-assessment-section>`},
 	// The parts of a test: those before its test parts, a test part, and
 	// those after them.
 	{open: contextTest, close: contextPart + contextSection + `</c:qti-assessment-section></c:qti-test-part>` + contextTestEnd},
@@ -253,7 +430,8 @@ var fragmentContexts = []fragmentContext{
 		open:  contextBody + `<c:qti-graphic-associate-interaction response-identifier="RESPONSE"><c:img src="image.png" alt=""/>`,
 		close: `</c:qti-graphic-associate-interaction>` + contextBodyEnd,
 	},
-	// The content of feedback and of a rubric block: qti-content-body.
+	// The content of modal feedback: a qti-content-body. Those of the other
+	// elements that have one are other types, and come last.
 	{
 		open:  contextItem + `<c:qti-modal-feedback outcome-identifier="FEEDBACK" identifier="feedback" show-hide="show">`,
 		close: `</c:qti-modal-feedback>` + contextItemEnd,
@@ -279,9 +457,36 @@ var fragmentContexts = []fragmentContext{
 	// The parts of an item reference: qti-weight, qti-variable-mapping and
 	// qti-template-default.
 	{
-		open: `<c:qti-assessment-section xmlns:c="` + qti.NamespaceASI + `" identifier="section" title="section" visible="true">` +
-			`<c:qti-assessment-item-ref identifier="item" href="item.xml">`,
+		open:  contextSectionRoot + `<c:qti-assessment-item-ref identifier="item" href="item.xml">`,
 		close: `</c:qti-assessment-item-ref></c:qti-assessment-section>`,
+	},
+	// The qti-content-body of the other elements that have one, each its
+	// own type: of a feedback block, a rubric block and a template block of
+	// an item, of a template block in a rubric block, of the feedback of a
+	// test, and of the rubric block of a test.
+	{open: contextBody + contextFeedbackBlock, close: `</c:qti-feedback-block>` + contextBodyEnd},
+	{open: contextBody + contextRubricBlock, close: `</c:qti-rubric-block>` + contextBodyEnd},
+	{open: contextBody + contextTemplateBlock, close: `</c:qti-template-block>` + contextBodyEnd},
+	{
+		open:  contextBody + contextRubricBlock + `<c:qti-content-body>` + contextTemplateBlock,
+		close: `</c:qti-template-block></c:qti-content-body></c:qti-rubric-block>` + contextBodyEnd,
+	},
+	{
+		open: contextTest + contextPart + contextSection + `</c:qti-assessment-section></c:qti-test-part>` +
+			`<c:qti-test-feedback access="atEnd" outcome-identifier="FEEDBACK" identifier="feedback" show-hide="show">`,
+		close: `</c:qti-test-feedback>` + contextTestEnd,
+	},
+	{open: contextSectionRoot + `<c:qti-rubric-block view="candidate">`, close: `</c:qti-rubric-block></c:qti-assessment-section>`},
+	// The content of the rubric block of an item, where a qti-template-block
+	// and a qti-template-inline are other types than elsewhere, and that of
+	// a template block, where a qti-feedback-block is.
+	{
+		open:  contextBody + contextRubricBlock + `<c:qti-content-body>`,
+		close: `</c:qti-content-body></c:qti-rubric-block>` + contextBodyEnd,
+	},
+	{
+		open:  contextBody + contextTemplateBlock + `<c:qti-content-body>`,
+		close: `</c:qti-content-body></c:qti-template-block>` + contextBodyEnd,
 	},
 }
 
@@ -306,8 +511,40 @@ func init() {
 				open = open[:len(open)-1]
 			}
 		}
-		c.path, c.depth = "/"+strings.Join(open, "/"), len(open)
+		c.path, c.elements, c.depth = "/"+strings.Join(open, "/"), open, len(open)
 	}
+}
+
+// like reports whether an element with the path within is the same place as
+// the context: an element found there has the type it has in the context.
+// The type of an element follows from the element it stands in, and when
+// the schema declares that one with more than one type, from the one around
+// it, and so on. So the two are alike when their innermost elements have
+// the same names, up to and including one that has a single type.
+func (c fragmentContext) like(within []string, manyTyped map[string]bool) bool {
+	for i := 1; i <= len(c.elements) && i <= len(within); i++ {
+		name := c.elements[len(c.elements)-i]
+		if within[len(within)-i] != name {
+			return false
+		}
+		if !manyTyped[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// name names the context in a message, by as many of its innermost elements
+// as say which type it is: "qti-content-body of qti-rubric-block of
+// qti-item-body".
+func (c fragmentContext) name(manyTyped map[string]bool) string {
+	n := len(c.elements) - 1
+	for n > 0 && manyTyped[c.elements[n]] {
+		n--
+	}
+	names := slices.Clone(c.elements[n:])
+	slices.Reverse(names)
+	return strings.Join(names, " of ")
 }
 
 // wrap puts the context around the root element of a document, which
@@ -367,28 +604,30 @@ func (c fragmentContext) allows(schema SchemaChecker, root string) bool {
 	return true
 }
 
-// contextCache remembers, for one QTI version, the context of every root
+// contextCache remembers, for one QTI version, the contexts of every root
 // element a fragment had so far.
 type contextCache struct {
 	mu     sync.Mutex
-	byRoot map[string]int // an index in fragmentContexts, or -1 for none
+	byRoot map[string][]int // indexes in fragmentContexts, in its order
 }
 
-// contextFor returns the context a fragment with the given root, an element
-// the schema declares locally, is validated in. ok is false when no context
-// allows it.
-func (cc *contextCache) contextFor(schema SchemaChecker, root string) (c fragmentContext, ok bool) {
+// contextsFor returns the contexts that allow a fragment with the given
+// root, an element the schema declares locally: all of them, as an element
+// may be another type in another one. It returns none when no context
+// allows the root.
+func (cc *contextCache) contextsFor(schema SchemaChecker, root string) []int {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	i, known := cc.byRoot[root]
+	allowing, known := cc.byRoot[root]
 	if !known {
-		i = slices.IndexFunc(fragmentContexts, func(c fragmentContext) bool { return c.allows(schema, root) })
-		cc.byRoot[root] = i
+		for i, c := range fragmentContexts {
+			if c.allows(schema, root) {
+				allowing = append(allowing, i)
+			}
+		}
+		cc.byRoot[root] = allowing
 	}
-	if i < 0 {
-		return fragmentContext{}, false
-	}
-	return fragmentContexts[i], true
+	return allowing
 }
 
 // requireManifest makes the package's imsmanifest.xml an error when it is
