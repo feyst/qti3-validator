@@ -33,13 +33,14 @@ func (v *Validator) ValidateDocument(ctx context.Context, q ValidateDocument) qt
 // size is the size of the document when it is known, else 0: the memory to
 // read it is then reserved for the largest document allowed.
 func (v *Validator) validateReader(ctx context.Context, r io.Reader, size int64, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
+	known := size // 0 when the size is not known, or more than is read
 	if size <= 0 || size > limits.MaxDocumentSize {
-		size = limits.MaxDocumentSize
+		size, known = limits.MaxDocumentSize, 0
 	}
 	if f, outcome, ok := reserveToRead(ctx, size); !ok {
 		return qti.DocumentResult{Errors: []qti.Finding{f}, Outcome: outcome}
 	}
-	data, failure := readDocument(ctx, r, limits)
+	data, failure := readDocument(ctx, r, known, limits)
 	if failure != nil {
 		return *failure
 	}
@@ -50,7 +51,7 @@ func (v *Validator) validateReader(ctx context.Context, r io.Reader, size int64,
 				res := qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "read: "+err.Error())
 				return nil, &res
 			}
-			return readDocument(ctx, r, limits)
+			return readDocument(ctx, r, known, limits)
 		}
 	}
 	return v.validate(ctx, src, req, limits)
@@ -65,10 +66,12 @@ type source struct {
 }
 
 // readDocument reads a document into memory, bounded by MaxDocumentSize. On
-// failure it returns the result to report instead.
-func readDocument(ctx context.Context, r io.Reader, limits qti.Limits) ([]byte, *qti.DocumentResult) {
+// failure it returns the result to report instead. size is the size of the
+// document when the caller knows it, else 0: the document is then read into
+// a buffer of that size at once, instead of one that grows to hold it.
+func readDocument(ctx context.Context, r io.Reader, size int64, limits qti.Limits) ([]byte, *qti.DocumentResult) {
 	lr := &limitReader{r: ctxReader{ctx: ctx, r: r}, remaining: limits.MaxDocumentSize}
-	data, err := io.ReadAll(lr)
+	data, err := readAll(lr, size)
 	var res qti.DocumentResult
 	stop, stopped := stopFinding(ctx.Err())
 	switch {
@@ -85,6 +88,29 @@ func readDocument(ctx context.Context, r io.Reader, limits qti.Limits) ([]byte, 
 		return data, nil
 	}
 	return nil, &res
+}
+
+// readAll reads r to its end like io.ReadAll, into a buffer for size bytes
+// when size is positive. A document of another size is read as well.
+func readAll(r io.Reader, size int64) ([]byte, error) {
+	if size <= 0 {
+		return io.ReadAll(r)
+	}
+	// One byte more is the room for the read that finds the end.
+	b := make([]byte, 0, size+1)
+	for {
+		if len(b) == cap(b) {
+			b = append(b, 0)[:len(b)]
+		}
+		n, err := r.Read(b[len(b):cap(b)])
+		b = b[:len(b)+n]
+		if errors.Is(err, io.EOF) {
+			return b, nil
+		}
+		if err != nil {
+			return b, err
+		}
+	}
 }
 
 // validate validates a document in memory. When ctx is done or the rules

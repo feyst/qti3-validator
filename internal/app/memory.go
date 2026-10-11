@@ -50,9 +50,11 @@ func reserveToRead(ctx context.Context, size int64) (qti.Finding, qti.Outcome, b
 // When there is no room now, the validation waits for it without the
 // document: it lets go of the bytes it read and of what it reserved, and
 // reads the document again once it has its room, from the upload or the
-// package, which are on disk. So a validation that waits holds no memory,
-// and those that run stay within what the service allows however many
-// wait. A document that cannot be read again cannot wait, and stops.
+// package, which the caller keeps: on disk, or for a small one in memory
+// that it accounts for itself. So a validation that waits holds no memory
+// of its own, and those that run stay within what the service allows
+// however many wait. A document that cannot be read again cannot wait, and
+// stops.
 //
 // On failure it returns the finding to report, with the outcome it implies.
 func reserveToCheck(ctx context.Context, rules RuleChecker, src *source) (qti.Finding, qti.Outcome, bool) {

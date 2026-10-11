@@ -194,16 +194,18 @@ func (m *memSem) forget(id uint64) {
 // goroutine.
 //
 // A request is small when its body is under smallRequestSize and its
-// validation reserves no more than smallReservation: it takes any slot and
-// its memory from the small share. A small request whose document turns out
-// to need more, one of many nodes in few bytes, becomes a large one when it
-// reserves that: it then needs a place among the large ones, and room in
-// the large part.
+// validation reserves no more than smallReservation: it takes any slot, the
+// express one too, and its memory from the small share. A small request
+// whose document turns out to need more, one of many nodes in few bytes,
+// becomes a large one when it reserves that: it then needs a regular slot,
+// and room in the large part. So what runs on the express slot, beside the
+// MaxConcurrent validations on the regular ones, holds memory from the
+// small share only.
 type memoryHold struct {
 	s     *Server
 	held  reservation
-	slot  bool // the request holds its slot
-	large bool // the kind of slot it takes; see Server.takeSlot
+	slot  slotKind // the slot the request holds, if any
+	large bool     // the kind of slot it takes; see Server.takeSlot
 	// id is the number of the request among those that wait for a large
 	// reservation, and since when it first did, once it has: a request that
 	// waits a second time keeps its place.
@@ -217,8 +219,8 @@ type memoryHold struct {
 var _ app.Memory = (*memoryHold)(nil)
 
 // newMemoryHold returns the hold of a request that has its slot.
-func (s *Server) newMemoryHold(large bool) *memoryHold {
-	return &memoryHold{s: s, slot: true, large: large}
+func (s *Server) newMemoryHold(slot slotKind, large bool) *memoryHold {
+	return &memoryHold{s: s, slot: slot, large: large}
 }
 
 // context returns ctx with the hold as the memory of the validation, when
@@ -233,10 +235,13 @@ func (h *memoryHold) context(ctx context.Context) context.Context {
 // release frees the reservation and the slot.
 func (h *memoryHold) release() {
 	h.TryReserve(0)
-	if h.slot {
-		h.s.freeSlot(h.large)
-		h.slot = false
-	}
+	h.freeSlot()
+}
+
+// freeSlot gives the slot back, if the request holds one.
+func (h *memoryHold) freeSlot() {
+	h.s.freeSlot(h.slot)
+	h.slot = noSlot
 }
 
 // refused answers 503 when the validation stopped because it found no room
@@ -265,18 +270,23 @@ func (h *memoryHold) TryReserve(n int64) bool {
 	if h.busy != "" {
 		return false
 	}
-	// A small request that grows large needs a place among the large ones.
-	becomesLarge := !isSmall(n) && !h.large
-	if becomesLarge && !h.s.tryTakeLargePlace() {
+	// A small request that grows large gives up the express slot for a
+	// regular one, if one is free; it gets the memory only with that slot.
+	swap := !isSmall(n) && h.slot == expressSlot
+	if swap && !h.s.tryTakeRegular() {
 		return false
 	}
 	if !m.resize(&h.held, n) {
-		if becomesLarge {
-			h.s.freeLargePlace()
+		if swap {
+			h.s.freeSlot(regularSlot)
 		}
 		return false
 	}
-	h.large = h.large || becomesLarge
+	if swap {
+		h.s.freeSlot(expressSlot)
+		h.slot = regularSlot
+	}
+	h.large = h.large || !isSmall(n)
 	return true
 }
 
@@ -310,10 +320,7 @@ func (h *memoryHold) Reserve(ctx context.Context, n int64) error {
 		return app.ErrMemoryBusy
 	}
 	defer waiting.Add(-1)
-	if h.slot {
-		s.freeSlot(h.large)
-		h.slot = false
-	}
+	h.freeSlot()
 	// From here on the request is of the kind of its reservation.
 	h.large = h.large || large
 	if h.id == 0 {
@@ -338,11 +345,10 @@ func (h *memoryHold) Reserve(ctx context.Context, n int64) error {
 			return app.ErrMemoryBusy
 		}
 	}
-	if !s.takeSlot(ctx, h.large) {
+	if h.slot = s.takeSlot(ctx, h.large); h.slot == noSlot {
 		h.TryReserve(0)
 		h.busy = "no validation slot available in time"
 		return app.ErrMemoryBusy
 	}
-	h.slot = true
 	return nil
 }

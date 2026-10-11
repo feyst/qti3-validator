@@ -113,11 +113,17 @@ func TestSpoolStalledUploadsHoldWhatTheySent(t *testing.T) {
 // An upload whose next bytes do not fit in the budget gets 503 with
 // Retry-After; its temporary file is removed and its reservation freed.
 func TestSpoolBudgetFull(t *testing.T) {
+	t.Run("in files", func(t *testing.T) { testSpoolBudgetFull(t, 1, noBodyMemory) })
+	t.Run("in memory", func(t *testing.T) { testSpoolBudgetFull(t, 0) })
+}
+
+// testSpoolBudgetFull expects files temporary files while one upload stalls.
+func testSpoolBudgetFull(t *testing.T, files int, configure ...func(*Server)) {
 	dir := t.TempDir()
 	t.Setenv("TMPDIR", dir)
 	const limit = 8 << 10
 	srv, s := newFakeServer(t, Options{MaxPackageSize: limit, MaxDocumentSize: limit, MaxSpoolSize: 10 << 10, MaxConcurrent: 4},
-		fakeValidator{})
+		fakeValidator{}, configure...)
 	url := srv.URL + "/api/validate"
 
 	// The first upload stalls one byte short of its 6 KiB.
@@ -134,15 +140,15 @@ func TestSpoolBudgetFull(t *testing.T) {
 		t.Fatalf("chunked upload that does not fit: %d %v Retry-After %q", got.status, got.body, got.header.Get("Retry-After"))
 	}
 	waitFor(t, "the refused uploads to free their budget", func() bool { return spooled(s) == held })
-	waitFor(t, "the refused uploads' files to be removed", func() bool { return tempFiles(t, dir) == 1 })
+	waitFor(t, "the refused uploads' files to be removed", func() bool { return tempFiles(t, dir) == files })
+	waitFor(t, "the refused uploads to free their memory", func() bool {
+		return bodyMemoryUsed(s) == int64(files^1)*(6<<10+1)
+	})
 
 	if status := finish(); status != http.StatusOK {
 		t.Fatalf("first upload: %d", status)
 	}
-	waitFor(t, "the release", func() bool { return spooled(s) == 0 })
-	if n := tempFiles(t, dir); n != 0 {
-		t.Fatalf("%d temporary files left", n)
-	}
+	released(t, s, dir)
 }
 
 // Once received, a body holds the budget for its size while it is validated,
@@ -209,18 +215,32 @@ func TestSpoolLargerThanBudget(t *testing.T) {
 	})
 }
 
-// The budget is free again however a request ends.
+// The budget is free again however a request ends, and so are the memory
+// and the temporary file of its body.
 func TestSpoolReleased(t *testing.T) {
+	t.Run("in files", func(t *testing.T) { testSpoolReleased(t, false, noBodyMemory) })
+	t.Run("in memory", func(t *testing.T) { testSpoolReleased(t, true) })
+}
+
+func testSpoolReleased(t *testing.T, inMemory bool, configure ...func(*Server)) {
 	dir := t.TempDir()
 	t.Setenv("TMPDIR", dir)
 	const limit = 8 << 10
 	srv, s := newFakeServer(t, Options{MaxPackageSize: limit, MaxDocumentSize: limit, MaxSpoolSize: 10 << 10, RequestTimeout: 300 * time.Millisecond},
-		fakeValidator{})
+		fakeValidator{}, configure...)
 	url := srv.URL + "/api/validate"
 	released := func(t *testing.T) {
 		t.Helper()
-		waitFor(t, "the release", func() bool { return spooled(s) == 0 })
-		waitFor(t, "the temporary files to be removed", func() bool { return tempFiles(t, dir) == 0 })
+		released(t, s, dir)
+	}
+	// held waits until a body that stalls holds its place: in memory, or in
+	// a temporary file.
+	held := func(t *testing.T) {
+		t.Helper()
+		waitFor(t, "the reservation", func() bool { return spooled(s) > 0 })
+		if files, memory := tempFiles(t, dir), bodyMemoryUsed(s); inMemory != (files == 0) || inMemory != (memory > 0) {
+			t.Fatalf("%d temporary files and %d bytes of memory, in memory %v", files, memory, inMemory)
+		}
 	}
 
 	t.Run("success", func(t *testing.T) {
@@ -244,7 +264,7 @@ func TestSpoolReleased(t *testing.T) {
 	})
 	t.Run("read timeout", func(t *testing.T) {
 		conn := startRaw(t, srv, "Content-Type: application/zip\r\nContent-Length: 6000\r\n", "PK"+strings.Repeat(" ", 2000))
-		waitFor(t, "the reservation", func() bool { return spooled(s) > 0 })
+		held(t)
 		if got := readRaw(t, conn); got.status != http.StatusRequestTimeout {
 			t.Fatalf("got %d %v", got.status, got.body)
 		}
@@ -252,7 +272,7 @@ func TestSpoolReleased(t *testing.T) {
 	})
 	t.Run("client disconnect", func(t *testing.T) {
 		conn := startRaw(t, srv, "Content-Type: application/zip\r\nContent-Length: 6000\r\n", "PK"+strings.Repeat(" ", 2000))
-		waitFor(t, "the reservation", func() bool { return spooled(s) > 0 })
+		held(t)
 		_ = conn.Close()
 		released(t)
 	})

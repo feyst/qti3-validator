@@ -297,10 +297,11 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 			return nil, &res
 		}
 		defer again.Close()
-		return readDocument(ctx, again, limits)
+		return readDocument(ctx, again, 0, limits)
 	}}
 	var failure *qti.DocumentResult
-	src.data, failure = readDocument(ctx, counted, limits)
+	// The size an entry declares is not trusted with a buffer of that size.
+	src.data, failure = readDocument(ctx, counted, 0, limits)
 	var res qti.DocumentResult
 	budgetRanOut := false
 	if failure != nil {
