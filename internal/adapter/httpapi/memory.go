@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -14,21 +15,23 @@ import (
 // takes before it takes it (app.Memory), and one that finds no room waits
 // until others release theirs.
 //
-// A validation that waits is parked: it keeps what it reserved, which it
-// really holds, but runs nothing. Reservations are granted when they fit;
-// when nothing fits and every holder is parked, nobody would ever release,
-// so one of them is granted its reservation all the same. That exceeds the
-// budget by no more than what the parked ones hold, which is their
-// documents as read and no trees, and it cannot deadlock.
+// What is reserved never exceeds the budget. A validation that waits has
+// reserved nothing, and holds nothing in memory: the application lets go of
+// the document it read and reads it again afterwards. So the validations
+// that wait cost no memory, however many they are; they cannot wait for
+// each other, as none of them holds what another needs; and each is served
+// once the ones that run release enough, as none asks for more than the
+// whole budget.
 type memSem struct {
 	mu     sync.Mutex
 	budget int64
-	used   int64 // reserved by all validations
-	parked int64 // of used: reserved by the validations that wait
-	// urgent counts the waiters that have waited so long that no
-	// reservation is granted before theirs, so a stream of small documents
-	// cannot starve a large one for ever.
-	urgent int
+	used   int64 // reserved by the validations that run
+	// urgent holds the waiters that have waited so long that no reservation
+	// is granted before theirs, the oldest first, which alone is served: a
+	// stream of small documents cannot starve a large one, nor the large
+	// ones each other.
+	urgent []uint64
+	seq    uint64 // the last waiter's number
 	// changed is closed and replaced whenever a waiter may have got room.
 	changed chan struct{}
 }
@@ -49,9 +52,9 @@ func (m *memSem) wake() {
 	m.changed = make(chan struct{})
 }
 
-// resize changes a reservation of a running validation from cur to n bytes,
-// if n is less or fits. A validation that is the only one running gets it
-// when the others, parked, leave no room: see memSem.
+// resize changes the reservation of a running validation from cur to n
+// bytes, when n is less or fits, and reports whether it did. Nothing more is
+// granted while a waiter is urgent.
 func (m *memSem) resize(cur, n int64) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -60,62 +63,56 @@ func (m *memSem) resize(cur, n int64) bool {
 		m.used -= cur - n
 		m.wake()
 		return true
-	case m.urgent > 0:
-		return false
-	case m.used-cur+n <= m.budget || m.used-m.parked-cur == 0:
+	case len(m.urgent) == 0 && m.used-cur+n <= m.budget:
 		m.used += n - cur
 		return true
 	}
 	return false
 }
 
-// park marks cur bytes as held by a validation that waits, which lets
-// another one in when it was the last one running.
-func (m *memSem) park(cur int64) {
-	m.mu.Lock()
-	m.parked += cur
-	m.wake()
-	m.mu.Unlock()
-}
-
-// admit grants a parked validation its reservation of n bytes instead of
-// cur, if it fits or nobody is running. It returns the channel to wait on
-// otherwise. urgent tells whether this waiter is one of the urgent ones;
-// the others wait for those.
-func (m *memSem) admit(cur, n int64, urgent bool) (bool, <-chan struct{}) {
+// enqueue numbers a validation that starts to wait.
+func (m *memSem) enqueue() uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.urgent > 0 && !urgent {
+	m.seq++
+	return m.seq
+}
+
+// admit grants waiter id, which holds nothing, a reservation of n bytes if
+// it fits and no urgent waiter goes first. It returns the channel to wait
+// on otherwise.
+func (m *memSem) admit(id uint64, n int64) (bool, <-chan struct{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.urgent) > 0 && m.urgent[0] != id || m.used+n > m.budget {
 		return false, m.changed
 	}
-	if m.used-cur+n <= m.budget || m.used-m.parked == 0 {
-		m.parked -= cur
-		m.used += n - cur
-		if urgent {
-			m.urgent--
-			m.wake() // those that waited for this one
-		}
-		return true, nil
-	}
-	return false, m.changed
+	m.used += n
+	m.forget(id)
+	return true, nil
 }
 
-// unpark takes a waiter that gives up out of the parked ones; it keeps its
-// cur bytes.
-func (m *memSem) unpark(cur int64, urgent bool) {
+// setUrgent puts waiter id behind the urgent ones.
+func (m *memSem) setUrgent(id uint64) {
 	m.mu.Lock()
-	m.parked -= cur
-	if urgent {
-		m.urgent--
-	}
-	m.wake()
+	m.urgent = append(m.urgent, id)
 	m.mu.Unlock()
 }
 
-func (m *memSem) setUrgent() {
+// leave takes a waiter that gives up out of the urgent ones.
+func (m *memSem) leave(id uint64) {
 	m.mu.Lock()
-	m.urgent++
+	m.forget(id)
 	m.mu.Unlock()
+}
+
+// forget removes id from the urgent waiters, and wakes the others when the
+// first of them changed. The caller holds mu.
+func (m *memSem) forget(id uint64) {
+	if i := slices.Index(m.urgent, id); i >= 0 {
+		m.urgent = slices.Delete(m.urgent, i, i+1)
+		m.wake()
+	}
 }
 
 // memoryHold is what one request holds while it is validated: its
@@ -123,9 +120,10 @@ func (m *memSem) setUrgent() {
 // validation changes through app.Memory. It belongs to the request's
 // goroutine.
 type memoryHold struct {
-	s           *Server
-	held        int64  // bytes reserved
-	releaseSlot func() // nil while the request holds no slot
+	s     *Server
+	held  int64 // bytes reserved
+	slot  bool  // the request holds its slot
+	large bool  // the kind of slot it takes; see Server.takeSlot
 	// busy is why the request found no room in time, once it did not: it is
 	// then answered with 503, whatever the validation made of it.
 	busy string
@@ -134,8 +132,8 @@ type memoryHold struct {
 var _ app.Memory = (*memoryHold)(nil)
 
 // newMemoryHold returns the hold of a request that has its slot.
-func (s *Server) newMemoryHold(releaseSlot func()) *memoryHold {
-	return &memoryHold{s: s, releaseSlot: releaseSlot}
+func (s *Server) newMemoryHold(large bool) *memoryHold {
+	return &memoryHold{s: s, slot: true, large: large}
 }
 
 // context returns ctx with the hold as the memory of the validation, when
@@ -149,13 +147,10 @@ func (h *memoryHold) context(ctx context.Context) context.Context {
 
 // release frees the reservation and the slot.
 func (h *memoryHold) release() {
-	if h.s.mem != nil && h.held > 0 {
-		h.s.mem.resize(h.held, 0)
-		h.held = 0
-	}
-	if h.releaseSlot != nil {
-		h.releaseSlot()
-		h.releaseSlot = nil
+	h.TryReserve(0)
+	if h.slot {
+		h.s.freeSlot(h.large)
+		h.slot = false
 	}
 }
 
@@ -173,21 +168,38 @@ func (h *memoryHold) refused(w http.ResponseWriter) bool {
 // Limit implements app.Memory.
 func (h *memoryHold) Limit() int64 { return h.s.mem.budget }
 
+// TryReserve implements app.Memory.
+func (h *memoryHold) TryReserve(n int64) bool {
+	m := h.s.mem
+	if m == nil || n == h.held {
+		return true
+	}
+	if n > h.held && h.busy != "" || !m.resize(h.held, n) {
+		return false
+	}
+	h.held = n
+	return true
+}
+
 // Reserve implements app.Memory. A reservation that does not fit waits for
 // room like a request waits for a slot: at most MaxQueue requests wait, and
-// until ctx is done. While it waits the request gives up its slot, so the
+// until ctx is done; a request that would be one too many, or runs out of
+// time, is answered with 503, also when part of its validation is done.
+// While it waits the request gives up what it reserved and its slot, so the
 // validations that do fit, small ones mostly, go on beside the ones that
 // run; it takes a slot again once it has its memory.
 func (h *memoryHold) Reserve(ctx context.Context, n int64) error {
 	m := h.s.mem
-	switch {
-	case n > h.held && h.busy != "":
-		return app.ErrMemoryBusy // it gave up before; what follows is cleaning up
-	case n > m.budget:
+	if n > m.budget {
+		h.TryReserve(0)
 		return app.ErrMemoryExceeded
-	case m.resize(h.held, n):
-		h.held = n
+	}
+	if h.TryReserve(n) {
 		return nil
+	}
+	h.TryReserve(0)
+	if h.busy != "" {
+		return app.ErrMemoryBusy // it gave up before
 	}
 	s := h.s
 	if s.waiting.Add(1) > int64(s.opts.MaxQueue) {
@@ -196,16 +208,15 @@ func (h *memoryHold) Reserve(ctx context.Context, n int64) error {
 		return app.ErrMemoryBusy
 	}
 	defer s.waiting.Add(-1)
-	if h.releaseSlot != nil {
-		h.releaseSlot()
-		h.releaseSlot = nil
+	if h.slot {
+		s.freeSlot(h.large)
+		h.slot = false
 	}
-	m.park(h.held)
-	urgent := false
+	id := m.enqueue()
 	timer := time.NewTimer(urgentAfter)
 	defer timer.Stop()
 	for {
-		ok, changed := m.admit(h.held, n, urgent)
+		ok, changed := m.admit(id, n)
 		if ok {
 			h.held = n
 			break
@@ -213,20 +224,18 @@ func (h *memoryHold) Reserve(ctx context.Context, n int64) error {
 		select {
 		case <-changed:
 		case <-timer.C:
-			urgent = true
-			m.setUrgent()
+			m.setUrgent(id)
 		case <-ctx.Done():
-			m.unpark(h.held, urgent)
+			m.leave(id)
 			h.busy = "no memory to validate in came free in time (MAX_VALIDATION_MEMORY)"
 			return app.ErrMemoryBusy
 		}
 	}
-	select {
-	case s.slots <- struct{}{}:
-		h.releaseSlot = func() { <-s.slots }
-		return nil
-	case <-ctx.Done():
+	if !s.takeSlot(ctx, h.large) {
+		h.TryReserve(0)
 		h.busy = "no validation slot available in time"
 		return app.ErrMemoryBusy
 	}
+	h.slot = true
+	return nil
 }

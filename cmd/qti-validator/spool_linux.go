@@ -3,8 +3,6 @@ package main
 import (
 	"math"
 	"os"
-	"strconv"
-	"strings"
 	"syscall"
 )
 
@@ -25,28 +23,8 @@ func tmpfsSize(dir string) int64 {
 	return int64(st.Blocks * bsize) //nolint:gosec // bounded by the check above
 }
 
-// memoryLimit is the memory limit of the cgroup, v2 or v1, or 0 when there
-// is none or it cannot be read.
-func memoryLimit() int64 {
-	for _, file := range []string{
-		"/sys/fs/cgroup/memory.max",                   // cgroup v2
-		"/sys/fs/cgroup/memory/memory.limit_in_bytes", // cgroup v1
-	} {
-		data, err := os.ReadFile(file)
-		if err != nil {
-			continue
-		}
-		return parseMemoryLimit(string(data))
-	}
-	return 0
-}
-
-// parseMemoryLimit reads a cgroup memory limit: "max" in v2, and a value
-// near the largest int64 in v1, mean none.
-func parseMemoryLimit(s string) int64 {
-	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
-	if err != nil || n <= 0 || n >= 1<<60 {
-		return 0
-	}
-	return n
+// memoryLimit is the memory the process may use and the memory of the
+// machine; see memoryLimitIn.
+func memoryLimit() (limit, physical int64) {
+	return memoryLimitIn(os.DirFS("/"))
 }

@@ -288,23 +288,36 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 	counted := &countingReader{r: rc}
 	limits := v.limits
 	limits.MaxDocumentSize = readLimit
-	data, failure := readDocument(ctx, counted, limits)
+	// The entry can be read again: a validation that waits for memory lets
+	// go of it meanwhile. The bytes count against the package once.
+	src := &source{reread: func() ([]byte, *qti.DocumentResult) {
+		again, err := e.Open()
+		if err != nil {
+			res := qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "read: "+err.Error())
+			return nil, &res
+		}
+		defer again.Close()
+		return readDocument(ctx, again, limits)
+	}}
+	var failure *qti.DocumentResult
+	src.data, failure = readDocument(ctx, counted, limits)
 	var res qti.DocumentResult
 	budgetRanOut := false
 	if failure != nil {
 		res = *failure
 		budgetRanOut = res.Outcome == qti.OutcomeTooLarge && readLimit < maxSize
 	} else {
-		res = v.validate(ctx, data, req, limits)
+		res = v.validate(ctx, src, req, limits)
 		switch {
+		case src.data == nil: // it could not be read again
 		case name == qti.ManifestName:
-			res = v.requireManifest(data, res)
+			res = v.requireManifest(src.data, res)
 		case places != nil && unsupportedDocument(res):
-			res = v.validateFragment(ctx, data, req, limits, places.included)
+			res = v.validateFragment(ctx, src.data, req, limits, places.included)
 		}
 	}
 	*budget -= counted.n
-	doc := v.documentReferences(data, res)
+	doc := v.documentReferences(src.data, res)
 	if doc != nil && name == qti.ManifestName && unsupportedDocument(res) {
 		doc.Refs = qti.DocumentReferences{} // not a manifest: what it refers to instead is not the package's
 	}

@@ -3,6 +3,7 @@ package app_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -10,31 +11,44 @@ import (
 	"qti3-validator/internal/domain/qti"
 )
 
-// fakeMemory is an app.Memory with a limit, that records what was reserved
-// and fails with err once failAfter reservations that grow were granted.
+// fakeMemory is an app.Memory with a limit, that records what was reserved.
 type fakeMemory struct {
-	limit     int64
-	held      int64
-	calls     []int64
-	grows     int
-	failAfter int // 0: never
-	err       error
+	limit int64
+	held  int64
+	calls []int64 // what was reserved, in order; 0 is a release
+	// noRoom makes TryReserve find no room for more, so the validation has
+	// to wait, with Reserve; waitErr is what waiting then ends in.
+	noRoom  bool
+	waitErr error
+	waits   []int64 // what was held when a wait began
 }
 
 func (m *fakeMemory) Limit() int64 { return m.limit }
 
-func (m *fakeMemory) Reserve(_ context.Context, n int64) error {
-	m.calls = append(m.calls, n)
-	if n > m.held {
-		if n > m.limit {
-			return app.ErrMemoryExceeded
-		}
-		if m.failAfter > 0 && m.grows >= m.failAfter {
-			return m.err
-		}
-		m.grows++
+func (m *fakeMemory) TryReserve(n int64) bool {
+	if n > m.held && (m.noRoom || n > m.limit) {
+		return false
 	}
 	m.held = n
+	m.calls = append(m.calls, n)
+	return true
+}
+
+func (m *fakeMemory) Reserve(_ context.Context, n int64) error {
+	if n > m.limit {
+		m.held = 0
+		return app.ErrMemoryExceeded
+	}
+	if len(m.calls) > 0 && m.calls[len(m.calls)-1] != 0 {
+		// Not the first reservation of a document: it waits, with nothing.
+		m.waits = append(m.waits, m.held)
+		m.held = 0
+		if m.waitErr != nil {
+			return m.waitErr
+		}
+	}
+	m.held = n
+	m.calls = append(m.calls, n)
 	return nil
 }
 
@@ -58,16 +72,13 @@ func TestMemoryReservedInTwoSteps(t *testing.T) {
 	if res := validateWith(t, m, doc); !res.Valid || !res.Ran.Rules {
 		t.Fatalf("got %+v", res)
 	}
-	if len(m.calls) != 3 {
-		t.Fatalf("reservations %v, want one to read, one for the document as read and one for the rules", m.calls)
+	if len(m.calls) != 2 || len(m.waits) != 0 {
+		t.Fatalf("reservations %v, waits %v: want one to read and one for the rules", m.calls, m.waits)
 	}
-	read, held, rules := m.calls[0], m.calls[1], m.calls[2]
+	read, rules := m.calls[0], m.calls[1]
 	size := int64(len(doc))
 	if read < 2*size || read > 2<<20 {
 		t.Errorf("reserved %d bytes to read %d bytes", read, size)
-	}
-	if held >= read || held < size {
-		t.Errorf("holds %d bytes for a document of %d once the schema check is over, after %d", held, size, read)
 	}
 	// 20,000 nodes of some 170 bytes and their indexes: some 5 MiB, 60 times
 	// the size of the document.
@@ -82,6 +93,42 @@ func TestMemoryReservedInTwoSteps(t *testing.T) {
 	}
 	if got := prose.calls[len(prose.calls)-1]; got > rules/2 {
 		t.Errorf("reserved %d bytes for %d bytes of prose, and %d for as many bytes of empty elements", got, len(text), rules)
+	}
+}
+
+// onceReader hides that a reader can be read again.
+type onceReader struct{ io.Reader }
+
+// A validation that finds no room for the rules waits for it with nothing:
+// it gives up what it reserved, lets go of the document, and reads it again
+// once it has its room. One that cannot read its document again stops.
+func TestMemoryWaitsWithoutTheDocument(t *testing.T) {
+	doc := denseItem(1000) + "\n"
+	want := validateString(t, doc, "")
+	m := &fakeMemory{limit: 1 << 40, noRoom: true}
+	res := validateWith(t, m, doc)
+	if !res.Valid || !res.Ran.Rules || len(res.Errors) != len(want.Errors) {
+		t.Fatalf("got %+v", res)
+	}
+	if len(m.waits) != 1 || len(m.calls) != 2 {
+		t.Fatalf("reservations %v, waits %v: want one wait, for the rules", m.calls, m.waits)
+	}
+
+	m = &fakeMemory{limit: 1 << 40, noRoom: true}
+	ctx := app.WithMemory(context.Background(), m)
+	res = testValidator(t).ValidateDocument(ctx, app.ValidateDocument{Document: onceReader{strings.NewReader(doc)}, Size: int64(len(doc))})
+	if res.Outcome != qti.OutcomeTooComplex || res.Ran.Rules || len(m.waits) != 0 {
+		t.Fatalf("a document that cannot be read again: %+v, waits %v", res, m.waits)
+	}
+
+	// In a package the entry is read again.
+	entries := packageEntries(t)
+	data := makeZip(t, entries...)
+	m = &fakeMemory{limit: 1 << 40, noRoom: true}
+	ctx = app.WithMemory(context.Background(), m)
+	pkg := testValidator(t).ValidatePackage(ctx, app.ValidatePackage{Package: bytes.NewReader(data), Size: int64(len(data))})
+	if !pkg.Valid || len(m.waits) == 0 || m.held != 0 {
+		t.Fatalf("package: valid %v, errors %v, files %+v, waits %v, held %d", pkg.Valid, pkg.Errors, pkg.Files, m.waits, m.held)
 	}
 }
 
@@ -121,11 +168,12 @@ func TestMemoryExceededBySize(t *testing.T) {
 // A validation that finds no memory in time stops like one that runs out of
 // time, with what it found so far.
 func TestMemoryBusyStopsValidation(t *testing.T) {
-	m := &fakeMemory{limit: 1 << 40, failAfter: 1, err: app.ErrMemoryBusy}
+	m := &fakeMemory{limit: 1 << 40, noRoom: true, waitErr: app.ErrMemoryBusy}
 	res := validateWith(t, m, denseItem(10))
-	if res.Outcome != qti.OutcomeTooComplex || res.Ran.Rules || res.Errors[0].Code != qti.CodeTooComplex ||
-		!strings.Contains(res.Errors[0].Message, "no memory free") {
-		t.Fatalf("got %+v", res)
+	last := res.Errors[len(res.Errors)-1]
+	if res.Outcome != qti.OutcomeTooComplex || res.Ran.Rules || last.Code != qti.CodeTooComplex ||
+		!strings.Contains(last.Message, "no memory free") || m.held != 0 {
+		t.Fatalf("got %+v, held %d", res, m.held)
 	}
 }
 

@@ -111,13 +111,13 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	defer os.Remove(f.Name())
 	defer f.Close()
 
-	release, ok := s.acquire(ctx, w)
-	if !ok {
+	large := size >= smallRequestSize
+	if !s.acquire(ctx, w, large) {
 		return
 	}
 	// The validation reserves its memory from the hold as it goes, and may
 	// give up its slot while it waits for room.
-	hold := s.newMemoryHold(release)
+	hold := s.newMemoryHold(large)
 	defer hold.release()
 	ctx = hold.context(ctx)
 

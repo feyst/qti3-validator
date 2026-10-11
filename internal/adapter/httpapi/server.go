@@ -62,8 +62,11 @@ type Server struct {
 	opts      Options
 	validator Validator
 	slots     chan struct{}
-	waiting   atomic.Int64 // requests waiting for a slot
-	log       *slog.Logger
+	// largeSlots bounds the large requests among the slots; nil with one
+	// slot, which every request may take. See tryTakeSlot.
+	largeSlots chan struct{}
+	waiting    atomic.Int64 // requests waiting for a slot
+	log        *slog.Logger
 
 	spoolMu   sync.Mutex
 	spoolUsed int64 // bytes reserved by requests for their temporary files
@@ -82,8 +85,12 @@ func New(opts Options, v Validator, log *slog.Logger) *Server {
 	if opts.MaxSpoolSize <= 0 {
 		opts.MaxSpoolSize = 4 * opts.MaxPackageSize
 	}
+	var largeSlots chan struct{}
+	if opts.MaxConcurrent > 1 {
+		largeSlots = make(chan struct{}, opts.MaxConcurrent-1)
+	}
 	return &Server{
-		opts: opts, validator: v, slots: make(chan struct{}, opts.MaxConcurrent), log: log,
+		opts: opts, validator: v, slots: make(chan struct{}, opts.MaxConcurrent), largeSlots: largeSlots, log: log,
 		mem:        newMemSem(opts.MaxValidationMemory),
 		writeGrace: writeGrace,
 	}
@@ -128,29 +135,82 @@ func (s *Server) version(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// acquire waits for a validation slot, bounding concurrent work and with it
-// peak memory. At most MaxQueue requests wait, in about the order they
-// came; beyond that, and for requests that cannot get a slot before ctx is
-// done, the answer is 503.
-func (s *Server) acquire(ctx context.Context, w http.ResponseWriter) (func(), bool) {
-	release := func() { <-s.slots }
-	select {
-	case s.slots <- struct{}{}:
-		return release, true
-	default:
+// smallRequestSize is the size of a request body below which a request is
+// small: a typical item, validated in milliseconds.
+const smallRequestSize = 256 << 10
+
+// acquire waits for a validation slot, bounding concurrent work. At most
+// MaxQueue requests wait, in about the order they came; beyond that, and for
+// requests that cannot get a slot before ctx is done, the answer is 503.
+func (s *Server) acquire(ctx context.Context, w http.ResponseWriter, large bool) bool {
+	if s.tryTakeSlot(large) {
+		return true
 	}
 	if s.waiting.Add(1) > int64(s.opts.MaxQueue) {
 		s.waiting.Add(-1)
 		writeBusy(w, "too many requests are waiting for a validation slot")
-		return nil, false
+		return false
 	}
 	defer s.waiting.Add(-1)
+	if !s.takeSlot(ctx, large) {
+		writeBusy(w, "no validation slot available in time")
+		return false
+	}
+	return true
+}
+
+// A slot lets one validation run. With two or more slots, one is kept for
+// small requests: a large request, of smallRequestSize or more, needs a
+// place among the large ones as well, of which there is one less than there
+// are slots. So a typical item is not kept waiting for seconds by large
+// documents that take every slot.
+
+// tryTakeSlot takes a slot if one is free.
+func (s *Server) tryTakeSlot(large bool) bool {
+	if large && s.largeSlots != nil {
+		select {
+		case s.largeSlots <- struct{}{}:
+		default:
+			return false
+		}
+	}
 	select {
 	case s.slots <- struct{}{}:
-		return release, true
+		return true
+	default:
+	}
+	if large && s.largeSlots != nil {
+		<-s.largeSlots
+	}
+	return false
+}
+
+// takeSlot waits for a slot until ctx is done, and reports whether it got
+// one.
+func (s *Server) takeSlot(ctx context.Context, large bool) bool {
+	if large && s.largeSlots != nil {
+		select {
+		case s.largeSlots <- struct{}{}:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	select {
+	case s.slots <- struct{}{}:
+		return true
 	case <-ctx.Done():
-		writeBusy(w, "no validation slot available in time")
-		return nil, false
+	}
+	if large && s.largeSlots != nil {
+		<-s.largeSlots
+	}
+	return false
+}
+
+// freeSlot gives a slot back.
+func (s *Server) freeSlot(large bool) {
+	<-s.slots
+	if large && s.largeSlots != nil {
+		<-s.largeSlots
 	}
 }
 

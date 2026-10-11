@@ -140,12 +140,20 @@ var ErrTooManyEntries = errors.New("archive has too many entries")
 // A Memory belongs to one validation and is not safe for concurrent use.
 // Without one (see WithMemory) nothing is reserved.
 type Memory interface {
-	// Reserve sets what the validation reserves to n bytes in all, more or
-	// less than before. Reserving more may wait until others have released
-	// theirs. It returns ErrMemoryExceeded when n is more than Limit, which
-	// no waiting helps; ErrMemoryBusy when no room came free in time; or
-	// ctx.Err(). After an error the validation stops; it may still reserve
-	// less.
+	// TryReserve sets what the validation reserves to n bytes in all, more
+	// or less than before, if there is room for it now. Reserving less
+	// always succeeds.
+	TryReserve(n int64) bool
+	// Reserve sets what the validation reserves to n bytes in all, and
+	// waits for room when there is none. A validation that waits holds
+	// nothing: what it reserved before is given up at once, so the caller
+	// must have let go of what it kept in memory, to take it again
+	// afterwards. That is what keeps the validations in progress within
+	// what the service allows, however many of them wait.
+	//
+	// It returns ErrMemoryExceeded when n is more than Limit, which no
+	// waiting helps; ErrMemoryBusy when no room came free in time; or
+	// ctx.Err(). After an error the validation holds nothing and stops.
 	Reserve(ctx context.Context, n int64) error
 	// Limit is the most one validation may reserve, in bytes.
 	Limit() int64
@@ -156,6 +164,10 @@ var (
 	ErrMemoryExceeded = errors.New("more memory than the service allows a validation")
 	ErrMemoryBusy     = errors.New("no memory came free in time")
 )
+
+// ErrTooLarge reports that a document has more nodes than a RuleChecker can
+// hold: CheckRules returns an error wrapping it, with no findings.
+var ErrTooLarge = errors.New("the document has too many nodes to check")
 
 // MemoryEstimate is what checking a document takes in memory.
 type MemoryEstimate struct {

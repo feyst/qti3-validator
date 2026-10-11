@@ -50,10 +50,10 @@ COPY --from=build /out/root/ /
 COPY --from=build /out/qti-validator /qti-validator
 
 USER 65534:65534
-# A soft memory limit for the Go runtime: the garbage collector works harder
-# as the heap nears it, which keeps the peak under load at about 100 MiB
-# instead of 110-130 MiB, at no measurable cost in speed. Override it with -e.
-ENV GOMEMLIMIT=90MiB
+# No GOMEMLIMIT here: the service derives the soft memory limit of the Go
+# runtime at startup from the container's memory limit (the limit less
+# 40 MiB), so the garbage collector works harder only as the process nears
+# what the container has. Set GOMEMLIMIT with -e to choose it yourself.
 EXPOSE 8080
 # The binary checks /health itself: the image has no shell or curl. It reads
 # ADDR like the service, so a changed port is followed.
