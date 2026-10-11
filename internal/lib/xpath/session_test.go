@@ -146,7 +146,8 @@ func TestRememberedPathsMakeRulesLinear(t *testing.T) {
 
 func TestSessionBudget(t *testing.T) {
 	doc := cubicDoc(t, 200)
-	e, err := Compile("count(//*[@id = current()//@*])", Options{})
+	// string() keeps the session from looking the path up in an index.
+	e, err := Compile("count(//*[string(@id) = current()//@*])", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +169,9 @@ func TestSessionBudget(t *testing.T) {
 
 func TestSessionStopsWhenContextEnds(t *testing.T) {
 	doc := cubicDoc(t, 2000)
-	e, err := Compile("count(//*[@id = //*/@ref])", Options{}) // 4000 × 2000 comparisons
+	// 4000 × 2000 comparisons: compared as a string, @id is not looked up
+	// in the string-values of the remembered //*/@ref.
+	e, err := Compile("count(//*[string(@id) = //*/@ref])", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

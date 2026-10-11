@@ -163,7 +163,7 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `version_overridden` | WARNING | The `version` parameter differs from the manifest's `<schemaversion>` |
 | `skipped` | NOT_RUN | An XML file in a package that is not a QTI document |
 | `not_run` | NOT_RUN | Checks that could not run after a FATAL finding |
-| `too_complex` | EXCEPTION | Validation stopped before the end: the document's rules need more work than one document may take (a budget of XPath steps that grows with the number of nodes in the document; the rules of plain content stay well within it at any size up to `MAX_REQUEST_SIZE`), or validation took longer than `REQUEST_TIMEOUT`. The findings before it are kept. In a package it is reported in the file that stopped; when time ran out, a package finding also names the files that were not validated. HTTP 422 |
+| `too_complex` | EXCEPTION | Validation stopped before the end: the document's rules need more work than one document may take (a budget of XPath steps that grows with the number of nodes in the document, up to a fixed maximum of some 20 to 30 seconds of work; the rules of plain content stay well within it at any size up to `MAX_REQUEST_SIZE`), or validation took longer than `REQUEST_TIMEOUT`. The findings before it are kept. In a package it is reported in the file that stopped; when time ran out, a package finding also names the files that were not validated. HTTP 422 |
 | `internal` | EXCEPTION | An unexpected error in the service |
 
 At most `MAX_ERRORS` findings (100 by default) are reported per document.

@@ -54,6 +54,9 @@ func Compile(source string, opts Options) (*Expr, error) {
 func markIndependent(e expr) {
 	if p, ok := e.(*pathExpr); ok && p.absolute && p.filter == nil && len(p.steps) > 0 {
 		p.independent = !dependsOnContext(p)
+		if optimise {
+			markKeyed(p)
+		}
 	}
 	for _, sub := range subexpressions(e) {
 		markIndependent(sub)
@@ -102,13 +105,15 @@ func subexpressions(e expr) []expr {
 // mergeDescendantSteps rewrites descendant-or-self::node()/child::T into
 // descendant::T, which selects the same nodes without building the
 // intermediate set of every node in the subtree. It applies only when the
-// child step has no predicates: //p[1] is not descendant::p[1].
+// predicates of the child step depend neither on position nor on size:
+// //p[1] is not descendant::p[1], but //p[@a] is descendant::p[@a].
 func mergeDescendantSteps(steps []step) []step {
 	out := steps[:0:0]
 	for i := 0; i < len(steps); i++ {
 		s := steps[i]
 		if s.axis == axisDescendantOrSelf && s.test.kind == testNode && len(s.preds) == 0 &&
-			i+1 < len(steps) && steps[i+1].axis == axisChild && len(steps[i+1].preds) == 0 {
+			i+1 < len(steps) && steps[i+1].axis == axisChild &&
+			(len(steps[i+1].preds) == 0 || optimise && steps[i+1].byNode) {
 			next := steps[i+1]
 			next.axis = axisDescendant
 			out = append(out, next)
@@ -284,17 +289,17 @@ func (p *parser) parseRelativePath(path *pathExpr) error {
 }
 
 func descendantOrSelfStep() step {
-	return step{axis: axisDescendantOrSelf, test: nodeTest{kind: testNode}}
+	return step{axis: axisDescendantOrSelf, test: nodeTest{kind: testNode}, byNode: true}
 }
 
 func (p *parser) parseStep() (step, error) {
 	if p.isPunct(".") {
 		p.i++
-		return step{axis: axisSelf, test: nodeTest{kind: testNode}}, nil
+		return step{axis: axisSelf, test: nodeTest{kind: testNode}, byNode: true}, nil
 	}
 	if p.isPunct("..") {
 		p.i++
-		return step{axis: axisParent, test: nodeTest{kind: testNode}}, nil
+		return step{axis: axisParent, test: nodeTest{kind: testNode}, byNode: true}, nil
 	}
 	s := step{axis: axisChild}
 	switch t := p.peek(); {
@@ -318,6 +323,8 @@ func (p *parser) parseStep() (step, error) {
 	}
 	s.test = test
 	s.preds, err = p.parsePredicates()
+	s.first = optimise && selectsFirst(s.preds)
+	s.byNode = !slices.ContainsFunc(s.preds, func(p expr) bool { return !filtersByNode(p) })
 	return s, err
 }
 

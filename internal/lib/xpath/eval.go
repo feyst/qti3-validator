@@ -196,6 +196,11 @@ func compare(c *evalCtx, op string, l, r Value) (bool, error) {
 	rn, rIsSet := r.(NodeSet)
 	switch {
 	case lIsSet && rIsSet:
+		if op == "=" {
+			if found, ok, err := c.s.anyInSet(ln, rn); ok {
+				return found, err
+			}
+		}
 		for _, a := range ln {
 			av := a.StringValue()
 			found, err := anyNode(c, rn, func(bv string) bool { return compareAtoms(op, av, bv) })
@@ -294,6 +299,9 @@ type pathExpr struct {
 	// nor a variable: it selects the same nodes wherever in a document it is
 	// evaluated, so a session evaluates it once per document.
 	independent bool
+	// keyed is set for a path that a session looks up in an index of the
+	// nodes of its prefix; see keyedPath.
+	keyed *keyedPath
 }
 
 func (e *pathExpr) eval(c *evalCtx) (Value, error) {
@@ -312,6 +320,9 @@ func (e *pathExpr) eval(c *evalCtx) (Value, error) {
 		if e.independent {
 			return c.s.remember(e, root, func() (NodeSet, error) { return e.walk(NodeSet{root}, c) })
 		}
+		if e.keyed != nil && optimise {
+			return e.keyed.lookup(e, root, c)
+		}
 		nodes = NodeSet{root}
 	default:
 		nodes = NodeSet{c.node}
@@ -322,6 +333,11 @@ func (e *pathExpr) eval(c *evalCtx) (Value, error) {
 // walk applies the steps of the path to nodes.
 func (e *pathExpr) walk(nodes NodeSet, c *evalCtx) (NodeSet, error) {
 	for _, s := range e.steps {
+		if len(nodes) > 1 && s.byNode && (s.axis == axisDescendant || s.axis == axisDescendantOrSelf) && optimise {
+			// What such a step selects from a node inside the subtree of
+			// another it selects from that other node as well.
+			nodes = outermost(nodes)
+		}
 		var out NodeSet
 		for _, n := range nodes {
 			selected, err := s.apply(n, c)
@@ -336,6 +352,24 @@ func (e *pathExpr) walk(nodes NodeSet, c *evalCtx) (NodeSet, error) {
 		nodes = out
 	}
 	return nodes, nil
+}
+
+// outermost returns the nodes, in document order, that are not descendants
+// of another of them. Attributes and namespace nodes are not descendants of
+// their element: descendant-or-self selects them only from themselves.
+func outermost(nodes NodeSet) NodeSet {
+	out := make(NodeSet, 0, len(nodes))
+	var last *Node
+	for _, n := range nodes {
+		if last != nil && isChildKind(n) && n.order > last.order && n.order < last.end {
+			continue
+		}
+		out = append(out, n)
+		if n.Kind == ElementNode || n.Kind == RootNode {
+			last = n
+		}
+	}
+	return out
 }
 
 type axis uint8
@@ -427,25 +461,43 @@ type step struct {
 	axis  axis
 	test  nodeTest
 	preds []expr
+	// first marks a step whose last predicate is [1] or [position() = 1]
+	// and whose other predicates depend neither on the proximity position
+	// nor on the context size: it selects the first node on the axis that
+	// passes them, so it walks the axis only that far. For a reverse axis
+	// that is the nearest node, such as the nearest matching ancestor.
+	first bool
+	// byNode marks a step whose predicates all depend neither on position
+	// nor on size: whether it selects a node does not depend on the other
+	// nodes on the axis.
+	byNode bool
 }
 
 // apply returns the nodes the step selects from n, in document order. Each
 // node on the axis is a step, and so is the step itself.
 func (s step) apply(n *Node, c *evalCtx) (NodeSet, error) {
-	var nodes NodeSet
-	visited := 0
-	s.collect(n, func(m *Node) {
-		visited++
-		if s.test.match(m) {
-			nodes = append(nodes, m)
-		}
-	})
-	if err := c.s.charge(visited + 1); err != nil {
+	if s.first && optimise {
+		return s.applyFirst(n, c)
+	}
+	nodes, ok, err := s.fromIndex(n, c)
+	if err != nil {
 		return nil, err
 	}
+	if !ok {
+		visited := 0
+		s.collect(n, func(m *Node) bool {
+			visited++
+			if s.test.match(m) {
+				nodes = append(nodes, m)
+			}
+			return true
+		})
+		if err := c.s.charge(visited + 1); err != nil {
+			return nil, err
+		}
+	}
 	// nodes is in axis order, which predicates use for proximity positions.
-	nodes, err := applyPredicates(nodes, s.preds, c)
-	if err != nil {
+	if nodes, err = applyPredicates(nodes, s.preds, c); err != nil {
 		return nil, err
 	}
 	if s.axis.reverse() {
@@ -454,67 +506,158 @@ func (s step) apply(n *Node, c *evalCtx) (NodeSet, error) {
 	return nodes, nil
 }
 
-// collect visits the nodes on the axis from n, in axis order.
-func (s step) collect(n *Node, visit func(*Node)) { //nolint:gocognit // one case per XPath axis
+// applyFirst applies a step marked first. The predicates before the [1]
+// filter without regard to position, so the node at position 1 after them
+// is the first node in axis order that passes them all; it evaluates them
+// on each node in turn and stops there. It charges what apply would for the
+// nodes it visits, plus a step for the [1].
+func (s step) applyFirst(n *Node, c *evalCtx) (NodeSet, error) {
+	preds := s.preds[:len(s.preds)-1]
+	var found *Node
+	var err error
+	visit := func(m *Node) bool { // false: stop
+		if !s.test.match(m) {
+			return true
+		}
+		var ok bool
+		if ok, err = passes(preds, m, c); ok && err == nil {
+			found = m
+		}
+		return !ok && err == nil
+	}
+	candidates, indexed, err := s.fromIndex(n, c)
+	if err != nil {
+		return nil, err
+	}
+	steps := 1 // the [1]
+	if indexed {
+		for _, m := range candidates {
+			if !visit(m) {
+				break
+			}
+		}
+	} else {
+		s.collect(n, func(m *Node) bool {
+			steps++
+			return visit(m)
+		})
+		steps++ // the step
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := c.s.charge(steps); err != nil {
+		return nil, err
+	}
+	if found == nil {
+		return nil, nil
+	}
+	return NodeSet{found}, nil
+}
+
+// passes reports whether m passes predicates that depend neither on
+// position nor on size. Each predicate evaluated is a step.
+func passes(preds []expr, m *Node, c *evalCtx) (bool, error) {
+	for _, pred := range preds {
+		if err := c.s.charge(1); err != nil {
+			return false, err
+		}
+		v, err := pred.eval(c.with(m, 1, 1))
+		if err != nil || !toBool(v) {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// collect visits the nodes on the axis from n, in axis order, until visit
+// returns false.
+func (s step) collect(n *Node, visit func(*Node) bool) { //nolint:gocognit,gocyclo // one case per XPath axis
 	switch s.axis {
 	case axisSelf:
 		visit(n)
 	case axisChild:
 		for _, c := range n.Children {
-			visit(c)
+			if !visit(c) {
+				return
+			}
 		}
 	case axisAttribute:
 		for _, a := range n.Attrs {
-			visit(a)
+			if !visit(a) {
+				return
+			}
 		}
 	case axisNamespace:
 		for _, ns := range n.namespaces() {
-			visit(ns)
+			if !visit(ns) {
+				return
+			}
 		}
 	case axisParent:
 		if n.Parent != nil {
 			visit(n.Parent)
 		}
 	case axisAncestorOrSelf:
-		visit(n)
+		if !visit(n) {
+			return
+		}
 		fallthrough
 	case axisAncestor:
 		for p := n.Parent; p != nil; p = p.Parent {
-			visit(p)
+			if !visit(p) {
+				return
+			}
 		}
 	case axisDescendantOrSelf:
-		visit(n)
+		if !visit(n) {
+			return
+		}
 		fallthrough
 	case axisDescendant:
 		descendants(n, visit)
 	case axisFollowingSibling:
 		if n.Parent != nil && isChildKind(n) {
 			for _, c := range n.Parent.Children[n.index+1:] {
-				visit(c)
+				if !visit(c) {
+					return
+				}
 			}
 		}
 	case axisPrecedingSibling:
 		if n.Parent != nil && isChildKind(n) {
 			for i := n.index - 1; i >= 0; i-- {
-				visit(n.Parent.Children[i])
+				if !visit(n.Parent.Children[i]) {
+					return
+				}
 			}
 		}
 	case axisFollowing:
 		// Everything after n in document order, except its descendants.
+		if n.Kind == RootNode {
+			return // the root has nothing before or after it
+		}
 		start := n
 		if !isChildKind(n) {
 			start = n.Parent
-			descendants(start, visit) // attributes/namespaces: the element's content follows
+			// attributes/namespaces: the element's content follows
+			if !descendants(start, visit) {
+				return
+			}
 		}
 		for m := start; m.Parent != nil; m = m.Parent {
 			for _, sib := range m.Parent.Children[m.index+1:] {
-				visit(sib)
-				descendants(sib, visit)
+				if !visit(sib) || !descendants(sib, visit) {
+					return
+				}
 			}
 		}
 	case axisPreceding:
 		// Everything before n in document order, except its ancestors,
 		// in reverse document order.
+		if n.Kind == RootNode {
+			return
+		}
 		start := n
 		if !isChildKind(n) {
 			start = n.Parent
@@ -522,8 +665,9 @@ func (s step) collect(n *Node, visit func(*Node)) { //nolint:gocognit // one cas
 		for m := start; m.Parent != nil; m = m.Parent {
 			for i := m.index - 1; i >= 0; i-- {
 				sib := m.Parent.Children[i]
-				reverseDescendants(sib, visit)
-				visit(sib)
+				if !reverseDescendants(sib, visit) || !visit(sib) {
+					return
+				}
 			}
 		}
 	}
@@ -533,18 +677,22 @@ func isChildKind(n *Node) bool {
 	return n.Kind != AttributeNode && n.Kind != NamespaceNode && n.Kind != RootNode
 }
 
-func descendants(n *Node, visit func(*Node)) {
+func descendants(n *Node, visit func(*Node) bool) bool {
 	for _, c := range n.Children {
-		visit(c)
-		descendants(c, visit)
+		if !visit(c) || !descendants(c, visit) {
+			return false
+		}
 	}
+	return true
 }
 
-func reverseDescendants(n *Node, visit func(*Node)) {
+func reverseDescendants(n *Node, visit func(*Node) bool) bool {
 	for i := len(n.Children) - 1; i >= 0; i-- {
-		reverseDescendants(n.Children[i], visit)
-		visit(n.Children[i])
+		if !reverseDescendants(n.Children[i], visit) || !visit(n.Children[i]) {
+			return false
+		}
 	}
+	return true
 }
 
 // applyPredicates filters nodes, whose order gives the proximity positions.

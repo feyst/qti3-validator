@@ -199,6 +199,15 @@ How the engine is checked:
   the step budget; the `.sch` file stays plain XPath. Tests check that the
   rules give the same findings both ways on generated documents, and that the
   uniqueness checks are rewritten.
+- **XPath shortcuts:** the engine evaluates some forms faster without
+  changing their results, by static analysis at compile time: a step ending
+  in `[1]` stops at its first match (the nearest ancestor, for a reverse
+  axis); `//a[@id = current()/@ref]` looks the value up in an index of
+  `//a` by attribute; descendant steps by name use an index of the document,
+  and skip context nodes nested in others; `//a[@x]` is one descendant step;
+  `=` against a remembered path or a schema or pattern variable uses a hash
+  set. `TestOptimisedEvaluationMatchesPlain` in `internal/lib/xpath`
+  compares each with plain evaluation.
 - **Own rules:** `rules/qti3-additional-checks.sch` is compiled with the
   embedded rules. On the 4528 well-formed documents of the public corpora the
   engine gives the same 2339 messages as the reference implementation. The
