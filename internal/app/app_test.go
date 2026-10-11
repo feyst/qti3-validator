@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"qti3-validator/internal/domain/qti"
 )
@@ -271,6 +272,44 @@ func TestPackageOutOfTime(t *testing.T) {
 	}
 	if e := res.Errors[0]; e.Code != qti.CodeTooComplex || !strings.Contains(e.Message, "item.xml and the files after it were not validated") {
 		t.Fatalf("package: %+v", e)
+	}
+}
+
+// Out of time while a file is read, a package stops the same way, not with
+// an internal error.
+func TestPackageOutOfTimeWhileReading(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	v := newTestValidator(t, &fakeSchema{verdict: validVerdict}, nil,
+		fakeEntry{name: qti.ManifestName, data: manifest("3.0.0")},
+		fakeEntry{name: "item.xml", data: item, during: cancel},
+		fakeEntry{name: "item-2.xml", data: item},
+	)
+	res := v.ValidatePackage(ctx, ValidatePackage{Package: bytes.NewReader(nil)})
+	if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Files) != 2 || len(res.Errors) != 1 {
+		t.Fatalf("got %+v", res)
+	}
+	f := fileResult(t, res, "item.xml")
+	if f.Valid || len(f.Errors) != 1 || f.Errors[0].Code != qti.CodeTooComplex || f.Errors[0].File != "item.xml" ||
+		!strings.Contains(f.Errors[0].Message, "cancelled") {
+		t.Fatalf("item.xml: %+v", f)
+	}
+	if e := res.Errors[0]; !strings.Contains(e.Message, "item-2.xml and the files after it were not validated") {
+		t.Fatalf("package: %+v", e)
+	}
+}
+
+// A single document whose reading runs out of time is too complex, not an
+// internal error.
+func TestOutOfTimeWhileReading(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Nanosecond)
+	defer cancel()
+	<-ctx.Done()
+	v := newTestValidator(t, &fakeSchema{verdict: validVerdict}, nil)
+	res := v.ValidateDocument(ctx, ValidateDocument{Document: strings.NewReader(item)})
+	if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Errors) != 1 || res.Errors[0].Code != qti.CodeTooComplex ||
+		!strings.Contains(res.Errors[0].Message, "REQUEST_TIMEOUT") {
+		t.Fatalf("got %+v", res)
 	}
 }
 

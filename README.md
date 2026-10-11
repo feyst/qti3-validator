@@ -184,7 +184,7 @@ JSON body:
 | 400 | `invalid_request` | The body could not be read |
 | 408 | `request_timeout` | The body did not arrive within `REQUEST_TIMEOUT` |
 | 413 | `too_large`, `too_many_files` | The request, package, or the XML in a package exceeds a limit |
-| 422 | `too_complex` | Validation stopped before the end: a document's rules need more work than one document may take (some seconds of CPU), or validation took longer than `REQUEST_TIMEOUT`; the body is a report with outcome `EXCEPTION` and the findings so far |
+| 422 | `too_complex` | Validation stopped before the end: a document's rules need more work than one document may take (a budget of XPath steps that grows with the size of the document), or validation took longer than `REQUEST_TIMEOUT`; the body is a report with outcome `EXCEPTION` and the findings so far |
 | 500 | `internal` | The service failed; the body is a report with outcome `EXCEPTION` |
 | 503 | `busy` | All validation slots stayed busy for `REQUEST_TIMEOUT`; retry later |
 

@@ -75,8 +75,9 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 			hasManifest = true
 		}
 		if stop, stopped := stopFinding(ctx.Err()); stopped {
-			// Out of time: the files from here on are not validated, and the
-			// package references are not checked, as they would miss files.
+			// Out of time or cancelled: the files from here on are not
+			// validated, and the package references are not checked, as they
+			// would miss files.
 			stop.Message += "; " + name + " and the files after it were not validated"
 			res.Fail(qti.OutcomeTooComplex, stop)
 			return res

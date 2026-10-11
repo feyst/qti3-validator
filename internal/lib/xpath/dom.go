@@ -65,6 +65,10 @@ type nsBinding struct{ prefix, uri string }
 // Document is a parsed XML document.
 type Document struct {
 	Root *Node
+	// Nodes is the number of nodes below the root: elements, attributes,
+	// text, comments and processing instructions. Namespace nodes, which
+	// are built on demand, are not counted.
+	Nodes int
 }
 
 // Name returns the qualified name as written, e.g. "xml:lang".
@@ -276,5 +280,5 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 	if cur != root {
 		return nil, errors.New("unexpected end of document")
 	}
-	return &Document{Root: root}, nil
+	return &Document{Root: root, Nodes: order - 1}, nil
 }

@@ -186,13 +186,13 @@ func TestChain(t *testing.T) {
 // the findings so far come back with app.ErrTooComplex.
 func TestBudget(t *testing.T) {
 	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
-	check := func(c *Checker, budget int64) ([]app.RuleFinding, error) {
-		c.budget = budget
+	check := func(c *Checker, steps int64) ([]app.RuleFinding, error) {
+		c.budget = budget{base: steps}
 		return c.CheckRules(context.Background(), data, 0)
 	}
 	// Find the least budget one rule set needs.
 	c := versionRules(t, "3.0.0")
-	lo, hi := int64(0), int64(StepBudget)
+	lo, hi := int64(0), int64(BaseSteps)
 	for lo+1 < hi {
 		mid := (lo + hi) / 2
 		if _, err := check(c, mid); err != nil {
@@ -207,6 +207,62 @@ func TestBudget(t *testing.T) {
 	findings, err := check(Chain(c, c), hi)
 	if !errors.Is(err, app.ErrTooComplex) || len(findings) != 1 {
 		t.Fatalf("chain of two on the budget of one: %d findings, %v", len(findings), err)
+	}
+}
+
+// quadraticRules compares every choice with every other: n² steps on an
+// item with n choices.
+const quadraticRules = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+  <sch:ns prefix="qti" uri="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"/>
+  <sch:pattern id="QUADRATIC">
+    <sch:rule context="qti:qti-simple-choice">
+      <sch:assert test="count(//qti:qti-simple-choice[@identifier = current()/@identifier]) = 1">Identifiers repeat.</sch:assert>
+    </sch:rule>
+  </sch:pattern>
+</sch:schema>`
+
+// mountedRules returns a checker for the rules of a Schematron file.
+func mountedRules(t *testing.T, src string) *Checker {
+	t.Helper()
+	set, err := schematron.Extract("test.sch", strings.NewReader(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := schematron.Compile(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Mounted(engine)
+}
+
+// The budget grows with the document: plain content passes at any size,
+// and rules whose work grows faster than the document still run out. The
+// budget and the document are a hundredth of the defaults and of
+// MAX_REQUEST_SIZE, to stay fast under -race; TestLinearDocumentAtMaxSize
+// in internal/app checks the defaults.
+func TestBudgetGrowsWithDocument(t *testing.T) {
+	scaled := budget{base: BaseSteps / 100, perNode: StepsPerNode}
+	linear := []byte(testutil.LinearItem(int(qti.DefaultLimits.MaxDocumentSize / 100)))
+	c := versionRules(t, "3.0.1")
+	c.budget = scaled
+	if findings, err := c.CheckRules(context.Background(), linear, 0); err != nil || len(findings) != 0 {
+		t.Fatalf("plain content: %d findings, %v", len(findings), err)
+	}
+	// The base alone is not enough.
+	c.budget = budget{base: scaled.base}
+	if _, err := c.CheckRules(context.Background(), linear, 0); !errors.Is(err, app.ErrTooComplex) {
+		t.Fatalf("plain content on the base alone: %v, want app.ErrTooComplex", err)
+	}
+
+	for name, tc := range map[string]struct{ rules, doc string }{
+		"quadratic": {quadraticRules, testutil.ItemWithChoices(2000)},    // 48 million steps, 7 million allowed
+		"cubic":     {testutil.SlowRules, testutil.ItemWithChoices(300)}, // 326 million steps, 2 million allowed
+	} {
+		c := mountedRules(t, tc.rules)
+		c.budget = scaled
+		if _, err := c.CheckRules(context.Background(), []byte(tc.doc), 0); !errors.Is(err, app.ErrTooComplex) {
+			t.Errorf("%s: got %v, want app.ErrTooComplex", name, err)
+		}
 	}
 }
 

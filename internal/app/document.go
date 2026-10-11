@@ -35,12 +35,15 @@ func readDocument(ctx context.Context, r io.Reader, limits qti.Limits) ([]byte, 
 	lr := &limitReader{r: ctxReader{ctx: ctx, r: r}, remaining: limits.MaxDocumentSize}
 	data, err := io.ReadAll(lr)
 	var res qti.DocumentResult
+	stop, stopped := stopFinding(ctx.Err())
 	switch {
 	case lr.exceeded:
 		res = qti.Failure(qti.OutcomeTooLarge, "", qti.CodeTooLarge,
 			fmt.Sprintf("document is larger than %d bytes", limits.MaxDocumentSize))
-	case ctx.Err() != nil:
-		res = qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "validation interrupted: "+ctx.Err().Error())
+	case stopped:
+		// Out of time or cancelled while reading: stopped like a validation
+		// that runs out of time, not an internal error.
+		res = qti.Failure(qti.OutcomeTooComplex, "", stop.Code, stop.Message)
 	case err != nil:
 		res = qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "read: "+err.Error())
 	default:

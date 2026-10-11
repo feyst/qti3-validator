@@ -54,6 +54,9 @@ func TestAbsolutePathsInPredicatesAreFast(t *testing.T) {
 
 // A validation that runs out of time stops promptly, with the findings so
 // far: the error the additional checks found before the slow rule ran.
+// Without the deadline the slow rule runs until its budget of some 100
+// million steps runs out, seconds of work and more under -race; the message
+// shows the deadline stopped it, and the margin allows for a loaded runner.
 func TestDeadlineStopsValidation(t *testing.T) {
 	v := testSlowValidator(t)
 	const timeout = 300 * time.Millisecond
@@ -61,7 +64,7 @@ func TestDeadlineStopsValidation(t *testing.T) {
 	defer cancel()
 	start := time.Now()
 	res := v.ValidateDocument(ctx, app.ValidateDocument{Document: strings.NewReader(testutil.ItemWithChoices(300))})
-	if late := time.Since(start) - timeout; late > 100*time.Millisecond {
+	if late := time.Since(start) - timeout; late > time.Second {
 		t.Errorf("stopped %v after the deadline", late)
 	}
 	last := res.Errors[len(res.Errors)-1]
@@ -90,5 +93,20 @@ func TestDeadlineStopsPackage(t *testing.T) {
 	f := fileResult(t, res, "slow.xml")
 	if last := f.Errors[len(f.Errors)-1]; f.Valid || last.Code != qti.CodeTooComplex || last.File != "slow.xml" {
 		t.Fatalf("slow.xml: %+v", f)
+	}
+}
+
+// Plain content up to MAX_REQUEST_SIZE validates: the budget of the rules
+// grows with the document. It takes seconds, nearly a minute under -race,
+// so it is skipped then and with -short; TestBudgetGrowsWithDocument in
+// internal/adapter/rules checks the same at a hundredth of the size.
+func TestLinearDocumentAtMaxSize(t *testing.T) {
+	if testing.Short() || raceEnabled {
+		t.Skip("slow; runs without -short and -race")
+	}
+	doc := testutil.LinearItem(int(qti.DefaultLimits.MaxDocumentSize))
+	res := testValidator(t).ValidateDocument(context.Background(), app.ValidateDocument{Document: strings.NewReader(doc)})
+	if !res.Valid || res.Outcome != qti.OutcomeValid {
+		t.Fatalf("%d bytes: got %v with %+v", len(doc), res.Outcome, res.Errors)
 	}
 }

@@ -20,12 +20,41 @@ import (
 // docs/additional-checks.md describes them.
 const AdditionalChecks = "qti3-additional-checks.sch"
 
-// StepBudget is how many XPath steps (see xpath.Session) the rules may take
-// on one document. The most expensive of the 1162 documents in testdata,
-// examples and the 1EdTech corpus takes about 220,000 steps; at 50 to 70 ns
-// a step, the budget stops a document after some 5 to 7 seconds of work,
-// well within the default REQUEST_TIMEOUT, and the same way every time.
-const StepBudget = 100_000_000
+// The rules may take BaseSteps plus StepsPerNode for every node of a
+// document (xpath.Document.Nodes) in XPath steps (see xpath.Session). The
+// work of rules grows with the document: every rule whose context is not a
+// plain element name looks at every node, and every assertion runs once per
+// context node. So the budget does too, and only work that grows faster than
+// the document runs out of it.
+//
+// Measured with the built-in rules: the 1148 QTI documents of testdata,
+// examples and the 1EdTech corpus take at most 209,000 steps and at most 222
+// steps a node; plain content at the 10 MiB of MAX_REQUEST_SIZE — some 2
+// million nodes of empty paragraphs, 1.3 million of p, div and span, 1.6
+// million of table cells, 1.1 million of images, 1.2 million of attributes,
+// half a million of choices or MathML — takes 49 to 155 steps a node, and
+// 5,000 nested divisions 170. StepsPerNode leaves 4.5 times the worst of
+// these; BaseSteps keeps the budget of a small document what it was before
+// the budget grew with the document, so no document that passed then runs
+// out now. Work that grows faster than the document still runs out: a rule
+// that compares every pair of 20,000 choices takes 800 million steps on a
+// budget of 160 million, and one that compares every declaration with every
+// interaction at each of 400 interactions, unable to remember its paths,
+// more than a billion on a budget of 104 million.
+//
+// At 30 to 50 ns a step, BaseSteps is some 3 to 5 seconds of work. A
+// document at MAX_REQUEST_SIZE gets a budget of some 2 billion steps,
+// about as much work as the default REQUEST_TIMEOUT allows or more: for
+// large documents that timeout, not the budget, is what bounds the work.
+const (
+	BaseSteps    = 100_000_000
+	StepsPerNode = 1_000
+)
+
+// budget is how many steps the rules may take on a document of n nodes.
+type budget struct{ base, perNode int64 }
+
+func (b budget) steps(n int) int64 { return b.base + b.perNode*int64(n) }
 
 // Checker runs one or more rule sets on a document, which it parses once.
 // It is safe for concurrent use.
@@ -33,8 +62,8 @@ type Checker struct {
 	sets []ruleSet
 	// types runs the type checks of types.go after the rule sets.
 	types bool
-	// budget replaces StepBudget when it is not zero.
-	budget int64
+	// budget replaces BaseSteps and StepsPerNode when it is not zero.
+	budget budget
 }
 
 var _ app.RuleChecker = (*Checker)(nil)
@@ -87,8 +116,8 @@ func Chain(checkers ...*Checker) *Checker {
 // maxFindings errors were found; warnings do not count. A nil Checker has no
 // rules.
 //
-// All rule sets share one budget of StepBudget XPath steps for the
-// document. When it runs out, or ctx is done, CheckRules returns the
+// All rule sets share one budget of XPath steps for the document:
+// BaseSteps plus StepsPerNode for every node. When it runs out, or ctx is done, CheckRules returns the
 // findings so far with an error wrapping app.ErrTooComplex or ctx.Err().
 func (c *Checker) CheckRules(ctx context.Context, data []byte, maxFindings int) ([]app.RuleFinding, error) {
 	if c == nil {
@@ -98,11 +127,11 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, maxFindings int) 
 	if err != nil {
 		return nil, errors.New("parse for Schematron: " + err.Error())
 	}
-	budget := c.budget
-	if budget == 0 {
-		budget = StepBudget
+	b := c.budget
+	if b == (budget{}) {
+		b = budget{base: BaseSteps, perNode: StepsPerNode}
 	}
-	session := xpath.NewSession(ctx, budget)
+	session := xpath.NewSession(ctx, b.steps(tree.Nodes))
 	var out []app.RuleFinding
 	errorCount := 0
 	for _, set := range c.sets {

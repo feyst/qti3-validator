@@ -52,6 +52,7 @@ type fakeEntry struct {
 	data     string
 	declared uint64 // declared size; len(data) when zero
 	readErr  error  // returned after the data
+	during   func() // called halfway through the data
 }
 
 func (e fakeEntry) Name() string { return e.name }
@@ -65,6 +66,10 @@ func (e fakeEntry) DeclaredSize() uint64 {
 
 func (e fakeEntry) Open() (io.ReadCloser, error) {
 	r := io.Reader(strings.NewReader(e.data))
+	if e.during != nil {
+		half := len(e.data) / 2
+		r = io.MultiReader(strings.NewReader(e.data[:half]), hookReader(e.during), strings.NewReader(e.data[half:]))
+	}
 	if e.readErr != nil {
 		r = io.MultiReader(r, errReader{e.readErr})
 	}
@@ -74,6 +79,14 @@ func (e fakeEntry) Open() (io.ReadCloser, error) {
 type errReader struct{ err error }
 
 func (r errReader) Read([]byte) (int, error) { return 0, r.err }
+
+// hookReader calls itself and reads nothing.
+type hookReader func()
+
+func (h hookReader) Read([]byte) (int, error) {
+	h()
+	return 0, io.EOF
+}
 
 // newTestValidator returns a validator whose every version uses schema and
 // rules, and whose archive is entries.

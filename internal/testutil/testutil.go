@@ -82,3 +82,23 @@ func ItemWithDeclarations(k int) string {
 	b.WriteString(`</qti-item-body></qti-assessment-item>`)
 	return b.String()
 }
+
+// LinearItem returns a valid QTI item of at most size bytes that is nearly
+// all plain content: paragraphs, divisions and spans, six nodes for every
+// 45 bytes or so. The rules take the same number of steps for every node of
+// it, whatever its size.
+func LinearItem(size int) string {
+	const (
+		head = `<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="i" title="t" adaptive="false" time-dependent="false">` +
+			`<qti-response-declaration identifier="R" cardinality="single" base-type="identifier"/><qti-item-body>`
+		unit = `<p>x</p><div class="c%d"><span>y</span></div>`
+		tail = `</qti-item-body></qti-assessment-item>`
+	)
+	var b strings.Builder
+	b.WriteString(head)
+	for i := 0; b.Len()+len(unit)+len(tail)+10 <= size; i++ {
+		fmt.Fprintf(&b, unit, i)
+	}
+	b.WriteString(tail)
+	return b.String()
+}
