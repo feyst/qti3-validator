@@ -48,6 +48,15 @@ var nodeSetFunctions = map[string]bool{
 // Whether an expression fails this way can depend on the context node:
 // @x or $s/x fails only where there is no @x. Running out of steps and a
 // cancelled session are not counted; they stop an evaluation anywhere.
+//
+// Nor is a variable without a value. Compile rejects a reference to a
+// variable that Options.Variables does not declare, so that error needs a
+// caller that declares a variable and then leaves it out of
+// Context.Variables. The schematron engine cannot: it declares a variable
+// where it compiles the let that binds it, and binds every let of a schema,
+// pattern or rule before it evaluates an expression in its scope. Counting
+// it would take the shortcut from every predicate that compares with a
+// variable, such as [@id = $v][1].
 func mayFail(e expr) bool {
 	needsNodeSet := func(sub expr) bool { return staticType(sub) != typeNodeSet }
 	switch x := e.(type) {

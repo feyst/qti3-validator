@@ -146,6 +146,33 @@ func TestDocumentDetection(t *testing.T) {
 	}
 }
 
+// A document of an unsupported type is checked for well-formedness within
+// the limits of a supported one: nested too deep, it gets the finding that
+// the schema check gives a supported document.
+func TestUnsupportedDocumentWithinLimits(t *testing.T) {
+	v := newTestValidator(t, &fakeSchema{verdict: validVerdict}, nil)
+	limits := v.Limits()
+	limits.MaxDepth = 3
+	shallow := v.WithLimits(limits)
+	res := validateDoc(t, shallow, "<x>\n<a><b><c/></b></a></x>")
+	if res.Outcome != qti.OutcomeInvalid || len(res.Errors) != 1 || res.Errors[0].Code != qti.CodeLimitExceeded || res.Errors[0].Line != 2 {
+		t.Errorf("nested deeper than MAX_DEPTH: got %+v", res)
+	}
+	if res := validateDoc(t, shallow, "<x><a><b/></a><a/></x>"); res.Errors[0].Code != qti.CodeUnsupportedDocument {
+		t.Errorf("within MAX_DEPTH: got %+v", res)
+	}
+	// Deeper than the default limit, however large the document may be.
+	deep := "<x>" + strings.Repeat("<a>", 100_000) + strings.Repeat("</a>", 100_000) + "</x>"
+	if res := validateDoc(t, v, deep); res.Outcome != qti.OutcomeInvalid || res.Errors[0].Code != qti.CodeLimitExceeded {
+		t.Errorf("100,000 levels: got %+v", res.Errors)
+	}
+	// An encoding that DetectRoot reads is read by the check as well.
+	res = validateDoc(t, v, `<?xml version="1.0" encoding="US-ASCII"?><x/>`)
+	if res.Outcome != qti.OutcomeInvalid || res.Errors[0].Code != qti.CodeUnsupportedDocument {
+		t.Errorf("US-ASCII: got %+v", res)
+	}
+}
+
 // A document that could not be read far enough to know its type gets the
 // version it would have been validated against: the forced one, or the
 // latest.

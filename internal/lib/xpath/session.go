@@ -187,6 +187,12 @@ func NewSession(ctx context.Context, budget int64) *Session {
 	return &Session{ctx: ctx, limited: budget > 0, remaining: budget}
 }
 
+// Charge counts n steps of work that a caller does for the session outside
+// the evaluation of an expression, such as sorting the nodes it selected.
+// It fails as an evaluation does, with ErrTooComplex or the error of the
+// session's context.
+func (s *Session) Charge(n int) error { return s.charge(n) }
+
 // charge counts n steps.
 func (s *Session) charge(n int) error {
 	if s.limited {

@@ -1,8 +1,12 @@
 package schematron
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"qti3-validator/internal/lib/xpath"
 )
 
 func compileSchema(t *testing.T, sch string) *Engine {
@@ -128,5 +132,142 @@ func TestFailuresAreInDocumentOrderWithinAPattern(t *testing.T) {
 	}
 	if got, want := messages(Limits{Errors: 4}), "a1 again b a"; got != want {
 		t.Errorf("with a limit of four: got %q, want %q", got, want)
+	}
+}
+
+// What an abstract rule extends is looked up in its own pattern, not in
+// the pattern of the rule that extends it.
+func TestNestedExtendsResolveInTheirOwnPattern(t *testing.T) {
+	messages := func(sch, doc string) string {
+		t.Helper()
+		failures, err := compileSchema(t, sch).Validate(nil, parseDoc(t, doc), Limits{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range failures {
+			out = append(out, f.Message)
+		}
+		return strings.Join(out, " ")
+	}
+	const lib = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+<sch:pattern id="lib">
+  <sch:rule id="k" abstract="true"><sch:assert test="false()">lib-k</sch:assert></sch:rule>
+  <sch:rule id="base" abstract="true"><sch:extends rule="k"/><sch:assert test="false()">base</sch:assert></sch:rule>
+</sch:pattern>`
+	// The pattern p has a k of its own, which base does not mean.
+	const override = lib + `
+<sch:pattern id="p">
+  <sch:rule id="k" abstract="true"><sch:assert test="false()">p-k</sch:assert></sch:rule>
+  <sch:rule context="a"><sch:extends rule="base"/></sch:rule>
+  <sch:rule context="b"><sch:extends rule="k"/></sch:rule>
+</sch:pattern></sch:schema>`
+	if got, want := messages(override, `<r><a/><b/></r>`), "base lib-k p-k"; got != want {
+		t.Errorf("a pattern with its own k: got %q, want %q", got, want)
+	}
+	// Another pattern defines k as well: for base, its own pattern's k is
+	// the one, though p could not name k itself.
+	const third = lib + `
+<sch:pattern id="other">
+  <sch:rule id="k" abstract="true"><sch:assert test="false()">other-k</sch:assert></sch:rule>
+  <sch:rule context="b"><sch:extends rule="k"/></sch:rule>
+</sch:pattern>
+<sch:pattern id="p">
+  <sch:rule context="a"><sch:extends rule="base"/></sch:rule>
+</sch:pattern></sch:schema>`
+	if got, want := messages(third, `<r><a/><b/></r>`), "other-k base lib-k"; got != want {
+		t.Errorf("k in a third pattern: got %q, want %q", got, want)
+	}
+	// Rules of one id in two patterns that extend each other's namesake
+	// are not a cycle; a rule that reaches itself is.
+	const sameID = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+<sch:pattern id="lib"><sch:rule id="k" abstract="true"><sch:assert test="false()">lib-k</sch:assert></sch:rule></sch:pattern>
+<sch:pattern id="p">
+  <sch:rule id="j" abstract="true"><sch:extends rule="k"/></sch:rule>
+  <sch:rule context="a"><sch:extends rule="j"/></sch:rule>
+</sch:pattern></sch:schema>`
+	if got, want := messages(sameID, `<r><a/></r>`), "lib-k"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	const cycle = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+<sch:pattern id="lib"><sch:rule id="k" abstract="true"><sch:extends rule="j"/></sch:rule>
+  <sch:rule id="j" abstract="true"><sch:extends rule="k"/></sch:rule></sch:pattern>
+<sch:pattern id="p"><sch:rule context="a"><sch:extends rule="k"/></sch:rule></sch:pattern></sch:schema>`
+	rs, err := Extract("x", strings.NewReader(cycle))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Compile(rs); err == nil || !strings.Contains(err.Error(), "extends itself") {
+		t.Errorf("a cycle: got %v", err)
+	}
+}
+
+// When the context of a later rule of a pattern stops the session, the
+// nodes of the rules before it are still checked: their failures are among
+// those found so far.
+func TestContextErrorKeepsEarlierRules(t *testing.T) {
+	const sch = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+<sch:pattern id="p">
+  <sch:rule context="a"><sch:assert test="false()">a fails</sch:assert></sch:rule>
+  <sch:rule context="//b[count(//*[count(//*) > 0]) > 0]"><sch:assert test="false()">b fails</sch:assert></sch:rule>
+</sch:pattern></sch:schema>`
+	e := compileSchema(t, sch)
+	doc := parseDoc(t, `<r>`+strings.Repeat(`<a/><b/>`, 50)+`</r>`)
+	failures, err := e.Validate(xpath.NewSession(context.Background(), 400), doc, Limits{})
+	if !errors.Is(err, xpath.ErrTooComplex) || len(failures) != 50 {
+		t.Fatalf("a budget of 400: got %d failures, %v; want the 50 of the first rule and ErrTooComplex", len(failures), err)
+	}
+	for _, f := range failures {
+		if f.Message != "a fails" {
+			t.Fatalf("got %q", f.Message)
+		}
+	}
+	// The limit on errors still holds, and the error is still returned.
+	failures, err = e.Validate(xpath.NewSession(context.Background(), 400), doc, Limits{Errors: 7})
+	if !errors.Is(err, xpath.ErrTooComplex) || len(failures) != 7 {
+		t.Errorf("with a limit of 7: got %d failures, %v", len(failures), err)
+	}
+	failures, err = e.Validate(nil, doc, Limits{})
+	if err != nil || len(failures) != 100 || failures[0].Message != "a fails" || failures[1].Message != "b fails" {
+		t.Errorf("without a budget: got %d failures, %v", len(failures), err)
+	}
+}
+
+// Merging the nodes of several rules into document order is charged to the
+// session; a pattern whose nodes are in order already, or with one rule,
+// pays nothing for it.
+func TestMergeOfRulesIsCharged(t *testing.T) {
+	const n = 512
+	var b strings.Builder
+	b.WriteString("<r>")
+	for range n / 2 {
+		b.WriteString("<a/><b/>")
+	}
+	b.WriteString("</r>")
+	doc := parseDoc(t, b.String())
+	steps := func(rules string) int64 {
+		t.Helper()
+		e := compileSchema(t, `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron"><sch:pattern id="p">`+rules+`</sch:pattern></sch:schema>`)
+		// The least budget that suffices is the number of steps taken.
+		lo, hi := int64(0), int64(100*n)
+		for lo < hi {
+			mid := (lo + hi) / 2
+			s := xpath.NewSession(context.Background(), mid)
+			if _, err := e.Validate(s, doc, Limits{}); err != nil {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		return lo
+	}
+	rule := func(context string) string {
+		return `<sch:rule context="` + context + `"><sch:assert test="true()">x</sch:assert></sch:rule>`
+	}
+	merged := steps(rule("/r/b") + rule("/r/a"))
+	ordered := steps(rule("/r/*"))
+	t.Logf("%d nodes: %d steps for two rules merged, %d for one rule", n, merged, ordered)
+	if merged-ordered < n*9 { // log2(512)
+		t.Errorf("merging %d nodes cost %d steps more than not merging, want at least %d", n, merged-ordered, n*9)
 	}
 }

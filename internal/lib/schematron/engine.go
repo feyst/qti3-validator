@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math/bits"
 	"regexp"
 	"slices"
 	"strings"
@@ -259,10 +260,11 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 				}
 				constant(s, pvars)
 			}
-			matches, err := p.matches(s, doc, pvars, index)
-			if err != nil {
-				return res, err
-			}
+			// A context that fails, as when the session runs out of steps,
+			// still leaves the nodes of the rules before it: they are
+			// checked, so their failures are among those found so far, and
+			// the error is returned after them.
+			matches, contextErr := p.matches(s, doc, pvars, index)
 			for _, m := range matches {
 				n, r := m.node, m.rule
 				rvars := pvars
@@ -301,9 +303,12 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 					}
 					errorCount++
 					if limits.Errors > 0 && errorCount >= limits.Errors {
-						return res, nil
+						return res, contextErr
 					}
 				}
+			}
+			if contextErr != nil {
+				return res, contextErr
 			}
 		}
 	}
@@ -320,7 +325,9 @@ type match struct {
 // document order, each with the first rule whose context matches it: within
 // a pattern a node is checked by one rule only (ISO Schematron, 6.5). The
 // contexts are evaluated in rule order, all of them before the first node
-// is checked.
+// is checked. When a context fails, the matches of the rules before it are
+// returned with the error. Merging the nodes of several rules is charged to
+// the session, a step per comparison.
 func (p *enginePattern) matches(s *xpath.Session, doc *xpath.Document, vars map[string]xpath.Value, index *elementIndex) ([]match, error) {
 	var out []match
 	// First-match bookkeeping is only needed with several rules.
@@ -336,7 +343,8 @@ func (p *enginePattern) matches(s *xpath.Session, doc *xpath.Document, vars map[
 		} else {
 			var err error
 			if nodes, err = r.context.Select(xpath.Context{Node: doc.Root, Variables: vars, Session: s}); err != nil {
-				return nil, err
+				sorted, _ := inDocumentOrder(s, out) // the context's error comes first
+				return sorted, err
 			}
 		}
 		for _, n := range nodes {
@@ -349,18 +357,34 @@ func (p *enginePattern) matches(s *xpath.Session, doc *xpath.Document, vars map[
 			out = append(out, match{node: n, rule: r})
 		}
 	}
-	// The nodes of each rule are in document order; those of several rules
-	// are merged into it. A node occurs once, so the order is total.
+	return inDocumentOrder(s, out)
+}
+
+// inDocumentOrder sorts matches, the nodes of each rule in document order
+// one after the other, into document order. A node occurs once, so the
+// order is total. Sorting m matches that are not in order already takes
+// about m·log2(m) comparisons, which are charged to the session before it
+// starts; when the session stops there, it returns the session's error and
+// the longest prefix that is in order, matches of the first rule.
+func inDocumentOrder(s *xpath.Session, matches []match) ([]match, error) {
 	byDocumentOrder := func(a, b match) int {
 		if a.node.Before(b.node) {
 			return -1
 		}
 		return 1
 	}
-	if !slices.IsSortedFunc(out, byDocumentOrder) {
-		slices.SortFunc(out, byDocumentOrder)
+	if slices.IsSortedFunc(matches, byDocumentOrder) {
+		return matches, nil
 	}
-	return out, nil
+	if err := s.Charge(len(matches) * bits.Len(uint(len(matches)))); err != nil {
+		ordered := 1
+		for ordered < len(matches) && matches[ordered-1].node.Before(matches[ordered].node) {
+			ordered++
+		}
+		return matches[:ordered], err
+	}
+	slices.SortFunc(matches, byDocumentOrder)
+	return matches, nil
 }
 
 func (a engineAssertion) fires(sess *xpath.Session, n *xpath.Node, vars map[string]xpath.Value) (bool, error) {

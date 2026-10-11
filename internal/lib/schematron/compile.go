@@ -147,7 +147,7 @@ func precompileSet(rs RuleSet, c *Compiled, lists map[string]int) (CompiledSet, 
 			if r.Abstract {
 				continue
 			}
-			r, err := extendRule(r, abstractRules.in(i), nil)
+			r, err := extendRule(r, abstractRules, i, nil)
 			if err != nil {
 				return cs, fmt.Errorf("pattern %q: %w", p.ID, err)
 			}
@@ -322,16 +322,23 @@ func substituteLets(lets []Let, sub func(string) string) []Let {
 // pattern.
 type abstractRules struct {
 	byPattern []map[string]Rule // parallel to the patterns
-	// schema holds the rules by id alone, for a rule that extends one of
-	// another pattern; ambiguous the ids that several patterns define.
-	schema    map[string]Rule
+	// schema holds, by id alone, the rule and its pattern, for a rule that
+	// extends one of another pattern; ambiguous the ids that several
+	// patterns define.
+	schema    map[string]abstractRule
 	ambiguous map[string]bool
+}
+
+// abstractRule is an abstract rule and the index of the pattern it is in.
+type abstractRule struct {
+	rule    Rule
+	pattern int
 }
 
 func collectAbstractRules(patterns []Pattern) (*abstractRules, error) {
 	ar := &abstractRules{
 		byPattern: make([]map[string]Rule, len(patterns)),
-		schema:    map[string]Rule{}, ambiguous: map[string]bool{},
+		schema:    map[string]abstractRule{}, ambiguous: map[string]bool{},
 	}
 	for i, p := range patterns {
 		for _, r := range p.Rules {
@@ -351,50 +358,57 @@ func collectAbstractRules(patterns []Pattern) (*abstractRules, error) {
 			if _, dup := ar.schema[r.ID]; dup {
 				ar.ambiguous[r.ID] = true
 			}
-			ar.schema[r.ID] = r
+			ar.schema[r.ID] = abstractRule{rule: r, pattern: i}
 		}
 	}
 	return ar, nil
 }
 
-// in returns the lookup of abstract rules for the rules of patterns[i]: a
-// rule of the pattern itself first, then the one rule of that id in the
-// schema.
-func (ar *abstractRules) in(i int) func(id string) (Rule, error) {
-	return func(id string) (Rule, error) {
-		if r, ok := ar.byPattern[i][id]; ok {
-			return r, nil
-		}
-		if ar.ambiguous[id] {
-			return Rule{}, fmt.Errorf("abstract rule %q is defined in several patterns, none of them this one", id)
-		}
-		if r, ok := ar.schema[id]; ok {
-			return r, nil
-		}
-		return Rule{}, fmt.Errorf("abstract rule %q not found", id)
+// find returns the abstract rule that id names in patterns[i]: a rule of
+// the pattern itself first, then the one rule of that id in the schema.
+func (ar *abstractRules) find(i int, id string) (abstractRule, error) {
+	if r, ok := ar.byPattern[i][id]; ok {
+		return abstractRule{rule: r, pattern: i}, nil
 	}
+	if ar.ambiguous[id] {
+		return abstractRule{}, fmt.Errorf("abstract rule %q is defined in several patterns, none of them the one that extends it", id)
+	}
+	if r, ok := ar.schema[id]; ok {
+		return r, nil
+	}
+	return abstractRule{}, fmt.Errorf("abstract rule %q not found", id)
 }
 
-// extendRule appends the lets and assertions of the abstract rules a rule
-// extends, recursively.
-func extendRule(r Rule, abstract func(id string) (Rule, error), seen []string) (Rule, error) {
+// extendRule appends the lets and assertions of the abstract rules that r,
+// a rule of patterns[pattern], extends, recursively. What an abstract rule
+// extends in turn is looked up in the pattern of that abstract rule, not in
+// the pattern of the rule that started: an abstract rule means the same
+// wherever it is extended from.
+func extendRule(r Rule, ar *abstractRules, pattern int, seen []abstractRef) (Rule, error) {
 	for _, id := range r.Extends {
-		if slices.Contains(seen, id) {
+		base, err := ar.find(pattern, id)
+		if err != nil {
+			return r, err
+		}
+		ref := abstractRef{pattern: base.pattern, id: id}
+		if slices.Contains(seen, ref) {
 			return r, fmt.Errorf("abstract rule %q extends itself", id)
 		}
-		base, err := abstract(id)
+		extended, err := extendRule(base.rule, ar, base.pattern, append(seen, ref))
 		if err != nil {
 			return r, err
 		}
-		base, err = extendRule(base, abstract, append(seen, id))
-		if err != nil {
-			return r, err
-		}
-		r.Lets = append(slices.Clone(r.Lets), base.Lets...)
-		r.Assertions = append(slices.Clone(r.Assertions), base.Assertions...)
+		r.Lets = append(slices.Clone(r.Lets), extended.Lets...)
+		r.Assertions = append(slices.Clone(r.Assertions), extended.Assertions...)
 	}
 	r.Extends = nil
 	return r, nil
+}
+
+// abstractRef names an abstract rule: ids repeat across patterns.
+type abstractRef struct {
+	pattern int
+	id      string
 }
 
 // contextToXPath turns a rule context, an XSLT 1.0 pattern, into an XPath

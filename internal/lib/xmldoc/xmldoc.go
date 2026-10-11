@@ -6,6 +6,7 @@ package xmldoc
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -32,22 +33,14 @@ func DetectRoot(r io.Reader) (xml.Name, error) {
 	lim := &prologReader{r: r, remaining: MaxPrologBytes}
 	dec := xml.NewDecoder(lim)
 	dec.Strict = true
-	var charsetErr error
-	dec.CharsetReader = func(charset string, input io.Reader) (io.Reader, error) {
-		switch strings.ToLower(charset) {
-		case "utf-8", "us-ascii":
-			return input, nil
-		}
-		// encoding/xml formats this error with %v, so keep it for errors.Is.
-		charsetErr = fmt.Errorf("%w, not %s", ErrUnsupportedEncoding, charset)
-		return nil, charsetErr
-	}
+	var charset charsets
+	dec.CharsetReader = charset.reader
 	for {
 		tok, err := dec.RawToken()
 		if err != nil {
 			switch {
-			case charsetErr != nil:
-				err = charsetErr
+			case charset.err != nil:
+				err = charset.err
 			case lim.overflow:
 				err = ErrPrologTooLong
 			case errors.Is(err, io.EOF):
@@ -104,6 +97,34 @@ func (p *prologReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
+// charsets is the Decoder.CharsetReader of this package: reader accepts
+// the encodings that are read as UTF-8, and keeps the error for any other
+// in err, as encoding/xml formats it with %v and errors.Is would not find
+// it.
+type charsets struct{ err error }
+
+func (c *charsets) reader(charset string, input io.Reader) (io.Reader, error) {
+	switch strings.ToLower(charset) {
+	case "utf-8", "us-ascii":
+		return input, nil
+	}
+	c.err = fmt.Errorf("%w, not %s", ErrUnsupportedEncoding, charset)
+	return nil, c.err
+}
+
+// DepthError reports elements nested deeper than CheckWellFormed allows.
+type DepthError struct {
+	Max  int // the limit
+	Line int // of the start tag that exceeds it
+}
+
+func (e *DepthError) Error() string {
+	return fmt.Sprintf("line %d: elements are nested deeper than %d", e.Line, e.Max)
+}
+
+// ctxCheckInterval is the number of tokens between checks of the context.
+const ctxCheckInterval = 1 << 10
+
 // CheckWellFormed reads a whole document and fails on the first thing that
 // keeps it from being well-formed XML with well-formed namespaces, as far
 // as it checks:
@@ -113,24 +134,41 @@ func (p *prologReader) Read(b []byte) (int, error) {
 //     that XML does not allow;
 //   - no root element, a second root element, or text outside the root;
 //   - an XML declaration that is not at the very start (a byte order mark
-//     may precede it);
+//     may precede it), or a processing instruction whose target is xml in
+//     another case, which is reserved;
 //   - an attribute that occurs twice on an element, by its name as written
 //     or by namespace and local name;
 //   - a prefix of an element or an attribute that no xmlns attribute in
-//     scope declares;
-//   - a DOCTYPE declaration, which fails with ErrDTD.
+//     scope declares, and xmlns:p="", which Namespaces in XML 1.0 does not
+//     allow;
+//   - a DOCTYPE declaration, which fails with ErrDTD;
+//   - a declared encoding other than UTF-8 or US-ASCII, which fails with
+//     ErrUnsupportedEncoding, as in DetectRoot.
 //
 // It does not check everything a validating parser would: names are those
-// encoding/xml accepts, and the values of xmlns attributes and of the
-// version in the XML declaration are not looked at. No entity is loaded or
-// expanded other than the five predefined ones and character references.
+// encoding/xml accepts, and the other values of xmlns attributes are not
+// looked at. encoding/xml reads XML 1.0 only: a document that declares
+// version 1.1 is rejected with the error of the decoder. No entity is
+// loaded or expanded other than the five predefined ones and character
+// references.
 //
-// A violation other than a DOCTYPE is an *xml.SyntaxError with its line.
-func CheckWellFormed(r io.Reader) error {
+// A violation is an *xml.SyntaxError with its line. Elements nested deeper
+// than maxDepth fail with a *DepthError; zero or less sets no limit. When
+// ctx is done the check stops with its error. The work is in proportion to
+// the size of the document, however deep it nests and however many
+// attributes an element has.
+func CheckWellFormed(ctx context.Context, r io.Reader, maxDepth int) error {
 	dec := xml.NewDecoder(r)
 	dec.Strict = true
-	c := wellFormedness{scopes: []map[string]string{{"xml": "http://www.w3.org/XML/1998/namespace"}}}
-	for {
+	var charset charsets
+	dec.CharsetReader = charset.reader
+	c := wellFormedness{maxDepth: maxDepth, bound: map[string]string{"xml": namespaceXML}}
+	for tokens := 0; ; tokens++ {
+		if tokens%ctxCheckInterval == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		line, _ := dec.InputPos()
 		offset := dec.InputOffset()
 		tok, err := dec.RawToken()
@@ -138,16 +176,26 @@ func CheckWellFormed(r io.Reader) error {
 			return c.end(line)
 		}
 		if err != nil {
+			if charset.err != nil {
+				return charset.err
+			}
 			return err
 		}
 		if err := c.token(tok, offset); err != nil {
 			if msg, ok := errors.AsType[violation](err); ok {
 				return &xml.SyntaxError{Msg: string(msg), Line: line}
 			}
+			if errors.Is(err, errTooDeep) {
+				return &DepthError{Max: maxDepth, Line: line}
+			}
 			return err
 		}
 	}
 }
+
+const namespaceXML = "http://www.w3.org/XML/1998/namespace"
+
+var errTooDeep = errors.New("nested too deep")
 
 // violation is a well-formedness error that CheckWellFormed found itself.
 type violation string
@@ -156,13 +204,27 @@ func (v violation) Error() string { return string(v) }
 
 // wellFormedness is the state of CheckWellFormed between tokens.
 type wellFormedness struct {
-	open   []xml.Name          // the open elements, names as written
-	scopes []map[string]string // the prefixes each open element declares, with their namespaces
-	root   bool                // the root element has started
+	maxDepth int
+	open     []xml.Name // the open elements, names as written
+	// bound maps each prefix in scope to its namespace. An element that
+	// declares a prefix records in undo what the prefix was bound to
+	// before, and marks holds, per open element, the length of undo when it
+	// started: closing the element restores what it changed. Resolving a
+	// prefix is one lookup, however deep the element lies.
+	bound map[string]string
+	undo  []binding
+	marks []int
+	root  bool // the root element has started
 	// started: a token other than a leading byte order mark was read, after
 	// which an XML declaration is misplaced.
 	started bool
 	attrs   map[attrName]bool // reused for each element
+}
+
+// binding is what a prefix was bound to before an element declared it.
+type binding struct {
+	prefix, uri string
+	bound       bool
 }
 
 // attrName identifies an attribute of an element: a namespace declaration
@@ -190,8 +252,11 @@ func (c *wellFormedness) token(tok xml.Token, offset int64) error {
 	case xml.Directive:
 		return ErrDTD
 	case xml.ProcInst:
-		if t.Target == "xml" && started {
+		switch {
+		case t.Target == "xml" && started:
 			return violation("XML declaration is not at the start of the document")
+		case t.Target != "xml" && strings.EqualFold(t.Target, "xml"):
+			return violation("processing instruction target " + t.Target + " is reserved")
 		}
 	case xml.CharData:
 		if len(c.open) > 0 {
@@ -212,7 +277,7 @@ func (c *wellFormedness) token(tok xml.Token, offset int64) error {
 		if last < 0 || c.open[last] != t.Name {
 			return violation("unexpected end element </" + qualified(t.Name) + ">")
 		}
-		c.open, c.scopes = c.open[:last], c.scopes[:len(c.scopes)-1]
+		c.close()
 	}
 	return nil
 }
@@ -226,18 +291,24 @@ func (c *wellFormedness) start(t xml.StartElement) error {
 		}
 		c.root = true
 	}
-	// The declarations of the element are in scope for its own name and
-	// for all its attributes, wherever among them they stand.
-	var declared map[string]string
-	for _, a := range t.Attr {
-		if a.Name.Space == "xmlns" {
-			if declared == nil {
-				declared = map[string]string{}
-			}
-			declared[a.Name.Local] = a.Value
-		}
+	if c.maxDepth > 0 && len(c.open) >= c.maxDepth {
+		return errTooDeep
 	}
-	c.open, c.scopes = append(c.open, t.Name), append(c.scopes, declared)
+	c.open, c.marks = append(c.open, t.Name), append(c.marks, len(c.undo))
+	// The declarations of the element are in scope for its own name and
+	// for all its attributes, wherever among them they stand. One that
+	// occurs twice is found below, with the other attributes.
+	for _, a := range t.Attr {
+		if a.Name.Space != "xmlns" {
+			continue
+		}
+		if a.Value == "" {
+			return violation("xmlns:" + a.Name.Local + " is empty: a prefix cannot be undeclared")
+		}
+		before, bound := c.bound[a.Name.Local]
+		c.undo = append(c.undo, binding{prefix: a.Name.Local, uri: before, bound: bound})
+		c.bound[a.Name.Local] = a.Value
+	}
 	if _, ok := c.resolve(t.Name.Space); !ok {
 		return violation("undeclared namespace prefix " + strconv.Quote(t.Name.Space))
 	}
@@ -265,18 +336,29 @@ func (c *wellFormedness) start(t xml.StartElement) error {
 	return nil
 }
 
+// close ends the innermost open element and restores the prefixes it
+// declared, the last declaration first.
+func (c *wellFormedness) close() {
+	last := len(c.open) - 1
+	mark := c.marks[last]
+	for i := len(c.undo) - 1; i >= mark; i-- {
+		if b := c.undo[i]; b.bound {
+			c.bound[b.prefix] = b.uri
+		} else {
+			delete(c.bound, b.prefix)
+		}
+	}
+	c.open, c.marks, c.undo = c.open[:last], c.marks[:last], c.undo[:mark]
+}
+
 // resolve returns the namespace that the open elements bind the prefix to.
 // No prefix needs no declaration, and xml is always declared.
 func (c *wellFormedness) resolve(prefix string) (string, bool) {
 	if prefix == "" {
 		return "", true
 	}
-	for i := len(c.scopes) - 1; i >= 0; i-- {
-		if uri, ok := c.scopes[i][prefix]; ok {
-			return uri, true
-		}
-	}
-	return "", false
+	uri, ok := c.bound[prefix]
+	return uri, ok
 }
 
 func (c *wellFormedness) end(line int) error {

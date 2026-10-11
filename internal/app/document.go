@@ -75,7 +75,9 @@ func (v *Validator) validate(ctx context.Context, data []byte, req qti.VersionRe
 			return v.validateCustom(ctx, v.customTypes[root], p, data, limits)
 		}
 		// Malformed XML is reported as such, whatever its root.
-		if err := xmldoc.CheckWellFormed(bytes.NewReader(data)); err != nil {
+		// The check is bound like the checks of a supported document: by
+		// the nesting depth and by ctx.
+		if err := xmldoc.CheckWellFormed(ctx, bytes.NewReader(data), limits.MaxDepth); err != nil {
 			return detectionFailure(err)
 		}
 		return qti.Failure(qti.OutcomeInvalid, "", qti.CodeUnsupportedDocument,
@@ -200,6 +202,16 @@ func detectionFailure(err error) qti.DocumentResult {
 		return qti.Failure(qti.OutcomeInvalid, "", qti.CodeUnsupportedEncoding, err.Error())
 	case errors.Is(err, xmldoc.ErrDTD):
 		return qti.Failure(qti.OutcomeInvalid, "", qti.CodeUnsupportedXML, err.Error())
+	}
+	if stop, ok := stopFinding(err); ok {
+		return qti.Failure(qti.OutcomeTooComplex, "", stop.Code, stop.Message)
+	}
+	if deep, ok := errors.AsType[*xmldoc.DepthError](err); ok {
+		// As the schema check reports it for a supported document.
+		res := qti.Failure(qti.OutcomeInvalid, "", qti.CodeLimitExceeded,
+			fmt.Sprintf("elements are nested deeper than %d (MAX_DEPTH)", deep.Max))
+		res.Errors[0].Line = deep.Line
+		return res
 	}
 	res := qti.Failure(qti.OutcomeMalformed, "", qti.CodeInvalidXML, err.Error())
 	if syntax, ok := errors.AsType[*xml.SyntaxError](err); ok {
