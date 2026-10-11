@@ -34,25 +34,61 @@ type Session struct {
 	// sets holds node-sets that stay the same throughout the session: the
 	// remembered node-sets and those that Constant was told of. Each maps
 	// to the string-values of its nodes once a comparison needed them.
-	sets map[setKey]map[string]bool
+	sets map[setKey]*stringSet
+	// setBytes is the number of bytes of string-values built for sets that
+	// the session holds on to; see maxSetBytes.
+	setBytes int
 }
 
 // setKey identifies a node-set by its first element in memory, which the
 // key keeps alive, and its length.
+//
+// The identity holds only while no node-set is changed in place: a
+// node-set sorted, reversed, filtered or appended to within its own array
+// would keep its key and no longer have the string-values collected for it.
+// The evaluator therefore never writes to a node-set it was given or has
+// returned: a union copies its operands, filters build new sets, and the
+// sets that are shared (remembered paths, index lists) have their capacity
+// clipped so that appending copies. TestConstantNodeSetsAreNotChanged guards
+// this for the values of variables.
 type setKey struct {
 	first **Node
 	n     int
+}
+
+// stringSet is the set of the string-values of the nodes of a kept
+// node-set.
+type stringSet struct {
+	values map[string]bool // nil until a comparison needs it
+	// unusable: the string-values take too much memory to keep; the
+	// node-set is compared node by node.
+	unusable bool
 }
 
 // minSetSize is the least size of a node-set whose string-values a session
 // collects for comparisons. Smaller node-sets are compared node by node.
 const minSetSize = 16
 
+// maxSetBytes bounds the string-values a session builds and keeps for its
+// sets. The string-value of an attribute or a text node is part of the
+// document, but that of an element is built from the text of its
+// descendants, and elements that nest each repeat the text of the
+// innermost: without a bound, a set of n nested elements around a text
+// would keep n copies of it for the whole session. A set that does not fit
+// in what is left of the bound is dropped and compared node by node, which
+// builds the same strings but keeps none.
+const maxSetBytes = 4 << 20
+
+// setBytesPerStep is the number of bytes of string-values built for a set
+// that cost a step, on top of the step per node.
+const setBytesPerStep = 256
+
 // Constant tells s that v, the value of a variable, stays the same for
 // every evaluation in it. Comparing a large node-set with = then looks the
 // string-values of the other operand up instead of comparing every pair.
-// Node-sets are never changed once evaluated, so this holds for any value
-// the caller keeps for the session.
+// Node-sets are never changed once evaluated (see setKey), so this holds
+// for any value the caller keeps for the session and does not change
+// itself.
 func (s *Session) Constant(v Value) {
 	if ns, ok := v.(NodeSet); ok {
 		s.keep(ns)
@@ -64,35 +100,52 @@ func (s *Session) keep(ns NodeSet) {
 		return
 	}
 	if s.sets == nil {
-		s.sets = map[setKey]map[string]bool{}
+		s.sets = map[setKey]*stringSet{}
 	}
 	k := setKey{&ns[0], len(ns)}
 	if _, ok := s.sets[k]; !ok {
-		s.sets[k] = nil
+		s.sets[k] = &stringSet{}
 	}
 }
 
 // stringSet returns the string-values of the nodes of a kept node-set,
-// collecting them the first time at a step per node, or false when ns was
-// not kept.
+// collecting them the first time at a step per node and per
+// setBytesPerStep bytes built. It returns false when ns was not kept, or
+// when its string-values do not fit in maxSetBytes.
 func (s *Session) stringSet(ns NodeSet) (map[string]bool, bool, error) {
 	if len(ns) < minSetSize || !optimise {
 		return nil, false, nil
 	}
-	k := setKey{&ns[0], len(ns)}
-	set, ok := s.sets[k]
-	if !ok || set != nil {
-		return set, ok, nil
+	set, ok := s.sets[setKey{&ns[0], len(ns)}]
+	if !ok || set.unusable {
+		return nil, false, nil
+	}
+	if set.values != nil {
+		return set.values, true, nil
 	}
 	if err := s.charge(len(ns)); err != nil {
 		return nil, true, err
 	}
-	set = make(map[string]bool, len(ns))
+	values := make(map[string]bool, len(ns))
+	built := 0
 	for _, n := range ns {
-		set[n.StringValue()] = true
+		v := n.StringValue()
+		if n.Kind == ElementNode || n.Kind == RootNode {
+			// Built for this node; other string-values are the document's.
+			built += len(v)
+			if err := s.charge(len(v) / setBytesPerStep); err != nil {
+				return nil, true, err
+			}
+			if s.setBytes+built > maxSetBytes {
+				set.unusable = true
+				return nil, false, nil
+			}
+		}
+		values[v] = true
 	}
-	s.sets[k] = set
-	return set, true, nil
+	s.setBytes += built
+	set.values = values
+	return values, true, nil
 }
 
 // anyInSet reports whether a node of a has the string-value of a node of b,

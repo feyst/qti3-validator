@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"qti3-validator/internal/lib/xpath"
+	"qti3-validator/internal/testutil"
 )
 
 func compileFeatures(t testing.TB) *Engine {
@@ -225,13 +225,14 @@ func TestContextToXPath(t *testing.T) {
 }
 
 // qtiRules extracts the rules from the QTI 3 ASI schema fetched for the
-// validator.
+// validator. The schemas are a prerequisite of the tests (make schemas), so
+// a missing one fails the test rather than skipping it.
 func qtiRules(t testing.TB) RuleSet {
 	t.Helper()
-	path := filepath.Join("..", "validator", "schemas", "purl.imsglobal.org", "spec", "qti", "v3p0", "schema", "xsd", "imsqti_asiv3p0_v1p0.xsd.gz")
+	path := testutil.Path("internal/adapter/schemastore/schemas/purl.imsglobal.org/spec/qti/v3p0/schema/xsd/imsqti_asiv3p0_v1p0.xsd.gz")
 	f, err := os.Open(path)
 	if err != nil {
-		t.Skipf("schemas not fetched: %v", err)
+		t.Fatalf("schemas not fetched, run make schemas: %v", err)
 	}
 	defer f.Close()
 	zr, err := gzip.NewReader(f)
@@ -302,4 +303,7 @@ func TestQTIRulesCompile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("%d shared name lists", len(c.NameLists))
+	if len(c.NameLists) == 0 {
+		t.Fatal("no attribute-name check of the QTI rules was compiled to a name list")
+	}
 }

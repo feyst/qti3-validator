@@ -1,6 +1,7 @@
 package xpath
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -84,7 +85,7 @@ func lex(expr string) ([]token, error) { //nolint:gocognit // a lexer: one case 
 				}
 			}
 			n, err := strconv.ParseFloat(expr[start:i], 64)
-			if err != nil {
+			if err != nil && !errors.Is(err, strconv.ErrRange) { // out of range: an infinity
 				return nil, fmt.Errorf("invalid number at %d", start)
 			}
 			toks = append(toks, token{kind: tokNumber, num: n, pos: start})

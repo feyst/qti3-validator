@@ -42,11 +42,12 @@ rules that keep it that way, are in [ARCHITECTURE.md](ARCHITECTURE.md).
 ```
 build time (Dockerfile, cmd/fetchschemas)        runtime (cmd/qti-validator)
 ─────────────────────────────────────────        ─────────────────────────────
-download the 17 XSDs pinned in schemas.lock      compile the XSDs        (0.35 s)
+download the 22 XSDs pinned in schemas.lock      compile the XSDs        (0.35 s)
 verify each SHA-256                              load compiled rules     (ms)
-extract the Schematron rules from the XSDs       per document:
-compile the rules → schematron.json.gz (49 KB)     1. stream through XSD validation
-embed XSDs (gzip) and compiled rules               2. DOM + Schematron rules
+remove files the lock no longer lists            per document:
+extract the Schematron rules from the XSDs         1. stream through XSD validation
+compile the rules → schematron.json.gz (49 KB)     2. DOM + Schematron rules
+embed XSDs (gzip) and compiled rules
 qti-validator -check: everything compiles
 ```
 
@@ -65,11 +66,18 @@ runtime.
 - **Version:** QTI 3.0, XSD binding v1p0. The version is fixed by the URLs in
   the lock file.
 - **Integrity:** every file is pinned by SHA-256. A changed upstream file fails
-  the build.
+  the build, and nothing of it is stored. A file stored by an earlier run is
+  used only if it still has the pinned checksum. Only `https` URLs are
+  accepted, and a redirect is followed only over `https` to the same host.
+- **Nothing else is embedded:** the validator embeds the whole directory of
+  the schema host, so `fetchschemas` removes every file there that the lock
+  file does not list, such as a schema that was dropped from it.
 - **Entry schemas:** `imsqti_asiv3p0_v1p0.xsd` (items, tests, sections, stimuli)
   and `imsqtiv3p0_imscpv1p2_v1p0.xsd` (package manifest). Their
   import/include closure is 17 files: MathML 3, SSML 1.1, XInclude, xlink,
-  `xml.xsd`, LOM, QTI metadata, CP extensions and AfA DRD.
+  `xml.xsd`, LOM, QTI metadata, CP extensions and AfA DRD. QTI 3.0.1 adds
+  its own five QTI schemas and shares the other twelve, so the lock file
+  pins 22 files.
 - **Imports:** the XSDs import each other through absolute `https://` URLs. The
   resolver maps those URLs to the embedded files.
 - **Stored unmodified:** the files are stored gzip-compressed, which keeps the
@@ -202,12 +210,18 @@ How the engine is checked:
 - **XPath shortcuts:** the engine evaluates some forms faster without
   changing their results, by static analysis at compile time: a step ending
   in `[1]` stops at its first match (the nearest ancestor, for a reverse
-  axis); `//a[@id = current()/@ref]` looks the value up in an index of
+  axis), unless a predicate before the `[1]` could raise a type error on a
+  later node, such as `$v/x` with a variable that may not be a node-set;
+  `//a[@id = current()/@ref]` looks the value up in an index of
   `//a` by attribute; descendant steps by name use an index of the document,
   and skip context nodes nested in others; `//a[@x]` is one descendant step;
   `=` against a remembered path or a schema or pattern variable uses a hash
-  set. `TestOptimisedEvaluationMatchesPlain` in `internal/lib/xpath`
-  compares each with plain evaluation.
+  set, as long as the string-values a session keeps for such sets fit in
+  4 MiB. `TestOptimisedEvaluationMatchesPlain` in `internal/lib/xpath`
+  compares each with plain evaluation, values and errors, and
+  `TestOptimisedMatchesPlainOnGeneratedExpressions` does so for generated
+  expressions and documents (`FZ_SEEDS=40 go test -run GeneratedExpressions
+  ./internal/lib/xpath` for a longer run).
 - **Own rules:** `rules/qti3-additional-checks.sch` is compiled with the
   embedded rules. On the 4528 well-formed documents of the public corpora the
   engine gives the same 2339 messages as the reference implementation. The
@@ -220,9 +234,12 @@ How the engine is checked:
 ### Locally
 
 ```sh
-go run ./cmd/fetchschemas   # once, or after changing schemas.lock
+go run ./cmd/fetchschemas   # once, or after changing schemas.lock or rules/
 go run ./cmd/qti-validator
 ```
+
+The code embeds the fetched schemas, so nothing compiles before the first
+line ran. The `make` targets run it themselves when it is needed.
 
 Go 1.27 or newer is required.
 
@@ -232,6 +249,10 @@ Go 1.27 or newer is required.
 make image   # tags feyst/qti3-validator:dev and :latest
 docker run --rm -p 8080:8080 feyst/qti3-validator
 ```
+
+An image built this way reports the version `dev-<commit>` in `/version` and
+in reports (`dev` outside a git checkout); only the images CI builds carry a
+release number.
 
 CI builds the image for linux/amd64 and linux/arm64 after the checks pass, and
 pushes it to `ghcr.io/feyst/qti3-validator`: `latest` and `main` from main,
@@ -249,29 +270,93 @@ docker buildx build --platform linux/amd64,linux/arm64 .
 ### Releases
 
 Releases are automatic. When a build of main finds that anything that goes
-into the image changed since the last tag `vX.Y.Z` (code other than tests,
-`go.mod`, `go.sum`, the Dockerfile, the rules), it releases the next patch
-version: the image gets the tags `X.Y.Z` and `X.Y`, the binary reports that
-version, and the commit gets the tag and a GitHub release with notes.
-
-Dependabot checks Go modules and the golang image daily and the actions
-weekly. Its minor and patch updates are merged by themselves once CI passes,
-and a nightly run of CI releases them, so the image keeps up with security
-fixes without anyone doing anything. Major updates wait for review.
+into the image changed since the last tag `vX.Y.Z` (`go.mod`, `go.sum`, the
+Dockerfile, the rules, `third_party` and the code in `cmd` and `internal`,
+without tests, `testdata` directories and `internal/testutil`), it releases
+the next patch version: the image gets the tags `X.Y.Z` and `X.Y`, the binary
+reports that version, and the commit gets the tag and a GitHub release with
+notes.
 
 For a minor or major release, start the workflow by hand: Actions → CI → Run
 workflow, and pick the bump.
+
+Runs of main and of tags are never cancelled while running and run one after
+the other, so two releases never pick the same version. GitHub keeps only one
+waiting run per group, so a waiting run (for example a manual release) is
+replaced when another one is queued behind it: start it again if that
+happens.
+
+### Dependency updates
+
+Dependabot checks Go modules and the golang image daily and the actions
+weekly. Its minor and patch updates are merged by themselves once CI passes,
+and a nightly run of CI releases them, so the image keeps up with those
+security fixes without anyone doing anything. Major updates wait for review.
+
+The actions in `.github/workflows` are pinned by commit, with the version in
+a comment behind it (`uses: actions/checkout@<sha> # v7.0.1`), so a moved tag
+cannot change what runs. Dependabot updates the commit and the comment
+together; pin a new action the same way, with the commit the tag points to:
+
+```sh
+git ls-remote https://github.com/actions/checkout.git 'refs/tags/v7.0.1*'
+```
+
+For an annotated tag that prints two lines; take the one ending in `^{}`.
+
+Two things do not update by themselves:
+
+- **The XSD library.** `go.mod` replaces `github.com/jacoelho/xsd` with the
+  patched copy in `third_party/xsd`, which Dependabot cannot see or update.
+  The workflow `.github/workflows/xsd-upstream.yml` compares the version
+  `go.mod` requires with the latest upstream release every week and opens an
+  issue "jacoelho/xsd vX.Y.Z is available" when a newer one is out; a later
+  release updates that issue instead of opening another, and closing it
+  skips that release. What to do then is under
+  [Updating the XSD library](#updating-the-xsd-library).
+- **The schemas.** They are pinned by checksum on purpose; see
+  [Schemas](#schemas).
+
+### Updating the XSD library
+
+The library parses every upload, so upstream's fixes should not wait long.
+With `vX.Y.Z` the new release:
+
+1. Read the changes since the current version. If the release contains the
+   fix of [jacoelho/xsd#134](https://github.com/jacoelho/xsd/pull/134), the
+   patch is no longer needed: remove the `replace` line from `go.mod`,
+   `third_party/xsd` and the patch, run
+   `go get github.com/jacoelho/xsd@vX.Y.Z`, and go to step 6.
+2. Check out upstream at the release:
+   `git clone --branch vX.Y.Z --depth 1 https://github.com/jacoelho/xsd.git /tmp/xsd`.
+3. Apply the patch there:
+   `git -C /tmp/xsd apply --3way "$PWD/third_party/xsd-element-type-recursion.patch"`.
+   Resolve what does not apply, and run upstream's tests (`go test ./...` in
+   `/tmp/xsd`); the patch brings its own regression tests.
+4. Stage the result (`git -C /tmp/xsd add -A`), write the patch again
+   (`git -C /tmp/xsd diff --cached > third_party/xsd-element-type-recursion.patch`),
+   and replace `third_party/xsd` with the patched sources: `LICENSE`, `go.mod`
+   and the `.go` files that are not tests, in the same directories.
+5. Set the version in `go.mod` (`require github.com/jacoelho/xsd vX.Y.Z`),
+   which is what the workflow compares, and under
+   [Implementation notes](#implementation-notes).
+6. Run `make check` and `make corpus`, and measure memory as described under
+   [Performance and memory](#performance-and-memory).
 
 ## Tests, linters and benchmarks
 
 `make` is the entry point; `make help` lists the targets.
 
 ```sh
-make schemas   # once, or after changing schemas.lock or rules/
 make tools     # installs golangci-lint and govulncheck
 make check     # linters, tests with the race detector, vulnerability check
 make bench
 ```
+
+The targets that compile the code fetch the schemas first when they are
+missing, so `make check` works on a fresh clone. They do so again when
+`schemas.lock`, `rules/` or the code that compiles the rules changed, without
+downloading what is already there. `make schemas` does it regardless.
 
 `make check` is what CI runs (`.github/workflows/ci.yml`). It covers:
 
@@ -312,8 +397,14 @@ The tests are layered like the code:
 - **Libraries:** the Schematron engine (every supported feature, first-match
   semantics, unsupported constructs, native naming checks, indexed counts)
   and XPath 1.0 conformance against libxml2.
+- **Build step:** `cmd/fetchschemas` against a local HTTPS server: the lock
+  file's syntax, a changed upstream file, a stored file that was changed,
+  URLs that leave the output directory, redirects, the size limit and the
+  removal of files the lock file does not list.
 
-None of them need the internet once the schemas are fetched.
+None of them need the internet once the schemas are fetched. A test that
+needs the fetched schemas fails without them; it does not skip. Only the
+corpus test, and the slowest test under `-short` or `-race`, skip.
 
 Benchmarks on the machine below, `make bench`. A validation includes XSD,
 1EdTech's Schematron rules and the additional checks; both QTI versions are
@@ -441,7 +532,8 @@ The XML documents inside the packages count as documents of the corpus too.
   [jacoelho/xsd#134](https://github.com/jacoelho/xsd/pull/134). It passes the
   library's full verification set, W3C corpus included, and adds regression
   tests. Once it is released, drop the `replace` directive in `go.mod` and the
-  directory.
+  directory. Until then the copy is updated by hand; see
+  [Updating the XSD library](#updating-the-xsd-library).
 - **XSDs compiled at startup:** the XSD library cannot serialize a compiled
   schema, so the binary carries the compressed XSDs, about 1.5 MB, and
   compiles them at startup. The Schematron rules are compiled at build time.

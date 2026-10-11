@@ -104,14 +104,7 @@ func countByAttribute(c *evalCtx, a []Value) (Value, error) {
 // documentIndex returns the index for key of the document of n, built in
 // session s on first use and kept on the root of the document.
 func documentIndex(s *Session, n *Node, key attrIndexKey) (*attrIndex, error) {
-	root, hops := n, 0
-	for root.Parent != nil {
-		root = root.Parent
-		hops++
-	}
-	if err := s.charge(hops); err != nil {
-		return nil, err
-	}
+	root := n.documentRoot()
 	if idx, ok := root.attrIndexes[key]; ok {
 		return idx, nil
 	}
