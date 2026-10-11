@@ -67,9 +67,12 @@ func mediaType(r *http.Request) string {
 
 // spool copies the input to a temporary file: a ZIP must be read from the
 // end, and the whole input is received before validation starts. More than
-// limit bytes is refused as too large. The caller removes the file. On
+// limit bytes is refused as too large. The file's room in MaxSpoolSize is
+// reserved in res as the bytes arrive, and shrunk to its size once the input
+// is in; an input that does not fit gets 503, or 413 when it would not fit
+// in the whole budget. The caller removes the file and releases res. On
 // failure the response has been written.
-func (s *Server) spool(w http.ResponseWriter, body io.Reader, limit int64) (*os.File, int64, bool) {
+func (s *Server) spool(w http.ResponseWriter, body io.Reader, limit int64, res *spoolReservation) (*os.File, int64, bool) {
 	f, err := os.CreateTemp("", "qti-upload-*")
 	if err != nil {
 		s.log.Error("create temp file", "error", err)
@@ -77,23 +80,47 @@ func (s *Server) spool(w http.ResponseWriter, body io.Reader, limit int64) (*os.
 		return nil, 0, false
 	}
 	in := &recordingReader{r: io.LimitReader(body, limit+1)}
-	size, err := io.Copy(f, in)
+	size, err := io.Copy(&reservingWriter{w: f, res: res}, in)
 	if err == nil && size > limit {
 		err = &http.MaxBytesError{Limit: limit}
 	}
 	if err == nil {
+		res.shrink(size)
 		return f, size, true
 	}
 	_ = f.Close()
 	_ = os.Remove(f.Name())
-	if in.err == nil && !isTooLarge(err) {
+	switch {
+	case errors.Is(err, errSpoolBusy):
+		refuseUnread(w)
+		writeBusy(w, "too many uploads in progress")
+	case errors.Is(err, errSpoolTooLarge):
+		refuseUnread(w)
+		writeSpoolTooLarge(w)
+	case in.err == nil && !isTooLarge(err):
 		// Not the body but the file failed, as when /tmp is full.
 		s.log.Error("write temp file", "error", err)
 		writeError(w, http.StatusInternalServerError, string(qti.CodeInternal), "cannot store the upload")
-		return nil, 0, false
+	default:
+		writeReadError(w, err, "package is larger than the configured MAX_PACKAGE_SIZE")
 	}
-	writeReadError(w, err, "package is larger than the configured MAX_PACKAGE_SIZE")
 	return nil, 0, false
+}
+
+// reservingWriter reserves room in res for the bytes before it writes them.
+type reservingWriter struct {
+	w       io.Writer
+	res     *spoolReservation
+	written int64
+}
+
+func (rw *reservingWriter) Write(p []byte) (int, error) {
+	if err := rw.res.grow(rw.written + int64(len(p))); err != nil {
+		return 0, err
+	}
+	n, err := rw.w.Write(p)
+	rw.written += int64(n)
+	return n, err
 }
 
 // recordingReader keeps the error of reading r, to tell it from an error of

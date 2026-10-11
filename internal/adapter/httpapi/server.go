@@ -7,6 +7,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -51,6 +52,10 @@ const writeGrace = 10 * time.Second
 // retryAfter is the Retry-After of a busy response, in seconds.
 const retryAfter = "5"
 
+// defaultSpoolChunk is the room in MaxSpoolSize an upload reserves at a time,
+// as its body arrives.
+const defaultSpoolChunk = 1 << 20
+
 // Server handles the HTTP API.
 type Server struct {
 	opts      Options
@@ -59,8 +64,9 @@ type Server struct {
 	waiting   atomic.Int64 // requests waiting for a slot
 	log       *slog.Logger
 
-	spoolMu   sync.Mutex
-	spoolUsed int64 // bytes reserved by requests for their temporary files
+	spoolMu    sync.Mutex
+	spoolUsed  int64 // bytes reserved by requests for their temporary files
+	spoolChunk int64 // bytes an upload reserves at a time as its body arrives
 
 	writeGrace time.Duration
 }
@@ -76,7 +82,7 @@ func New(opts Options, v Validator, log *slog.Logger) *Server {
 	}
 	return &Server{
 		opts: opts, validator: v, slots: make(chan struct{}, opts.MaxConcurrent), log: log,
-		writeGrace: writeGrace,
+		writeGrace: writeGrace, spoolChunk: defaultSpoolChunk,
 	}
 }
 
@@ -145,24 +151,66 @@ func (s *Server) acquire(ctx context.Context, w http.ResponseWriter) (func(), bo
 	}
 }
 
-// reserveSpool reserves n bytes of MaxSpoolSize for a temporary file, and
-// returns the function that frees them. A request that does not fit gets
-// 503 at once: waiting would hold its connection without bounding anything.
-func (s *Server) reserveSpool(w http.ResponseWriter, n int64) (func(), bool) {
+// Errors of growing a spoolReservation.
+var (
+	errSpoolBusy     = errors.New("the uploads in progress fill MAX_SPOOL_SIZE")
+	errSpoolTooLarge = errors.New("the upload is larger than MAX_SPOOL_SIZE")
+)
+
+// spoolReservation is the room in MaxSpoolSize one request holds for its
+// temporary file. It grows as the body arrives, so a stalled upload holds
+// only what it has sent; release frees it.
+type spoolReservation struct {
+	s    *Server
+	most int64 // the most the body may take, where the last chunk ends
+	n    int64 // bytes reserved
+}
+
+func (s *Server) newSpoolReservation(most int64) *spoolReservation {
+	return &spoolReservation{s: s, most: most}
+}
+
+// grow makes room for need bytes in all. It reserves whole chunks, up to the
+// most the body may take, and when that does not fit, only need. A
+// request that does not fit gets errSpoolBusy at once: waiting would hold
+// its connection without bounding anything. need beyond the whole budget
+// is errSpoolTooLarge.
+func (r *spoolReservation) grow(need int64) error {
+	if need <= r.n {
+		return nil
+	}
+	s := r.s
+	// need rounded up to whole chunks, the last one cut at most.
+	ahead := max(need, min((need+s.spoolChunk-1)/s.spoolChunk*s.spoolChunk, r.most))
 	s.spoolMu.Lock()
 	defer s.spoolMu.Unlock()
-	if n > s.opts.MaxSpoolSize-s.spoolUsed {
-		refuseUnread(w)
-		writeBusy(w, "too many uploads in progress")
-		return nil, false
+	if need > s.opts.MaxSpoolSize {
+		return errSpoolTooLarge
 	}
-	s.spoolUsed += n
-	return func() {
-		s.spoolMu.Lock()
-		s.spoolUsed -= n
-		s.spoolMu.Unlock()
-	}, true
+	free := s.opts.MaxSpoolSize - s.spoolUsed
+	for _, want := range []int64{min(ahead, s.opts.MaxSpoolSize), need} {
+		if want-r.n <= free {
+			s.spoolUsed += want - r.n
+			r.n = want
+			return nil
+		}
+	}
+	return errSpoolBusy
 }
+
+// shrink gives back what is reserved beyond n bytes.
+func (r *spoolReservation) shrink(n int64) {
+	if n >= r.n {
+		return
+	}
+	r.s.spoolMu.Lock()
+	r.s.spoolUsed -= r.n - n
+	r.s.spoolMu.Unlock()
+	r.n = n
+}
+
+// release frees the reservation.
+func (r *spoolReservation) release() { r.shrink(0) }
 
 // refuseUnread closes the connection after a response written before the
 // body was read. Otherwise the server reads up to 256 KiB of the body before

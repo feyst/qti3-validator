@@ -62,12 +62,15 @@ so a slow upload holds no slot. An upload must complete within
 package needs about 14 Mbit/s.
 
 `MAX_SPOOL_SIZE` bounds the bytes in `/tmp` across all requests; by default
-it is 4 × `MAX_PACKAGE_SIZE`, 400 MiB. Before its body is read, a request
-reserves its Content-Length, or, without one (chunked), the most it may
-send: `MAX_PACKAGE_SIZE`, or `MAX_REQUEST_SIZE` for `application/xml`. A
-request that does not fit gets 503 at once, with `Retry-After`; a
-Content-Length above the limit gets 413 at once. The reservation is freed
-when the request finishes. Give `/tmp` at least `MAX_SPOOL_SIZE`.
+it is 4 × `MAX_PACKAGE_SIZE`, 400 MiB. A request reserves its share 1 MiB at
+a time as its body arrives, so an upload holds budget only for the bytes it
+has sent: a stalled upload does not lock others out. An upload whose next
+bytes do not fit gets 503 at once, with `Retry-After`. Once the body is in,
+the reservation shrinks to its size, and it is freed when the request
+finishes. A body that could never fit gets 413 instead: a Content-Length
+above the limit of its kind or above `MAX_SPOOL_SIZE` at once, a chunked
+body as soon as it grows past either. Give `/tmp` at least
+`MAX_SPOOL_SIZE`.
 
 Give `/tmp` disk, not memory:
 
@@ -80,10 +83,10 @@ If `/tmp` is a tmpfs, the service lowers `MAX_SPOOL_SIZE` at startup to the
 size of the tmpfs and, when the container has a memory limit (cgroup v2 or
 v1), to that limit minus 160 MiB for the process, and logs a warning with
 the numbers. In a 256 MiB container that leaves 96 MiB: one package at a
-time, and a chunked package upload, which reserves all of `MAX_PACKAGE_SIZE`,
-is refused. If less than `MAX_REQUEST_SIZE` is left, the service logs an
-error: it runs, but refuses uploads with 503. A full budget refuses uploads
-instead of getting the container killed for running out of memory.
+time, and a package above 96 MiB gets 413. If less than `MAX_REQUEST_SIZE`
+is left, the service logs an error: it runs, but refuses larger uploads. A
+full budget refuses uploads instead of getting the container killed for
+running out of memory.
 
 To use a tmpfs anyway, size it, `MAX_SPOOL_SIZE` and the memory limit
 together: the tmpfs and `MAX_SPOOL_SIZE` are the concurrent uploads you

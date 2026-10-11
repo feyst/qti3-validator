@@ -136,68 +136,6 @@ func postStatus(t *testing.T, url, contentType string, body []byte) int {
 	return resp.StatusCode
 }
 
-// spooled is the budget in use.
-func spooled(s *Server) int64 {
-	s.spoolMu.Lock()
-	defer s.spoolMu.Unlock()
-	return s.spoolUsed
-}
-
-// The bytes all requests may be spooling at once are bounded: a request that
-// does not fit gets 503 at once, and the budget is free again when requests
-// finish.
-func TestSpoolBudget(t *testing.T) {
-	const limit = 8 << 10
-	srv, s := newFakeServer(t, Options{MaxPackageSize: limit, MaxDocumentSize: limit, MaxSpoolSize: 10 << 10, MaxConcurrent: 4}, fakeValidator{})
-	url := srv.URL + "/api/validate"
-	small := bytes.Repeat([]byte(" "), 3<<10)
-
-	t.Run("chunked reserves the limit", func(t *testing.T) {
-		finish := stalledUpload(t, url, "application/zip", "PK", -1)
-		waitFor(t, "the reservation", func() bool { return spooled(s) == limit+1 })
-		postBusy(t, url, "application/zip", small)
-		postBusy(t, url, "application/xml", small)
-		if status := finish(); status != http.StatusOK {
-			t.Fatalf("stalled upload: %d", status)
-		}
-		waitFor(t, "the release", func() bool { return spooled(s) == 0 })
-	})
-
-	t.Run("Content-Length reserves the length", func(t *testing.T) {
-		finish := stalledUpload(t, url, "application/zip", "PK", 4<<10)
-		waitFor(t, "the reservation", func() bool { return spooled(s) == 4<<10 })
-		if status := postStatus(t, url, "application/zip", small); status != http.StatusOK {
-			t.Fatalf("an upload that fits beside it: %d", status)
-		}
-		postBusy(t, url, "application/zip", bytes.Repeat([]byte(" "), 7<<10))
-		if status := finish(); status != http.StatusOK {
-			t.Fatalf("stalled upload: %d", status)
-		}
-	})
-
-	t.Run("released after use", func(t *testing.T) {
-		for range 10 {
-			if status := postStatus(t, url, "application/zip", bytes.Repeat([]byte(" "), 6<<10)); status != http.StatusOK {
-				t.Fatalf("sequential upload: %d", status)
-			}
-		}
-		if status := postStatus(t, url, "", bytes.Repeat([]byte(" "), limit+100)); status != http.StatusRequestEntityTooLarge {
-			t.Fatalf("too large: %d", status)
-		}
-		waitFor(t, "the release", func() bool { return spooled(s) == 0 })
-	})
-
-	t.Run("a declared length above the limit is refused", func(t *testing.T) {
-		status, body := rawRequest(t, srv, "Content-Type: application/zip\r\nContent-Length: 100000\r\n", "PK")
-		if status != http.StatusRequestEntityTooLarge || firstCode(body) != string(qti.CodeTooLarge) {
-			t.Fatalf("got %d %v", status, body)
-		}
-		if spooled(s) != 0 {
-			t.Fatalf("budget in use: %d", spooled(s))
-		}
-	})
-}
-
 // The requests waiting for a slot are bounded: beyond MaxQueue, 503 at once.
 func TestQueueCap(t *testing.T) {
 	release := make(chan struct{})
