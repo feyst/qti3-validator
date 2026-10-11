@@ -73,7 +73,7 @@ func TestMaxErrors(t *testing.T) {
 
 // Warnings of the rules do not use up MAX_ERRORS: three warnings before an
 // error leave room for the error, however small MAX_ERRORS is. Warnings
-// have a limit of their own, MAX_ERRORS.
+// have a limit of their own, MAX_ERRORS; one more warning marks the cut.
 func TestMaxErrorsCountsErrorsOnly(t *testing.T) {
 	cond := `<qti-response-condition><qti-response-if>
       <qti-match><qti-variable identifier="R2"/><qti-correct identifier="R2"/></qti-match>
@@ -93,13 +93,25 @@ func TestMaxErrorsCountsErrorsOnly(t *testing.T) {
   </qti-item-body>
   <qti-response-processing>` + strings.Repeat(cond, 3) + `</qti-response-processing>
 </qti-assessment-item>`
-	for _, tc := range []struct{ maxErrors, warnings int }{{100, 3}, {3, 3}, {1, 1}} {
+	for _, tc := range []struct {
+		maxErrors, warnings int
+		note                string // the last warning, when warnings were left out
+	}{
+		{100, 3, ""},
+		{3, 3, ""},
+		{2, 2, "1 further warning of the rules was left out: only the first 2 are reported (MAX_ERRORS)."},
+		{1, 1, "2 further warnings of the rules were left out: only the first 1 are reported (MAX_ERRORS)."},
+	} {
 		v := testValidator(t).WithLimits(qti.Limits{MaxErrors: tc.maxErrors})
 		res := v.ValidateDocument(context.Background(), app.ValidateDocument{Document: strings.NewReader(doc)})
-		if res.Valid || res.Outcome != qti.OutcomeInvalid || len(res.Errors) != 1 || len(res.Warnings) != tc.warnings ||
+		warnings, note := res.Warnings, ""
+		if n := len(warnings); n > 0 && warnings[n-1].Code == qti.CodeLimitExceeded {
+			warnings, note = warnings[:n-1], warnings[n-1].Message
+		}
+		if res.Valid || res.Outcome != qti.OutcomeInvalid || len(res.Errors) != 1 || len(warnings) != tc.warnings || note != tc.note ||
 			!strings.HasSuffix(res.Errors[0].Rule, "#interaction-response-type") {
-			t.Errorf("MAX_ERRORS %d: valid=%v, %d errors, %d warnings, want 1 error and %d warnings: %+v",
-				tc.maxErrors, res.Valid, len(res.Errors), len(res.Warnings), tc.warnings, res.Errors)
+			t.Errorf("MAX_ERRORS %d: valid=%v, %d errors, %d warnings, note %q; want 1 error, %d warnings, note %q: %+v",
+				tc.maxErrors, res.Valid, len(res.Errors), len(warnings), note, tc.warnings, tc.note, res.Errors)
 		}
 	}
 }

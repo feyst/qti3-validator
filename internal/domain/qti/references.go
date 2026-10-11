@@ -92,6 +92,7 @@ const (
 	CheckPCIModuleExists        = "pci-module-exists"
 	CheckCatalogFileExists      = "catalog-file-exists"
 	CheckTestItemVariable       = "test-item-variable-declared"
+	CheckItemRefUnique          = "item-ref-identifier-unique"
 )
 
 // builtinVariables are declared implicitly in every item.
@@ -99,8 +100,9 @@ var builtinVariables = map[string]bool{"numAttempts": true, "duration": true, "c
 
 // CheckReferences checks that every reference in a package resolves to a
 // file of the package, of the right document type where that matters, that
-// every file is listed in the manifest, and that a test refers only to
-// variables its items declare. References to other hosts (URLs with a
+// every file is listed in the manifest, that the item refs of a test and of
+// the sections it includes have distinct identifiers, and that a test refers
+// only to variables its items declare. References to other hosts (URLs with a
 // scheme) are not checked.
 func CheckReferences(p PackageContents) []ReferenceFinding {
 	c := refChecker{files: map[string]bool{}, p: p}
@@ -119,7 +121,7 @@ func CheckReferences(p PackageContents) []ReferenceFinding {
 	for _, name := range names {
 		c.checkDocument(name, listed)
 	}
-	c.checkVariables(names)
+	c.checkTests(names)
 	if hasManifest {
 		for _, f := range p.Files {
 			if f != ManifestName && !listed[f] {
@@ -240,41 +242,91 @@ func (c *refChecker) exists(kind RefKind, target string) bool {
 	return c.files[target] || kind == RefModule && c.files[target+".js"]
 }
 
-// checkVariables checks the "ITEM.VARIABLE" references of tests against the
-// variables the referenced items declare. Item-ref identifiers are unique
-// only within one test, so each test is checked against its own item refs:
-// those in the test itself and in the sections it includes with
-// qti-assessment-section-ref, however deeply nested.
-func (c *refChecker) checkVariables(names []string) {
+// checkTests checks the item refs of each test and its "ITEM.VARIABLE"
+// references. Item-ref identifiers are unique only within one test, so each
+// test is checked against its own item refs: those in the test itself and in
+// the sections it includes with qti-assessment-section-ref, however deeply
+// nested. The rules see one document at a time, so an identifier used in two
+// of these documents is reported here; one used twice in one document is
+// left to the rules (test-identifier-unique).
+func (c *refChecker) checkTests(names []string) {
 	for _, name := range names {
-		vrs := c.p.Documents[name].Refs.VariableRefs
-		if len(vrs) == 0 {
+		doc := c.p.Documents[name]
+		vrs := doc.Refs.VariableRefs
+		if doc.Schema != "qti-assessment-test" && len(vrs) == 0 {
 			continue
 		}
-		items := c.testItems(name)
-		for _, vr := range vrs {
-			file := items[vr.Item]
-			doc, found := c.p.Documents[file]
-			if file == "" || !found || doc.Schema != "qti-assessment-item" || builtinVariables[vr.Variable] {
-				// Not an item, an item reference that does not resolve
-				// (reported above), or an identifier that names different
-				// items in the test and its sections (not unique, so which
-				// item is meant is unknown).
-				continue
-			}
-			if !slices.Contains(doc.Refs.Declared, vr.Variable) {
-				c.add(name, vr.Line, vr.Column, CheckTestItemVariable, false,
-					"qti-variable refers to %s.%s, but %s declares no variable %s.", vr.Item, vr.Variable, file, vr.Variable)
-			}
+		items, dups := c.testItems(name)
+		for _, d := range dups {
+			c.add(name, 0, 0, CheckItemRefUnique, false,
+				"qti-assessment-item-ref identifier %q is used in both %s (for %s) and %s (for %s) of test %s; item-ref identifiers must be unique within a test.",
+				d.identifier, d.first.doc, d.first.target, d.second.doc, d.second.target, name)
+		}
+		c.checkVariables(name, vrs, items)
+	}
+}
+
+// checkVariables checks the "ITEM.VARIABLE" references of a test against the
+// variables its items declare.
+func (c *refChecker) checkVariables(test string, vrs []VariableRef, items map[string]string) {
+	for _, vr := range vrs {
+		file := items[vr.Item]
+		doc, found := c.p.Documents[file]
+		if file == "" || !found || doc.Schema != "qti-assessment-item" || builtinVariables[vr.Variable] {
+			// Not an item, an item reference that does not resolve
+			// (reported above), or an identifier that names different
+			// items in the test and its sections (not unique, so which
+			// item is meant is unknown).
+			continue
+		}
+		if !slices.Contains(doc.Refs.Declared, vr.Variable) {
+			c.add(test, vr.Line, vr.Column, CheckTestItemVariable, false,
+				"qti-variable refers to %s.%s, but %s declares no variable %s.", vr.Item, vr.Variable, file, vr.Variable)
 		}
 	}
 }
 
+// itemRefSite is where an item ref is, and the item file it refers to.
+type itemRefSite struct{ doc, target string }
+
+// duplicateItemRef is an item-ref identifier used in two documents of a test.
+type duplicateItemRef struct {
+	identifier    string
+	first, second itemRefSite
+}
+
+// testItemRefs collects the item refs of a test and its sections.
+type testItemRefs struct {
+	// items maps an identifier to the item file it refers to, or to "" when
+	// it refers to different files.
+	items map[string]string
+	first map[string]itemRefSite
+	// dups are the identifiers used in more than one document, once each,
+	// in the order they were found.
+	dups     []duplicateItemRef
+	reported map[string]bool
+}
+
+func (r *testItemRefs) add(identifier string, site itemRefSite) {
+	if prev, ok := r.first[identifier]; !ok {
+		r.first[identifier] = site
+	} else if prev.doc != site.doc && !r.reported[identifier] {
+		r.reported[identifier] = true
+		r.dups = append(r.dups, duplicateItemRef{identifier: identifier, first: prev, second: site})
+	}
+	target := site.target
+	if prev, ok := r.items[identifier]; ok && prev != target {
+		target = ""
+	}
+	r.items[identifier] = target
+}
+
 // testItems maps the item-ref identifiers of a test to the item files they
 // refer to: the item refs of the test and of the section documents it
-// includes. An identifier that refers to different files maps to "".
-func (c *refChecker) testItems(test string) map[string]string {
-	items := map[string]string{}
+// includes. An identifier that refers to different files maps to "". It also
+// returns the identifiers used in more than one of these documents.
+func (c *refChecker) testItems(test string) (map[string]string, []duplicateItemRef) {
+	found := testItemRefs{items: map[string]string{}, first: map[string]itemRefSite{}, reported: map[string]bool{}}
 	visited := map[string]bool{}
 	queue := []string{test}
 	for len(queue) > 0 {
@@ -286,14 +338,9 @@ func (c *refChecker) testItems(test string) map[string]string {
 		visited[doc] = true
 		refs := c.p.Documents[doc].Refs
 		for _, ir := range refs.ItemRefs {
-			target, local, inside := resolve(doc, ir.Href)
-			if !local || !inside {
-				continue
+			if target, local, inside := resolve(doc, ir.Href); local && inside {
+				found.add(ir.Identifier, itemRefSite{doc: doc, target: target})
 			}
-			if prev, ok := items[ir.Identifier]; ok && prev != target {
-				target = ""
-			}
-			items[ir.Identifier] = target
 		}
 		for _, ref := range refs.References {
 			if ref.Kind != RefSection {
@@ -304,7 +351,7 @@ func (c *refChecker) testItems(test string) map[string]string {
 			}
 		}
 	}
-	return items
+	return found.items, found.dups
 }
 
 // resolve resolves href against the document it is in. local is false for a

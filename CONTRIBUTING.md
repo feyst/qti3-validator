@@ -377,15 +377,20 @@ Every request in the run below returned 200 (5800 requests).
 Peak RSS over the whole run was 100 MiB (99–102 MiB over five runs). With 50 concurrent clients, 8
 validations run at once and the rest wait for a slot.
 
-Corpus check: the same build validated the 391 QTI 3 XML files and 33
-packages of the public test corpora. Of the 391 files, 349 are valid and 19
-valid with warnings. 10 have errors: 1EdTech Schematron findings, and two
-mistakes in the examples that the additional checks report (`slider-1.xml`
-uses `map_response` without a mapping; `adaptive.xml` sets
-`completion_status` instead of the built-in `completionStatus`). The other 13
-are rejected as a whole: 11 are document types the service does not validate
-(results reports, usage data, LTI links, a fragment sent on its own), one has
-a DOCTYPE and one is not well-formed. libxml2
+Corpus check: the same build validated the 391 QTI 3 XML files and 28
+packages of the 1EdTech examples, and the 5 packages of php-qti3. Of the 391
+files, 345 are valid and 20 valid with warnings. 13 have errors: three break
+the XML Schema (`data-attributes.xml` and the manifests of the two LTI
+packages), three a 1EdTech Schematron rule (`alt` on `object` in the
+graphic gap match items), and seven have mistakes that the additional checks
+report (`slider-1.xml` uses `map_response` without a mapping; the two copies
+of `adaptive.xml` set `completion_status` instead of the built-in
+`completionStatus`; `feedback_adaptive.xml` and the three `fractions` items
+have values or expressions of the wrong type). The other 13 are rejected as
+a whole: 11 are document types the service does not validate (results
+reports, usage data, LTI links, a fragment sent on its own), one has a
+DOCTYPE and one is not well-formed. These figures are the outcomes of the
+`.xml` entries in `testdata/features/golden/corpus.json`. libxml2
 (`xmllint --schema`) gives the same valid/invalid XSD verdict on every file
 in `testdata`.
 

@@ -110,6 +110,24 @@ func TestRuleFailureKeepsEarlierFindings(t *testing.T) {
 	}
 }
 
+// A rule failure also keeps the findings of the rules before it, such as
+// those of the built-in rules before a mounted rule set that fails.
+func TestRuleFailureKeepsEarlierRuleFindings(t *testing.T) {
+	rules := &fakeRules{
+		findings: []RuleFinding{
+			{Finding: qti.Finding{Code: qti.CodeSchematron, Message: "error"}},
+			{Finding: qti.Finding{Code: qti.CodeSchematron, Message: "warning"}, Warning: true},
+		},
+		err: errors.New("Schematron: boom"),
+	}
+	res := validateDoc(t, newTestValidator(t, &fakeSchema{verdict: validVerdict}, rules), item)
+	if res.Outcome != qti.OutcomeInternal || res.Valid || len(res.Errors) != 2 ||
+		res.Errors[0].Message != "error" || res.Errors[1].Code != qti.CodeInternal ||
+		len(res.Warnings) != 1 || res.Warnings[0].Message != "warning" {
+		t.Fatalf("got %+v", res)
+	}
+}
+
 func TestDocumentDetection(t *testing.T) {
 	v := newTestValidator(t, &fakeSchema{verdict: validVerdict}, nil)
 	for doc, code := range map[string]qti.Code{

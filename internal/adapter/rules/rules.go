@@ -114,12 +114,15 @@ func Chain(checkers ...*Checker) *Checker {
 
 // CheckRules implements app.RuleChecker. The rule sets and the type checks
 // run in order until limits.Errors errors were found; warnings do not count
-// towards that, and only the first limits.Warnings of them are kept. A nil
-// Checker has no rules.
+// towards that, and only the first limits.Warnings of them are kept; when
+// more were found, a last warning with code limit_exceeded says how many. A
+// nil Checker has no rules.
 //
 // All rule sets share one budget of XPath steps for the document:
-// BaseSteps plus StepsPerNode for every node. When it runs out, or ctx is done, CheckRules returns the
-// findings so far with an error wrapping app.ErrTooComplex or ctx.Err().
+// BaseSteps plus StepsPerNode for every node. When it runs out, or ctx is
+// done, CheckRules returns the findings so far with an error wrapping
+// app.ErrTooComplex or ctx.Err(). When a rule fails, it returns the findings
+// so far with an error that wraps neither.
 func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLimits) ([]app.RuleFinding, error) {
 	if c == nil {
 		return nil, nil
@@ -134,14 +137,15 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 	}
 	session := xpath.NewSession(ctx, b.steps(tree.Nodes))
 	var out []app.RuleFinding
-	errorCount, warningCount := 0, 0
+	errorCount, warningCount, omitted := 0, 0, 0
 	for _, set := range c.sets {
 		room, ok := roomLeft(limits, errorCount, warningCount)
 		if !ok {
 			break
 		}
-		failures, err := set.engine.Validate(session, tree, room)
-		for _, f := range failures {
+		res, err := set.engine.Check(session, tree, room)
+		omitted += res.OmittedWarnings
+		for _, f := range res.Failures {
 			rf := finding(f, set.mounted)
 			if rf.Warning {
 				warningCount++
@@ -152,11 +156,11 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 		}
 		switch {
 		case errors.Is(err, xpath.ErrTooComplex):
-			return out, fmt.Errorf("%w: %w", app.ErrTooComplex, err)
+			return withOmitted(out, omitted, limits), fmt.Errorf("%w: %w", app.ErrTooComplex, err)
 		case ctx.Err() != nil && errors.Is(err, ctx.Err()):
-			return out, err
+			return withOmitted(out, omitted, limits), err
 		case err != nil:
-			return nil, errors.New("Schematron: " + err.Error())
+			return withOmitted(out, omitted, limits), errors.New("Schematron: " + err.Error())
 		}
 	}
 	if c.types {
@@ -168,7 +172,22 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 			out = append(out, f)
 		}
 	}
-	return out, nil
+	return withOmitted(out, omitted, limits), nil
+}
+
+// withOmitted adds a note to findings when warnings were left out, so that
+// the cut shows: one warning, on top of limits.Warnings, that says how many.
+// It counts the warnings found until the rules ended; rules that stop
+// early, at limits.Errors or with an error, do not look for more.
+func withOmitted(findings []app.RuleFinding, omitted int, limits app.RuleLimits) []app.RuleFinding {
+	if omitted == 0 {
+		return findings
+	}
+	msg := fmt.Sprintf("%d further warnings of the rules were left out: only the first %d are reported (MAX_ERRORS).", omitted, limits.Warnings)
+	if omitted == 1 {
+		msg = fmt.Sprintf("1 further warning of the rules was left out: only the first %d are reported (MAX_ERRORS).", limits.Warnings)
+	}
+	return append(findings, app.RuleFinding{Warning: true, Finding: qti.Finding{Code: qti.CodeLimitExceeded, Message: msg}})
 }
 
 // roomLeft returns the limits for the next rule set after the errors and

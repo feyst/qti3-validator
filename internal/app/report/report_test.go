@@ -96,6 +96,14 @@ func TestReportWarningsStayValid(t *testing.T) {
 	if r.Warnings[0].Code != string(qti.CodeVersionOverridden) || r.Warnings[0].Generator != "version" {
 		t.Fatalf("warning %+v", r.Warnings[0])
 	}
+	// The note that rule warnings were left out is a warning too, though its
+	// code is an error elsewhere.
+	res.Warnings = []qti.Finding{{Code: qti.CodeLimitExceeded, Message: "3 further warnings"}}
+	r = ForDocument(res, testMeta)
+	if r.Summary.Outcome != OutcomeNameWarning || !r.IsValid() || len(r.Errors) != 0 ||
+		r.Warnings[0].Outcome != OutcomeNameWarning || r.Warnings[0].Title != "Limits" || r.Warnings[0].Generator != "limits" {
+		t.Fatalf("summary %+v, warnings %+v", r.Summary, r.Warnings)
+	}
 	res = qti.DocumentResult{
 		Schema: "imscp-manifest", Version: "3.0.0", Outcome: qti.OutcomeInvalid,
 		Errors: []qti.Finding{{Code: qti.CodeValidation, Message: "bad type"}},

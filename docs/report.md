@@ -172,7 +172,7 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `missing_manifest` | ERROR | There is no `imsmanifest.xml` in the root of the package |
 | `unsafe_path` | ERROR | An entry name in the package is absolute or contains `..` |
 | `too_large` | ERROR | A file inside the package is larger than `MAX_FILE_SIZE` |
-| `limit_exceeded` | ERROR | The document is nested deeper than `MAX_DEPTH`, or exceeds another parser limit |
+| `limit_exceeded` | ERROR | The document is nested deeper than `MAX_DEPTH`, or exceeds another parser limit. As a WARNING: the note that the rules gave more warnings than `MAX_ERRORS` (see [Limits](#limits)) |
 | `invalid_zip` | FATAL | The body is not a readable ZIP (ERROR when one entry is corrupt) |
 | `invalid_xml` | FATAL | The document is not well-formed XML |
 | `unsupported_encoding` | FATAL | The document is not UTF-8 |
@@ -182,7 +182,7 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `skipped` | NOT_RUN | An XML file in a package that is not a QTI document, and that the manifest does not list as a QTI resource |
 | `not_run` | NOT_RUN | Checks that could not run after a FATAL finding |
 | `too_complex` | EXCEPTION | Validation stopped before the end: the document's rules need more work than one document may take (a budget of XPath steps that grows with the number of nodes in the document; the rules of plain content stay well within it at any size up to `MAX_REQUEST_SIZE`), or validation took longer than `REQUEST_TIMEOUT`. The findings before it are kept. In a package it is reported in the file that stopped; when time ran out, a package finding also names the files that were not validated. HTTP 422 |
-| `internal` | EXCEPTION | An unexpected error in the service. The findings before it are kept |
+| `internal` | EXCEPTION | An unexpected error in the service, such as a rule that fails on the document. The findings before it are kept: those of the XML Schema and of the rules that ran before the failure, built-in or mounted |
 
 ## Limits
 
@@ -194,8 +194,13 @@ A report is valid when its outcome is `VALID` or `WARNING`.
   never hide an error.
 - **Warnings of the rules:** at most `MAX_ERRORS`, apart from the errors.
   Once they reach that, further warnings are left out, but the rules go on
-  looking for errors.
+  looking for errors. One last warning with code `limit_exceeded` then marks
+  the cut: "3 further warnings of the rules were left out: only the first
+  100 are reported (MAX_ERRORS)." It counts the warnings the rules found
+  until they ended; rules that stop early, at the limit on errors or with
+  `too_complex` or `internal`, do not look for more.
 - **Not limited:** a `too_complex` or `internal` finding, which comes on top
-  of the errors; a `version_overridden` warning; and in a package the
+  of the errors; a `version_overridden` warning; the `limit_exceeded` note
+  about warnings left out, which comes on top of the warnings; and in a package the
   `reference` findings and the findings about the package itself, which
   come after the documents were validated.

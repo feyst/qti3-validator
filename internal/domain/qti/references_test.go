@@ -153,3 +153,71 @@ func TestCheckVariablesPerTest(t *testing.T) {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }
+
+// An item-ref identifier used in two documents of one test, the test and a
+// section it includes or two such sections, is reported on the test once;
+// the rules see one document at a time and cannot. One used twice in one
+// document is left to the rules, and two tests may share an identifier.
+func TestItemRefIdentifierUniqueAcrossDocuments(t *testing.T) {
+	item := PackageDocument{Schema: "qti-assessment-item", Refs: DocumentReferences{Declared: []string{"SCORE"}}}
+	section := func(sections []string, items ...ItemRef) PackageDocument {
+		d := PackageDocument{Schema: "qti-assessment-section", Refs: DocumentReferences{ItemRefs: items}}
+		for _, s := range sections {
+			d.Refs.References = append(d.Refs.References, ref(RefSection, s))
+		}
+		for _, ir := range items {
+			d.Refs.References = append(d.Refs.References, ref(RefItem, ir.Href))
+		}
+		return d
+	}
+	test := func(sections []string, items ...ItemRef) PackageDocument {
+		d := section(sections, items...)
+		d.Schema = "qti-assessment-test"
+		return d
+	}
+	p := PackageContents{
+		Files: []string{
+			"a/test.xml", "a/s1.xml", "a/i1.xml", "a/i2.xml",
+			"b/test.xml", "b/s1.xml", "b/s2.xml", "b/i1.xml",
+			"c/test.xml", "c/i1.xml", "c/i2.xml",
+			"d/test.xml", "d/i1.xml",
+		},
+		Documents: map[string]PackageDocument{
+			// The test and its section use I1 for different items, and the
+			// section uses I2 twice (left to the rules).
+			"a/test.xml": func() PackageDocument {
+				d := test([]string{"s1.xml"}, ItemRef{Identifier: "I1", Href: "i1.xml"})
+				d.Refs.VariableRefs = []VariableRef{{Item: "I1", Variable: "NOPE"}}
+				return d
+			}(),
+			"a/s1.xml": section(nil, ItemRef{Identifier: "I1", Href: "i2.xml"}, ItemRef{Identifier: "I2", Href: "i1.xml"}, ItemRef{Identifier: "I2", Href: "i2.xml"}),
+			"a/i1.xml": item, "a/i2.xml": item,
+			// Two sections use I1 for the same item, three times in all.
+			"b/test.xml": test([]string{"s1.xml", "s2.xml"}),
+			"b/s1.xml":   section(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+			"b/s2.xml":   section(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+			"b/i1.xml":   item,
+			// One document: left to the rules.
+			"c/test.xml": test(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}, ItemRef{Identifier: "I1", Href: "i2.xml"}),
+			"c/i1.xml":   item, "c/i2.xml": item,
+			// Another test with I1: not a duplicate.
+			"d/test.xml": test(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+			"d/i1.xml":   item,
+		},
+	}
+	var got []string
+	for _, f := range CheckReferences(p) {
+		if f.Warning {
+			t.Errorf("warning: %+v", f)
+		}
+		got = append(got, f.File+" "+f.Rule+": "+f.Message)
+	}
+	slices.Sort(got)
+	want := []string{
+		`a/test.xml item-ref-identifier-unique: qti-assessment-item-ref identifier "I1" is used in both a/test.xml (for a/i1.xml) and a/s1.xml (for a/i2.xml) of test a/test.xml; item-ref identifiers must be unique within a test.`,
+		`b/test.xml item-ref-identifier-unique: qti-assessment-item-ref identifier "I1" is used in both b/s1.xml (for b/i1.xml) and b/s2.xml (for b/i1.xml) of test b/test.xml; item-ref identifiers must be unique within a test.`,
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
