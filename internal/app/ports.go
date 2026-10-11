@@ -20,6 +20,9 @@ type SchemaVerdict struct {
 	// Conclusive reports that the whole document was assessed, so rules can
 	// run on it too.
 	Conclusive bool
+	// RootUndeclared reports that the schema declares no global element for
+	// the document's root, so its content was not assessed against it.
+	RootUndeclared bool
 }
 
 // RuleChecker runs Schematron rules on a well-formed document and returns at

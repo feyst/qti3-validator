@@ -378,14 +378,14 @@ Peak RSS over the whole run was 100 MiB (99–102 MiB over five runs). With 50 c
 validations run at once and the rest wait for a slot.
 
 Corpus check: the same build validated the 391 QTI 3 XML files and 33
-packages of the public test corpora. Of the 391 files, 348 are valid and 19
+packages of the public test corpora. Of the 391 files, 349 are valid and 19
 valid with warnings. 10 have errors: 1EdTech Schematron findings, and two
 mistakes in the examples that the additional checks report (`slider-1.xml`
 uses `map_response` without a mapping; `adaptive.xml` sets
-`completion_status` instead of the built-in `completionStatus`). The other 14
-are rejected as a whole: 12 are document types the service does not validate
-(results reports, usage data, LTI links, fragments), one has a DOCTYPE and one
-is not well-formed. libxml2
+`completion_status` instead of the built-in `completionStatus`). The other 13
+are rejected as a whole: 11 are document types the service does not validate
+(results reports, usage data, LTI links, a fragment sent on its own), one has
+a DOCTYPE and one is not well-formed. libxml2
 (`xmllint --schema`) gives the same valid/invalid XSD verdict on every file
 in `testdata`.
 

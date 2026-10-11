@@ -99,6 +99,24 @@ In a package report, `location.resource` is the file's path from the root of
 the package, with a leading slash (`/items/item-1.xml`), and every document
 that passed gets a `valids` item.
 
+## Packages
+
+What the manifest lists decides how an XML file of a package is checked.
+Paths in the manifest are resolved with `xml:base` applied, as IMS Content
+Packaging chains it from `manifest` through `resources` and `resource` to
+`file`.
+
+| File | Checked as |
+| --- | --- |
+| `imsmanifest.xml` | A QTI 3 content package manifest, root `{http://www.imsglobal.org/xsd/qti/qtiv3p0/imscp_v1p1}manifest`. Anything else, such as a manifest of plain IMS Content Packaging (`http://www.imsglobal.org/xsd/imscp_v1p1`), is `unsupported_document`, and the files are then not reported as missing from the manifest one by one |
+| A file of a QTI resource (`imsqti_item_xmlv3p0`, `imsqti_test_xmlv3p0`, `imsqti_outcomes_xmlv3p0`, …) | A QTI document; anything else, such as a QTI 2.x item, is `unsupported_document`. An outcomes resource holds a `qti-outcome-declaration` |
+| A file of a fragment resource (`imsqti_fragment_xmlv3p0`) | A QTI fragment: XML that another document includes with XInclude, such as a `div`. Its root must be in the QTI namespace. When the schema declares that root as a global element, as it does for the HTML content elements, the fragment is validated against it; other roots, such as a `qti-response-condition`, are valid only where they are included, so their content is not checked. XIncludes are not resolved, and the Schematron rules do not run on a fragment. A fragment that passed is reported as `Valid qti-fragment` |
+| Any other XML file | A QTI document if its root is one; otherwise not run (`skipped`) |
+
+A file that could not be read (larger than `MAX_FILE_SIZE`, a corrupt entry,
+not well-formed before its type is known) gets its own finding; the documents
+that refer to it get none about its type.
+
 ## Report fields
 
 | Field | Description |
@@ -159,9 +177,9 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `invalid_xml` | FATAL | The document is not well-formed XML |
 | `unsupported_encoding` | FATAL | The document is not UTF-8 |
 | `unsupported_xml` | FATAL | The document has a `DOCTYPE`, which is not accepted |
-| `unsupported_document` | FATAL | Not a supported QTI 3 document, for example a QTI 2.x item or the right element name in the wrong namespace |
+| `unsupported_document` | FATAL | Not a supported QTI 3 document, for example a QTI 2.x item or the right element name in the wrong namespace; in a package also an `imsmanifest.xml` that is not a QTI 3 manifest, or a QTI fragment whose root is not in the QTI namespace (see [Packages](#packages)) |
 | `version_overridden` | WARNING | The `version` parameter differs from the manifest's `<schemaversion>` |
-| `skipped` | NOT_RUN | An XML file in a package that is not a QTI document |
+| `skipped` | NOT_RUN | An XML file in a package that is not a QTI document, and that the manifest does not list as a QTI resource |
 | `not_run` | NOT_RUN | Checks that could not run after a FATAL finding |
 | `too_complex` | EXCEPTION | Validation stopped before the end: the document's rules need more work than one document may take (a budget of XPath steps that grows with the number of nodes in the document; the rules of plain content stay well within it at any size up to `MAX_REQUEST_SIZE`), or validation took longer than `REQUEST_TIMEOUT`. The findings before it are kept. In a package it is reported in the file that stopped; when time ran out, a package finding also names the files that were not validated. HTTP 422 |
 | `internal` | EXCEPTION | An unexpected error in the service |

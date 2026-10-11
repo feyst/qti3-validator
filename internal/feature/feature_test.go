@@ -133,6 +133,52 @@ var cases = []featureCase{
 	})},
 	{name: "not-a-zip", contentType: "application/zip", body: func(*testing.T) []byte { return []byte("dit is geen zip") }},
 
+	// Package structure: a fragment that an item includes and an outcome
+	// declaration, both listed as QTI resources, are valid.
+	{name: "toets-fragment-and-outcome", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`  <resources>`, `  <resources>
+    <resource identifier="uitleg" type="imsqti_fragment_xmlv3p0" href="fragments/uitleg.xml">
+      <file href="fragments/uitleg.xml"/>
+    </resource>
+    <resource identifier="score" type="imsqti_outcomes_xmlv3p0" href="outcomes/score.xml">
+      <file href="outcomes/score.xml"/>
+    </resource>`),
+		"items/keuze.xml": replace(`<qti-item-body>`, `<qti-item-body>
+    <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="../fragments/uitleg.xml"/>`),
+		"fragments/uitleg.xml": with(`<?xml version="1.0" encoding="UTF-8"?>
+<div xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" class="uitleg">
+  <p>Kies het juiste antwoord.</p>
+</div>
+`),
+		"outcomes/score.xml": with(`<?xml version="1.0" encoding="UTF-8"?>
+<qti-outcome-declaration xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="SCORE" cardinality="single" base-type="float">
+  <qti-default-value><qti-value>0.0</qti-value></qti-default-value>
+</qti-outcome-declaration>
+`),
+	})},
+	// A manifest in the namespace of plain IMS Content Packaging is not a
+	// QTI 3 manifest.
+	{name: "toets-generic-manifest", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`xmlns="http://www.imsglobal.org/xsd/qti/qtiv3p0/imscp_v1p1"`, `xmlns="http://www.imsglobal.org/xsd/imscp_v1p1"`),
+	})},
+	// toets-qti2-item with the item's folder in xml:base: still an error.
+	{name: "toets-xml-base-qti2-item", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`<resource identifier="keuzelijst" type="imsqti_item_xmlv3p0" href="items/keuzelijst.xml">
+      <file href="items/keuzelijst.xml"/>`, `<resource identifier="keuzelijst" type="imsqti_item_xmlv3p0" href="keuzelijst.xml" xml:base="items/">
+      <file href="keuzelijst.xml"/>`),
+		"items/keuzelijst.xml": replace(`xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"`, `xmlns="http://www.imsglobal.org/xsd/imsqti_v2p2"`),
+	})},
+	// An item over MAX_FILE_SIZE: only its own error, none in the test.
+	{name: "toets-oversized-item", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"items/keuze.xml": replace(`<qti-item-body>`, `<qti-item-body><!--`+strings.Repeat("x", int(config.Default().MaxFileSize))+`-->`),
+	})},
+	// A file name with "%" written as is in the manifest, not as "%25".
+	{name: "toets-invalid-href", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`<file href="media/kaart.png"/>`, `<file href="media/kaart.png"/>
+      <file href="media/100%.png"/>`),
+		"media/100%.png": with("not really a PNG"),
+	})},
+
 	// Single documents.
 	{name: "item", body: file("features/packages/toets/items/keuze.xml"), contentType: "application/xml", query: "name=keuze.xml"},
 	{name: "item-mathml-as-3.0.0", body: file("features/packages/toets/items/formule.xml"), query: "version=3.0.0&name=formule.xml"},

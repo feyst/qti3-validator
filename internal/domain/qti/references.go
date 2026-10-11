@@ -1,6 +1,7 @@
 package qti
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
@@ -66,6 +67,10 @@ type PackageDocument struct {
 type PackageContents struct {
 	Files     []string
 	Documents map[string]PackageDocument // by file name
+	// Unreadable are XML files that could not be read, because they are too
+	// large or their entry is corrupt. A reference to one is not checked for
+	// its document type: the file's own error already says what is wrong.
+	Unreadable map[string]bool
 }
 
 // ReferenceFinding is a finding of the reference checks. File is the
@@ -107,22 +112,11 @@ func CheckReferences(p PackageContents) []ReferenceFinding {
 	}
 	sort.Strings(names)
 	listed := map[string]bool{}
-	_, hasManifest := p.Documents[ManifestName]
+	// Without a QTI 3 manifest, which the manifest's own validation reports,
+	// nothing is listed, so the files are not reported one by one.
+	hasManifest := p.Documents[ManifestName].Schema == SchemaManifest
 	for _, name := range names {
-		checked := map[string]bool{} // manifest files, which a resource and its file both name
-		for _, ref := range p.Documents[name].Refs.References {
-			target, local, inside := resolve(name, ref.Href)
-			if ref.Kind == RefManifestFile {
-				if checked[target] {
-					continue
-				}
-				checked[target] = true
-				if local && inside {
-					listed[target] = true
-				}
-			}
-			c.check(name, ref, target, local, inside)
-		}
+		c.checkDocument(name, listed)
 	}
 	c.checkVariables(names)
 	if hasManifest {
@@ -139,6 +133,36 @@ type refChecker struct {
 	p     PackageContents
 	files map[string]bool
 	out   []ReferenceFinding
+}
+
+// checkDocument checks the references of one document, and adds the files
+// the manifest lists to listed.
+func (c *refChecker) checkDocument(name string, listed map[string]bool) {
+	checked := map[string]bool{} // manifest files, which a resource and its file both name
+	for _, ref := range c.p.Documents[name].Refs.References {
+		target, local, inside := resolve(name, ref.Href)
+		err := invalidHref(ref.Href)
+		if err != nil {
+			// The file is listed, if not correctly: one finding is enough.
+			target, local, inside = path.Join(path.Dir(name), strings.TrimSpace(ref.Href)), true, true
+		}
+		if ref.Kind == RefManifestFile {
+			if checked[target] {
+				continue
+			}
+			checked[target] = true
+			if local && inside {
+				listed[target] = true
+			}
+		}
+		if err != nil {
+			r := rules[ref.Kind]
+			c.add(name, ref.Line, ref.Column, r.check, r.warning,
+				"%s refers to %q, which is not a valid URI reference: %v.", ref.Element, ref.Href, err)
+			continue
+		}
+		c.check(name, ref, target, local, inside)
+	}
 }
 
 func (c *refChecker) add(file string, line, col int, check string, warning bool, format string, args ...any) {
@@ -175,9 +199,12 @@ func (c *refChecker) check(from string, ref Reference, target string, local, ins
 		c.add(from, ref.Line, ref.Column, r.check, r.warning, "%s refers to %q, which is outside the package.", ref.Element, ref.Href)
 		return
 	}
+	if r.schema != "" && c.p.Unreadable[target] {
+		return // the file could not be read; its own error says so
+	}
 	if !c.exists(ref.Kind, target) {
 		if ref.Kind == RefModule && ref.Fallback != "" {
-			if fb, local, inside := resolve(from, ref.Fallback); !local || inside && c.exists(ref.Kind, fb) {
+			if fb, local, inside := resolve(from, ref.Fallback); invalidHref(ref.Fallback) == nil && (!local || inside && c.exists(ref.Kind, fb)) {
 				c.add(from, ref.Line, ref.Column, r.check, true,
 					"%s: primary-path %q is not in the package; the fallback-path %q is used.", ref.Element, ref.Href, ref.Fallback)
 				return
@@ -243,8 +270,9 @@ func (c *refChecker) checkVariables(names []string) {
 }
 
 // resolve resolves href against the document it is in. local is false for a
-// reference to another host, a fragment or a data URI; inside is false when
-// the path leaves the package.
+// reference to another host, a fragment or a data URI, and for an href that
+// is not a valid URI reference, which CheckReferences reports as such;
+// inside is false when the path leaves the package.
 func resolve(doc, href string) (target string, local, inside bool) {
 	href = strings.TrimSpace(href)
 	if href == "" || strings.HasPrefix(href, "#") {
@@ -252,7 +280,7 @@ func resolve(doc, href string) (target string, local, inside bool) {
 	}
 	u, err := url.Parse(href)
 	if err != nil {
-		return "", true, false
+		return "", false, false
 	}
 	if u.Scheme != "" || u.Host != "" {
 		return "", false, false
@@ -262,4 +290,14 @@ func resolve(doc, href string) (target string, local, inside bool) {
 		return p, true, false
 	}
 	return p, true, true
+}
+
+// invalidHref returns why an href is not a valid URI reference, such as a
+// "%" that does not start an escape, or nil when it is one.
+func invalidHref(href string) error {
+	_, err := url.Parse(strings.TrimSpace(href))
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
+		return urlErr.Err
+	}
+	return err
 }

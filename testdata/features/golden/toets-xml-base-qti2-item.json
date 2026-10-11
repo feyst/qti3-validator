@@ -1,0 +1,198 @@
+{
+  "report": {
+    "errors": [
+      {
+        "code": "reference",
+        "detailsMessage": null,
+        "generator": "reference|item-ref-exists",
+        "location": {
+          "column": 7,
+          "line": 18,
+          "resource": "/test.xml"
+        },
+        "message": "qti-assessment-item-ref refers to \"items/keuzelijst.xml\", which is not a QTI document, not a qti-assessment-item.",
+        "title": "Package references"
+      }
+    ],
+    "exceptions": [],
+    "fatals": [
+      {
+        "code": "unsupported_document",
+        "detailsMessage": null,
+        "generator": "document-type",
+        "location": {
+          "resource": "/items/keuzelijst.xml"
+        },
+        "message": "root element {http://www.imsglobal.org/xsd/imsqti_v2p2}qti-assessment-item is not a supported QTI 3 document",
+        "title": "Document type"
+      }
+    ],
+    "generator": "qti-validator",
+    "input": {
+      "name": "package.zip",
+      "type": "ZIP"
+    },
+    "notRun": [
+      {
+        "code": "not_run",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/keuzelijst.xml"
+        },
+        "message": "Not run: the document could not be read.",
+        "title": "XML Schema and Schematron"
+      }
+    ],
+    "specification": {
+      "pid": "qti300.pid",
+      "shortName": "qti",
+      "title": "QTI 3.0.0",
+      "version": "3.0.0"
+    },
+    "summary": {
+      "errors": 1,
+      "exceptions": 0,
+      "fatals": 1,
+      "notRun": 1,
+      "outcome": "FATAL",
+      "totalRun": 44,
+      "valid": 13,
+      "warnings": 0
+    },
+    "valids": [
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/imsmanifest.xml"
+        },
+        "message": "Valid imscp-manifest (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/bronvraag.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/formule.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/gatenkoppel.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/invul.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/keuze.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/koppel.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/meerkeuze.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/open.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/sjabloon.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/tekstselectie.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/volgorde.xml"
+        },
+        "message": "Valid qti-assessment-item (QTI 3.0.0)",
+        "title": "Document"
+      },
+      {
+        "code": "valid",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/stimuli/deltawerken.xml"
+        },
+        "message": "Valid qti-assessment-stimulus (QTI 3.0.0)",
+        "title": "Document"
+      }
+    ],
+    "warnings": []
+  },
+  "status": 200
+}

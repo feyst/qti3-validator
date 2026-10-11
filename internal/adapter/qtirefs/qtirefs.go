@@ -9,7 +9,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
-	"path"
 	"strings"
 
 	"qti3-validator/internal/app"
@@ -67,8 +66,8 @@ func (Reader) ReadReferences(data []byte) (qti.DocumentReferences, error) {
 type reader struct {
 	refs     qti.DocumentReferences
 	root     xml.Name
-	bases    []string // xml:base of the enclosing manifest elements
-	inCard   bool     // inside qti-file-href, whose text is the reference
+	bases    qti.BaseStack // xml:base of the enclosing manifest elements
+	inCard   bool          // inside qti-file-href, whose text is the reference
 	cardLine int
 	cardCol  int
 	cardText strings.Builder
@@ -88,13 +87,9 @@ func (r *reader) start(t xml.StartElement, line, col int) {
 	}
 	switch t.Name.Space {
 	case qti.NamespaceManifest:
-		base := attr(t, namespaceXML, "base")
-		if len(r.bases) > 0 {
-			base = path.Join(r.bases[len(r.bases)-1], base)
-		}
-		r.bases = append(r.bases, base)
+		base := r.bases.Push(attr(t, namespaceXML, "base"))
 		if t.Name.Local == "resource" || t.Name.Local == "file" {
-			add(qti.RefManifestFile, joinBase(base, attr(t, "", "href")))
+			add(qti.RefManifestFile, qti.JoinBase(base, attr(t, "", "href")))
 		}
 	case namespaceXInclude:
 		if t.Name.Local == "include" {
@@ -110,8 +105,8 @@ func (r *reader) start(t xml.StartElement, line, col int) {
 }
 
 func (r *reader) end(t xml.EndElement) {
-	if t.Name.Space == qti.NamespaceManifest && len(r.bases) > 0 {
-		r.bases = r.bases[:len(r.bases)-1]
+	if t.Name.Space == qti.NamespaceManifest {
+		r.bases.Pop()
 	}
 	if r.inCard && t.Name.Local == "qti-file-href" {
 		r.inCard = false
@@ -165,15 +160,6 @@ func readASI(refs *qti.DocumentReferences, t xml.StartElement, root xml.Name, li
 			add(qti.RefAsset, attr(t, "", a))
 		}
 	}
-}
-
-// joinBase applies an xml:base to a relative href. An href or base with a
-// scheme points elsewhere and is left as it is.
-func joinBase(base, href string) string {
-	if base == "" || href == "" || strings.Contains(href, ":") || strings.Contains(base, ":") {
-		return href
-	}
-	return path.Join(base, href)
 }
 
 func attr(t xml.StartElement, space, local string) string {

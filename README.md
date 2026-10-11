@@ -82,12 +82,16 @@ Every document goes through four checks:
    bound to a declared response variable, that the files a package refers to
    are in it, and that values and expressions have the right types.
 
-A package is checked file by file. It needs an `imsmanifest.xml` in its root;
-every XML file is validated, media files are not opened, and XML files that
-are not a QTI document are reported as not run.
+A package is checked file by file. It needs a QTI 3 `imsmanifest.xml` in its
+root; every XML file is validated, media files are not opened, and XML files
+that are not a QTI document are reported as not run, unless the manifest lists
+them as a QTI resource. A QTI fragment (a resource of type
+`imsqti_fragment_xmlv3p0`, included by another document with XInclude) is
+checked as a fragment; see [the report](docs/report.md#packages).
 
 Accepted documents are QTI items, tests, sections, stimuli, response
-processing templates, package manifests, LOM and QTI metadata. Others,
+processing templates, outcome declarations, package manifests, LOM and QTI
+metadata. Others,
 including QTI 2.x, are rejected with `unsupported_document`, unless a
 [custom validator](docs/custom-validators.md) adds them.
 

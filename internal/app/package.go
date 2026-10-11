@@ -54,7 +54,7 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 
 	hasManifest := false
 	budget := limits.MaxUncompressedSize
-	contents := qti.PackageContents{Documents: map[string]qti.PackageDocument{}}
+	contents := qti.PackageContents{Documents: map[string]qti.PackageDocument{}, Unreadable: map[string]bool{}}
 	for _, e := range entries {
 		name := e.Name()
 		if !qti.SafeEntryName(name) {
@@ -82,7 +82,7 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 			res.Fail(qti.OutcomeTooComplex, stop)
 			return res
 		}
-		fr, outcome, doc := v.validateEntry(ctx, e, limits.MaxFileSize, &budget, req, manifest.qtiFiles[name])
+		fr, outcome, doc := v.validateEntry(ctx, e, limits.MaxFileSize, &budget, req, manifest.resources[name])
 		if outcome == qti.OutcomeTooLarge {
 			res.Fail(qti.OutcomeTooLarge, qti.Finding{
 				Code:    qti.CodeTooLarge,
@@ -94,6 +94,8 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 		res.Outcome = res.Outcome.Worse(outcome)
 		if doc != nil {
 			contents.Documents[name] = *doc
+		} else {
+			contents.Unreadable[name] = true
 		}
 	}
 	if v.references != nil {
@@ -113,13 +115,14 @@ type manifestInfo struct {
 	// one, and otherwise the latest. The manifest's own validation reports
 	// an unsupported version.
 	version string
-	// qtiFiles are the files of the manifest's QTI resources. Such a file
-	// must be a QTI document; any other XML file that is not one is skipped.
-	qtiFiles map[string]bool
+	// resources are the files of the manifest's QTI resources. Such a file
+	// must be a QTI document, or a QTI fragment; any other XML file that is
+	// not a QTI document is skipped.
+	resources map[string]qti.ResourceKind
 }
 
 func readManifest(entries []ArchiveEntry, maxSize int64) manifestInfo {
-	info := manifestInfo{version: qti.LatestVersion().Name, qtiFiles: map[string]bool{}}
+	info := manifestInfo{version: qti.LatestVersion().Name, resources: map[string]qti.ResourceKind{}}
 	for _, e := range entries {
 		if e.Name() != qti.ManifestName || exceeds(e.DeclaredSize(), maxSize) {
 			continue
@@ -131,7 +134,7 @@ func readManifest(entries []ArchiveEntry, maxSize int64) manifestInfo {
 		if declared := manifestSchemaVersion(data).Value; qti.IsSupportedVersion(declared) {
 			info.version = declared
 		}
-		info.qtiFiles = manifestQTIFiles(data)
+		info.resources = manifestResources(data)
 		break
 	}
 	return info
@@ -148,11 +151,11 @@ func readEntry(e ArchiveEntry, maxSize int64) ([]byte, error) {
 
 // validateEntry validates one XML entry, and returns what it refers to when
 // it could be read. Its outcome is OutcomeTooLarge only when the
-// package-wide budget ran out, which aborts the package. A file the manifest
-// lists as a QTI resource is never skipped: if it is not a QTI document,
-// that is an error.
+// package-wide budget ran out, which aborts the package. The manifest and a
+// file the manifest lists as a QTI resource are never skipped: if one is not
+// what it must be, that is an error. A QTI fragment is checked as one.
 func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize int64, budget *int64,
-	req qti.VersionRequest, qtiResource bool,
+	req qti.VersionRequest, kind qti.ResourceKind,
 ) (qti.FileResult, qti.Outcome, *qti.PackageDocument) {
 	name := e.Name()
 	out := qti.FileResult{File: name}
@@ -179,6 +182,12 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 		res = *failure
 	} else {
 		res = v.validate(ctx, data, req, limits)
+		switch {
+		case name == qti.ManifestName:
+			res = requireManifest(data, res)
+		case kind == qti.ResourceFragment && unsupportedDocument(res):
+			res = v.validateFragment(ctx, data, req, limits)
+		}
 	}
 	*budget -= counted.n
 	doc := v.documentReferences(data, res)
@@ -197,7 +206,7 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 		return out, qti.OutcomeValid, doc
 	case res.Outcome == qti.OutcomeTooLarge && readLimit < maxSize:
 		return out, qti.OutcomeTooLarge, nil
-	case len(res.Errors) == 1 && res.Errors[0].Code == qti.CodeUnsupportedDocument && !qtiResource:
+	case unsupportedDocument(res) && kind == qti.ResourceOther && name != qti.ManifestName:
 		out.Valid, out.Skipped = true, true
 		return out, qti.OutcomeValid, doc
 	case res.Outcome == qti.OutcomeInternal, res.Outcome == qti.OutcomeTooComplex:
@@ -209,10 +218,13 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 }
 
 // documentReferences reads what a validated document refers to. A document
-// that could not be read refers to nothing; it still counts as a file of its
-// type, so references to it are checked.
+// that could not be read in full refers to nothing; when its type is known
+// it still counts as a file of that type, so references to it are checked.
+// When reading failed before its type was known (too large, not
+// well-formed, not UTF-8, a DOCTYPE), it returns nil: the file is
+// unreadable, and references to it are not checked for their type.
 func (v *Validator) documentReferences(data []byte, res qti.DocumentResult) *qti.PackageDocument {
-	if v.references == nil || data == nil {
+	if v.references == nil || data == nil || res.Schema == "" && !unsupportedDocument(res) {
 		return nil
 	}
 	doc := &qti.PackageDocument{Schema: res.Schema}

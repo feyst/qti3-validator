@@ -127,6 +127,9 @@ func verdictFor(err error) app.SchemaVerdict {
 			v.Outcome = v.Outcome.Worse(qti.OutcomeInternal)
 			continue
 		}
+		if diag.Code() == xsderrors.CodeValidationRoot {
+			v.RootUndeclared = true
+		}
 		code, outcome := classify(diag)
 		message := diag.Message()
 		if message == "" && diag.Cause() != nil {

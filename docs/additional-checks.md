@@ -80,12 +80,18 @@ These run when a package is validated, after every file in it was read: they
 compare what the documents refer to with the files the package holds.
 References to other hosts (`https://…`) are not checked; whether they can be
 reached depends on the moment, not on the package. A reference that leaves
-the package (`../…`) counts as missing.
+the package (`../…`) counts as missing. An `href` that is not a valid URI
+reference, such as `100%.png` for a file of that name (write `100%25.png`),
+is reported under the check of the reference as not valid, not as missing;
+a file the manifest names that way does not also get `file-in-manifest`. A
+reference to an XML file that could not be read (too large, a corrupt entry)
+is not checked for its document type: that file's own finding says what is
+wrong.
 
 | Check | What it checks | Basis | Level |
 | --- | --- | --- | --- |
 | `manifest-file-exists` | Every `href` of a resource and its files in `imsmanifest.xml` is a file in the package (with `xml:base` applied) | Package files "MUST be contained in the corresponding QTI content package" | error |
-| `file-in-manifest` | Every file in the package is listed in the manifest | [Beginner's Guide](https://www.imsglobal.org/spec/qti/v3p0/guide): a manifest "lists all the assets contained within the package" | warning |
+| `file-in-manifest` | Every file in the package is listed in the manifest. Not checked when `imsmanifest.xml` is not a QTI 3 manifest, which is reported on the manifest itself | [Beginner's Guide](https://www.imsglobal.org/spec/qti/v3p0/guide): a manifest "lists all the assets contained within the package" | warning |
 | `item-ref-exists` | A `qti-assessment-item-ref` refers to an item in the package, a `qti-assessment-section-ref` to a section. An LTI link counts as an item, as the [Implementation Guide](https://www.imsglobal.org/spec/qti/v3p0/impl) describes in "Package with a Test and Items with LTI resources" | The test cannot load the item | error |
 | `stimulus-ref-exists` | A `qti-assessment-stimulus-ref` refers to a stimulus in the package | The item cannot show the stimulus | error |
 | `asset-exists` | `img`, `object`, `audio`, `video` (and its poster), `source`, `track`, `qti-stylesheet` and XInclude references are files in the package | The item cannot load them | error |
