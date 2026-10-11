@@ -112,8 +112,9 @@ in the order they came, so documents that fit cannot keep a large one
 waiting until it times out.
 
 Typical items are kept apart from all this. A share of the budget is theirs:
-4 MiB for every slot, at most an eighth of the budget, which is 8 MiB with 2
-CPUs and 32 MiB with 8. A validation that reserves no more than 4 MiB takes
+4 MiB for every slot, at most an eighth of the budget: 8 MiB with 2 CPUs,
+and with 8 CPUs 23 MiB in a 256 MiB container, 32 MiB in a larger one. A
+validation that reserves no more than 4 MiB takes
 it from that share whenever there is room in it, whatever waits for the
 rest; a typical item reserves 2 to 3 MiB. Together with the slot kept for
 requests under 256 KiB, and a queue of their own of `MAX_QUEUE` places, this
