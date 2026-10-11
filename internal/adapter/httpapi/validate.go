@@ -115,17 +115,28 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	defer release()
+	// The validation reserves its memory from the hold as it goes, and may
+	// give up its slot while it waits for room.
+	hold := s.newMemoryHold(release)
+	defer hold.release()
+	ctx = hold.context(ctx)
 
-	if shape == shapePackage || shape != shapeDocument && isZIPFile(f) {
+	isPackage := shape == shapePackage || shape != shapeDocument && isZIPFile(f)
+	if isPackage {
 		res := s.validator.ValidatePackage(ctx, app.ValidatePackage{
 			Package: f, Size: size, Limits: s.opts.PackageLimits, Version: version,
 		})
+		if hold.refused(w) {
+			return
+		}
 		s.extendWriteDeadline(rc)
 		s.writePackageReport(w, res, newMeta(inputName(r, uploadName, defaultPackageName)))
 		return
 	}
-	res := s.validator.ValidateDocument(ctx, app.ValidateDocument{Document: io.NewSectionReader(f, 0, size), Version: version})
+	res := s.validator.ValidateDocument(ctx, app.ValidateDocument{Document: io.NewSectionReader(f, 0, size), Size: size, Version: version})
+	if hold.refused(w) {
+		return
+	}
 	s.extendWriteDeadline(rc)
 	s.writeDocumentReport(w, res, newMeta(inputName(r, uploadName, defaultDocumentName)))
 }
@@ -208,7 +219,9 @@ func newMeta(inputName string) report.Meta {
 
 func (s *Server) writeDocumentReport(w http.ResponseWriter, res qti.DocumentResult, meta report.Meta) {
 	if res.Outcome == qti.OutcomeTooLarge {
-		writeError(w, http.StatusRequestEntityTooLarge, string(qti.CodeTooLarge), res.Errors[0].Message)
+		// The last error says why: the document is larger than a limit, or
+		// needs more memory than the service allows a document.
+		writeError(w, http.StatusRequestEntityTooLarge, string(qti.CodeTooLarge), res.Errors[len(res.Errors)-1].Message)
 		return
 	}
 	writeJSON(w, statusFor(res.Outcome), report.ForDocument(res, meta))

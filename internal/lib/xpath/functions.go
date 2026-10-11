@@ -199,9 +199,9 @@ func init() { //nolint:gocognit // the table of the XPath 1.0 core functions
 			if n == nil || err != nil {
 				return "", err
 			}
-			id := "n" + strconv.Itoa(n.order)
+			id := "n" + strconv.Itoa(int(n.order))
 			if n.Kind == NamespaceNode {
-				id += "-" + strconv.Itoa(n.nsOrder)
+				id += "-" + strconv.Itoa(int(n.nsOrder()))
 			}
 			return id, nil
 		}},

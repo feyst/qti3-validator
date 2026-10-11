@@ -76,7 +76,7 @@ func isDeclaration(local string) bool {
 
 func (c *typeChecker) report(n *xpath.Node, check, format string, args ...any) {
 	c.findings = append(c.findings, app.RuleFinding{Finding: qti.Finding{
-		Code: qti.CodeValueType, Rule: check, Line: n.Line, Column: n.Column, Path: n.Path(),
+		Code: qti.CodeValueType, Rule: check, Line: int(n.Line), Column: int(n.Column), Path: n.Path(),
 		Message: fmt.Sprintf(format, args...),
 	}})
 }

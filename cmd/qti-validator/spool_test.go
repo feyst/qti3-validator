@@ -19,7 +19,7 @@ func TestSpoolBudget(t *testing.T) {
 		log  string // level of the message logged, if any
 	}{
 		{"disk", spoolEnv{MemoryLimit: 256 * mib}, 400 * mib, ""},
-		{"tmpfs without a memory limit", spoolEnv{TmpfsSize: 4096 * mib}, 400 * mib, ""},
+		{"tmpfs without a memory limit", spoolEnv{TmpfsSize: 4096 * mib}, 400 * mib, "WARN"},
 		{"small tmpfs", spoolEnv{TmpfsSize: 300 * mib}, 300 * mib, "WARN"},
 		{"tmpfs in 256 MiB", spoolEnv{TmpfsSize: 4096 * mib, MemoryLimit: 256 * mib}, 96 * mib, "WARN"},
 		{"tmpfs smaller than the memory", spoolEnv{TmpfsSize: 64 * mib, MemoryLimit: 1024 * mib}, 64 * mib, "WARN"},

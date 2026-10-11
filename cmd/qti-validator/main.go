@@ -105,6 +105,16 @@ func httpOptions(cfg config.Config) httpapi.Options {
 	}
 }
 
+// sizeToContainer sizes the memory settings to the container, reusing the
+// cgroup and tmpfs probes: the Go soft memory limit, the upload spool budget
+// and the validation-memory budget. It logs what it chose.
+func sizeToContainer(log *slog.Logger, cfg config.Config, hopts *httpapi.Options) {
+	env := probeSpoolEnv()
+	applyMemoryLimit(log, env)
+	hopts.MaxSpoolSize = spoolBudget(log, cfg, env)
+	hopts.MaxValidationMemory = validationMemoryBudget(log, cfg, env, hopts.MaxSpoolSize)
+}
+
 func run(log *slog.Logger) error {
 	cfg, err := config.FromEnv()
 	if err != nil {
@@ -127,7 +137,7 @@ func run(log *slog.Logger) error {
 		"compile_ms", time.Since(start).Milliseconds(), "heap_mib", mem.HeapAlloc>>20)
 
 	hopts := httpOptions(cfg)
-	hopts.MaxSpoolSize = spoolBudget(log, cfg, probeSpoolEnv())
+	sizeToContainer(log, cfg, &hopts)
 	srv := httpapi.New(hopts, v, log).HTTPServer()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

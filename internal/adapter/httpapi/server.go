@@ -40,7 +40,12 @@ type Options struct {
 	MaxConcurrent   int   // validations running at once
 	MaxQueue        int   // requests waiting for a slot; 0 selects 4 × MaxConcurrent
 	MaxSpoolSize    int64 // request bodies in temporary files at once, bytes; 0 selects 4 × MaxPackageSize
-	RequestTimeout  time.Duration
+	// MaxValidationMemory is the memory the validations in progress may
+	// reserve together, in bytes: each reserves what its document takes
+	// (app.Memory), and waits for room when there is none. 0 sets no bound:
+	// only MaxConcurrent then limits them.
+	MaxValidationMemory int64
+	RequestTimeout      time.Duration
 }
 
 // writeGrace is the time a response gets to be written once validation has
@@ -63,6 +68,8 @@ type Server struct {
 	spoolMu   sync.Mutex
 	spoolUsed int64 // bytes reserved by requests for their temporary files
 
+	mem *memSem // the memory of the validations in progress; nil without a bound
+
 	writeGrace time.Duration
 }
 
@@ -77,6 +84,7 @@ func New(opts Options, v Validator, log *slog.Logger) *Server {
 	}
 	return &Server{
 		opts: opts, validator: v, slots: make(chan struct{}, opts.MaxConcurrent), log: log,
+		mem:        newMemSem(opts.MaxValidationMemory),
 		writeGrace: writeGrace,
 	}
 }

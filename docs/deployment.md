@@ -20,31 +20,127 @@ examples allow 65 s for the default `REQUEST_TIMEOUT` of 60 s.
 
 ## Memory and CPU
 
-The service uses about 40 MB of memory when idle. Measured with the defaults
+The service uses about 30 MB of memory when idle. Measured with the defaults
 on 8 CPUs, the peak was about 100 MB, with 50 clients sending 1 MB packages
 (74 files each) at the same time.
 
+### What a document takes
+
+To check a document against the rules, the service builds a tree of it in
+memory: one node for every element, attribute, piece of text, comment and
+processing instruction. A node takes some 170 bytes, and the indexes the
+rules use up to 80 more per element. So it is the number of nodes that
+decides what a document takes, not its size: a megabyte of prose is some
+60,000 nodes and takes 13 MB, a megabyte of nothing but `<b/>x` is 420,000
+nodes and takes 84 MB.
+
+Measured for documents of one kind of content each, per MiB of document:
+
+| Content | Nodes per MiB | Memory per MiB | Largest document in 256 MiB | in 512 MiB | in 1 GiB |
+| --- | --- | --- | --- | --- | --- |
+| One long text, or attributes with long values | few | 6 MiB | 10 MiB¹ | 10 MiB¹ | 10 MiB¹ |
+| Response declarations and response processing | 44,000 | 11 MiB | 10 MiB¹ | 10 MiB¹ | 10 MiB¹ |
+| Choices of an interaction | 53,000 | 12 MiB | 10 MiB¹ | 10 MiB¹ | 10 MiB¹ |
+| Prose: paragraphs of a sentence each | 62,000 | 15 MiB | 10 MiB¹ | 10 MiB¹ | 10 MiB¹ |
+| MathML: short formulas | 85,000 | 21 MiB | 8.9 MiB | 10 MiB¹ | 10 MiB¹ |
+| Deeply nested `<div>` | 95,000 | 25 MiB | 7.7 MiB | 10 MiB¹ | 10 MiB¹ |
+| Empty comments, `<!---->` | 150,000 | 29 MiB | 6.6 MiB | 10 MiB¹ | 10 MiB¹ |
+| Empty MathML elements, `<mi/>` | 210,000 | 53 MiB | 3.6 MiB | 8.5 MiB | 10 MiB¹ |
+| Empty paragraphs, `<p/>` | 262,000 | 65 MiB | 2.9 MiB | 6.8 MiB | 10 MiB¹ |
+| An element and a character, `<b/>x` | 419,000 | 91 MiB | 2.1 MiB | 4.9 MiB | 10 MiB¹ |
+
+¹ `MAX_REQUEST_SIZE`; memory would allow more.
+
+"Memory per MiB" is what the service reserves, which is 1.1 to 1.4 times
+what the validation really takes. The last four kinds are not what QTI
+content looks like; they are what a document made to take as much memory as
+possible looks like.
+
+### How the service sizes itself
+
+The service bounds the memory of the validations in progress, not only their
+number:
+
+- **`MAX_CONCURRENT`** (default: the number of CPUs) bounds how many
+  validations run at once: the CPU bound.
+- **`MAX_VALIDATION_MEMORY`** bounds what they hold in memory together: the
+  memory bound.
+
+Requests beyond `MAX_CONCURRENT` wait for a slot in about the order they
+came, at most `MAX_QUEUE` of them (by default 4 × `MAX_CONCURRENT`); beyond
+that a request gets 503 at once, with `Retry-After`. A waiting request that
+gets no slot within `REQUEST_TIMEOUT` gets 503 too.
+
+A validation reserves its memory in two steps. To read a document and check
+it against the XML Schema, it reserves 1 MiB plus six times the size of the
+document; the schema check reads the document as a stream and keeps little.
+Before it builds the tree for the rules, it counts the nodes of the document
+in one quick pass (some 10 ms per MiB) and reserves what they take. In a
+package every file does so for itself, one after the other.
+
+A validation that finds no room waits for others to finish, as a request
+waits for a free slot: at most `MAX_QUEUE` requests wait in all, and one that
+gets no memory within `REQUEST_TIMEOUT` gets 503 with `Retry-After`. While it
+waits it gives up its slot, so small documents are validated beside a large
+one that runs, instead of behind a large one that waits. Two large documents
+that do not fit together are validated one after the other; neither is slowed
+down by the other, as they were when both were let in and the garbage
+collector had to fight for the last bytes.
+
+Only a document that could never fit, with nothing else running, is refused.
+The answer is 413 with code `too_large` and the numbers:
+
+```json
+{
+  "code": "too_large",
+  "message": "the document has 2.6 million nodes and needs about 654 MiB of memory to check; this service allows 192 MiB for one document (MAX_VALIDATION_MEMORY)"
+}
+```
+
+It is refused as soon as it is read, before the schema check. In a package
+this is an error of that file, with the same code and message; the other
+files are validated as usual.
+
+`MAX_VALIDATION_MEMORY` is derived at startup from the container's memory
+limit (cgroup v2 or v1): the limit, less 64 MiB for the process itself, less
+the upload spool when `/tmp` is a tmpfs (see
+[Temporary files](#temporary-files)). In a 256 MiB container with a volume on
+`/tmp` it is 192 MiB, which the service logs at startup. When no memory limit
+can be read it is 1 GiB, and the service logs a warning: set
+`MAX_VALIDATION_MEMORY`, or a memory limit, on a host with less to spare.
+
+### Sizing the container
+
+With 256 MiB the service validates any QTI content up to `MAX_REQUEST_SIZE`
+(10 MiB) that is made of text, interactions and declarations, and refuses
+documents of more than some 750,000 nodes. To take every document up to
+`MAX_REQUEST_SIZE` whatever it is made of, give the container 1 GiB. The
+levers:
+
+- **More memory:** the budget follows the container's limit, and with it both
+  the largest document and how many validations run beside each other.
+- **`MAX_REQUEST_SIZE` and `MAX_FILE_SIZE`:** the largest document and the
+  largest file of a package. Lower them to what you expect to receive: a
+  smaller document reserves less to be read.
+- **`MAX_VALIDATION_MEMORY`:** set it to give the validations less than the
+  derived budget, on a host shared with other work, or more, at the risk of
+  running out of memory.
+- **`MAX_CONCURRENT`** stays the CPU bound. Raising it does not risk memory:
+  the memory bound holds whatever it is.
+
 The image sets `GOMEMLIMIT=90MiB`, a soft limit for the Go runtime: the
-garbage collector works harder as memory nears it. That keeps the peak at
-about 100 MB instead of 110–130 MB, at no measurable cost in speed. If you
-give the container more memory and send larger documents, raise it with
-`-e GOMEMLIMIT=…`; it never makes the service fail, only collect sooner.
+garbage collector works harder as memory nears it, which keeps the memory
+of a service that validates typical content at about 100 MB instead of
+110–130 MB. It never makes the service fail. When `GOMEMLIMIT` is empty, the
+service derives the soft limit from the container's memory limit at startup
+(the limit less 64 MiB) and logs it: run the image with `-e GOMEMLIMIT=` in
+a larger container that validates large documents, so the collector does not
+work against a limit the documents exceed anyway. A value you set is kept.
 
-The memory of the process grows with the size of the documents being
-validated at that moment, at most `MAX_CONCURRENT` at a time. With typical
-QTI content, 256 MiB leaves ample headroom for the process. If you raise
-`MAX_REQUEST_SIZE` or `MAX_FILE_SIZE` substantially, lower `MAX_CONCURRENT`
-or raise the limit.
-
-That figure excludes uploads, which are kept in `/tmp` (see
+These figures exclude uploads, which are kept in `/tmp` (see
 [Temporary files](#temporary-files)). If `/tmp` is a tmpfs, its files count
-against the container's memory limit too.
-
-At most `MAX_CONCURRENT` validations run at once. Further requests wait for a
-slot in about the order they came, at most `MAX_QUEUE` of them (by default 4
-× `MAX_CONCURRENT`); beyond that a request gets 503 at once, with
-`Retry-After`. A waiting request that gets no slot within `REQUEST_TIMEOUT`
-gets 503 too.
+against the container's memory limit too, and the service takes them off the
+budget of the validations.
 
 Startup takes under a second, while the schemas of both QTI versions are
 compiled; memory briefly peaks at about 100 MB.
@@ -86,6 +182,12 @@ time, and a package above 96 MiB gets 413. If less than `MAX_REQUEST_SIZE`
 is left, the service logs an error: it runs, but refuses larger uploads. A
 full budget refuses uploads instead of getting the container killed for
 running out of memory.
+
+When `/tmp` is a tmpfs **and** no memory limit can be read, the spool cannot
+be clamped to the container's memory at all: it falls back to `min(400 MiB,
+tmpfs size)`, and the service logs a warning at startup. Give `/tmp` a
+size-limited tmpfs or a disk volume, or set a memory limit, so uploads kept
+in memory cannot exhaust it.
 
 To use a tmpfs anyway, size it, `MAX_SPOOL_SIZE` and the memory limit
 together: the tmpfs and `MAX_SPOOL_SIZE` are the concurrent uploads you
