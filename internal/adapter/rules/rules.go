@@ -21,40 +21,54 @@ import (
 const AdditionalChecks = "qti3-additional-checks.sch"
 
 // The rules may take BaseSteps plus StepsPerNode for every node of a
-// document (xpath.Document.Nodes) in XPath steps (see xpath.Session). The
-// work of rules grows with the document: every rule whose context is not a
-// plain element name looks at every node, and every assertion runs once per
-// context node. So the budget does too, and only work that grows faster than
-// the document runs out of it.
+// document (xpath.Document.Nodes) in XPath steps (see xpath.Session), but
+// never more than MaxSteps. The work of rules grows with the document:
+// every rule whose context is not a plain element name looks at every
+// node, and every assertion runs once per context node. So the budget does
+// too, and only work that grows faster than the document runs out of it.
 //
-// Measured with the built-in rules: the 1148 QTI documents of testdata,
-// examples and the 1EdTech corpus take at most 209,000 steps and at most 222
-// steps a node; plain content at the 10 MiB of MAX_REQUEST_SIZE — some 2
-// million nodes of empty paragraphs, 1.3 million of p, div and span, 1.6
-// million of table cells, 1.1 million of images, 1.2 million of attributes,
-// half a million of choices or MathML — takes 49 to 155 steps a node, and
-// 5,000 nested divisions 170. StepsPerNode leaves 4.5 times the worst of
-// these; BaseSteps keeps the budget of a small document what it was before
+// Measured with the built-in rules of QTI 3.0.1: the QTI documents of
+// testdata, examples and the 1EdTech corpus take at most 32,000 steps and
+// at most 208 steps a node; plain content at the 10 MiB of
+// MAX_REQUEST_SIZE — 2.6 million nodes of empty paragraphs, 1.3 million of
+// p, div and span, 1.8 million of table cells, 1.2 million of images, 1.2
+// million of attributes, 570,000 of choices, 1.7 million of MathML — takes
+// 7 to 33 steps a node and at most 87 million steps, and 5,000 nested
+// divisions 20 a node. StepsPerNode leaves 5 times the worst of these per
+// node; BaseSteps keeps the budget of a small document what it was before
 // the budget grew with the document, so no document that passed then runs
-// out now. Work that grows faster than the document still runs out: a rule
-// that compares every pair of 20,000 choices takes 800 million steps on a
-// budget of 160 million, and one that compares every declaration with every
-// interaction at each of 400 interactions, unable to remember its paths,
-// more than a billion on a budget of 104 million.
+// out now. Work that grows faster than the document still runs out: a
+// rule that compares every choice with every other one by string value
+// takes 28 million steps on 2,000 choices, on a budget of 106 million, and
+// n³ steps on n choices (testutil.SlowRules) 189 million on 300.
 //
-// At 30 to 50 ns a step, BaseSteps is some 3 to 5 seconds of work. A
-// document at MAX_REQUEST_SIZE gets a budget of some 2 billion steps,
-// about as much work as the default REQUEST_TIMEOUT allows or more: for
-// large documents that timeout, not the budget, is what bounds the work.
+// A step takes 20 to 70 ns: some 50 for plain content, 65 for the string
+// comparisons of those rules. MaxSteps is thus 20 to 30 seconds of work,
+// well within the default REQUEST_TIMEOUT of 60 seconds, and leaves 4.6
+// times the steps of the worst plain content at MAX_REQUEST_SIZE (and more
+// than the 326 to 435 million steps that content took before the XPath
+// engine indexed descendant steps and attribute lookups). The budget
+// reaches it at 300,000 nodes, a document of 1 to 3 MiB of plain content;
+// a larger document gets no more, so a document that makes the rules do
+// much work per node stops after some 30 seconds at most whatever its
+// size. BaseSteps is some 2 to 7 seconds of work.
 const (
 	BaseSteps    = 100_000_000
 	StepsPerNode = 1_000
+	MaxSteps     = 400_000_000
 )
 
-// budget is how many steps the rules may take on a document of n nodes.
-type budget struct{ base, perNode int64 }
+// budget is how many steps the rules may take on a document of n nodes:
+// base plus perNode for every node, up to max unless max is zero.
+type budget struct{ base, perNode, max int64 }
 
-func (b budget) steps(n int) int64 { return b.base + b.perNode*int64(n) }
+func (b budget) steps(n int) int64 {
+	steps := b.base + b.perNode*int64(n)
+	if b.max > 0 {
+		steps = min(steps, b.max)
+	}
+	return steps
+}
 
 // Checker runs one or more rule sets on a document, which it parses once.
 // It is safe for concurrent use.
@@ -62,7 +76,8 @@ type Checker struct {
 	sets []ruleSet
 	// types runs the type checks of types.go after the rule sets.
 	types bool
-	// budget replaces BaseSteps and StepsPerNode when it is not zero.
+	// budget replaces BaseSteps, StepsPerNode and MaxSteps when it is not
+	// zero.
 	budget budget
 }
 
@@ -119,10 +134,10 @@ func Chain(checkers ...*Checker) *Checker {
 // nil Checker has no rules.
 //
 // All rule sets share one budget of XPath steps for the document:
-// BaseSteps plus StepsPerNode for every node. When it runs out, or ctx is
-// done, CheckRules returns the findings so far with an error wrapping
-// app.ErrTooComplex or ctx.Err(). When a rule fails, it returns the findings
-// so far with an error that wraps neither.
+// BaseSteps plus StepsPerNode for every node, up to MaxSteps. When it runs
+// out, or ctx is done, CheckRules returns the findings so far with an error
+// wrapping app.ErrTooComplex or ctx.Err(). When a rule fails, it returns the
+// findings so far with an error that wraps neither.
 func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLimits) ([]app.RuleFinding, error) {
 	if c == nil {
 		return nil, nil
@@ -133,7 +148,7 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 	}
 	b := c.budget
 	if b == (budget{}) {
-		b = budget{base: BaseSteps, perNode: StepsPerNode}
+		b = budget{base: BaseSteps, perNode: StepsPerNode, max: MaxSteps}
 	}
 	session := xpath.NewSession(ctx, b.steps(tree.Nodes))
 	var out []app.RuleFinding

@@ -7,6 +7,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -145,24 +146,59 @@ func (s *Server) acquire(ctx context.Context, w http.ResponseWriter) (func(), bo
 	}
 }
 
-// reserveSpool reserves n bytes of MaxSpoolSize for a temporary file, and
-// returns the function that frees them. A request that does not fit gets
-// 503 at once: waiting would hold its connection without bounding anything.
-func (s *Server) reserveSpool(w http.ResponseWriter, n int64) (func(), bool) {
+// Errors of growing a spoolReservation.
+var (
+	errSpoolBusy     = errors.New("the uploads in progress fill MAX_SPOOL_SIZE")
+	errSpoolTooLarge = errors.New("the upload is larger than MAX_SPOOL_SIZE")
+)
+
+// spoolReservation is the room in MaxSpoolSize one request holds for its
+// temporary file. It grows with the bytes that arrive, so a stalled upload
+// holds only what it has sent, and filling the budget takes sending that
+// much; release frees it.
+type spoolReservation struct {
+	s *Server
+	n int64 // bytes reserved
+}
+
+func (s *Server) newSpoolReservation() *spoolReservation {
+	return &spoolReservation{s: s}
+}
+
+// grow makes room for need bytes in all. A request that does not fit gets
+// errSpoolBusy at once: waiting would hold its connection without bounding
+// anything. need beyond the whole budget is errSpoolTooLarge.
+func (r *spoolReservation) grow(need int64) error {
+	if need <= r.n {
+		return nil
+	}
+	s := r.s
 	s.spoolMu.Lock()
 	defer s.spoolMu.Unlock()
-	if n > s.opts.MaxSpoolSize-s.spoolUsed {
-		refuseUnread(w)
-		writeBusy(w, "too many uploads in progress")
-		return nil, false
+	if need > s.opts.MaxSpoolSize {
+		return errSpoolTooLarge
 	}
-	s.spoolUsed += n
-	return func() {
-		s.spoolMu.Lock()
-		s.spoolUsed -= n
-		s.spoolMu.Unlock()
-	}, true
+	if need-r.n > s.opts.MaxSpoolSize-s.spoolUsed {
+		return errSpoolBusy
+	}
+	s.spoolUsed += need - r.n
+	r.n = need
+	return nil
 }
+
+// shrink gives back what is reserved beyond n bytes.
+func (r *spoolReservation) shrink(n int64) {
+	if n >= r.n {
+		return
+	}
+	r.s.spoolMu.Lock()
+	r.s.spoolUsed -= r.n - n
+	r.s.spoolMu.Unlock()
+	r.n = n
+}
+
+// release frees the reservation.
+func (r *spoolReservation) release() { r.shrink(0) }
 
 // refuseUnread closes the connection after a response written before the
 // body was read. Otherwise the server reads up to 256 KiB of the body before

@@ -71,11 +71,12 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	free, ok := s.reserveBody(w, r, shape)
+	// Freed last, once the temporary file is removed.
+	reservation, ok := s.reserveBody(w, r, shape)
 	if !ok {
 		return
 	}
-	defer free()
+	defer reservation.release()
 
 	// One deadline bounds the request: receiving the body, waiting for a
 	// slot and validating. The response may be written writeGrace later.
@@ -103,7 +104,7 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 
 	// The input is received in full before a slot is taken, so a slow upload
 	// holds none: slots bound the work of validation, not the network.
-	f, size, ok := s.spool(w, body, limit)
+	f, size, ok := s.spool(w, body, limit, reservation)
 	if !ok {
 		return
 	}
@@ -129,11 +130,12 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	s.writeDocumentReport(w, res, newMeta(inputName(r, uploadName, defaultDocumentName)))
 }
 
-// reserveBody reserves room in MaxSpoolSize for the temporary file of the
-// body of r: its Content-Length, or without one the most the file may take.
-// A Content-Length over the limit of the request shape is refused as too
-// large before the body is read. On failure the response has been written.
-func (s *Server) reserveBody(w http.ResponseWriter, r *http.Request, shape requestShape) (func(), bool) {
+// reserveBody returns the reservation in MaxSpoolSize for the temporary
+// file of the body of r, empty until the body arrives. A Content-Length
+// over the limit of the request shape, or over the whole budget, is refused
+// as too large before the body is read. On failure the response has been
+// written.
+func (s *Server) reserveBody(w http.ResponseWriter, r *http.Request, shape requestShape) (*spoolReservation, bool) {
 	// spool writes one byte past its limit to tell that a body is too large.
 	most, limit := s.opts.MaxPackageSize+1, s.opts.MaxPackageSize
 	tooLarge := "package is larger than the configured MAX_PACKAGE_SIZE"
@@ -153,8 +155,20 @@ func (s *Server) reserveBody(w http.ResponseWriter, r *http.Request, shape reque
 	}
 	if r.ContentLength >= 0 {
 		most = min(most, r.ContentLength)
+		if most > s.opts.MaxSpoolSize {
+			refuseUnread(w)
+			writeSpoolTooLarge(w)
+			return nil, false
+		}
 	}
-	return s.reserveSpool(w, most)
+	return s.newSpoolReservation(), true
+}
+
+// writeSpoolTooLarge answers 413 for a body that does not fit in
+// MaxSpoolSize even with no other upload in progress: retrying cannot help.
+func writeSpoolTooLarge(w http.ResponseWriter) {
+	writeError(w, http.StatusRequestEntityTooLarge, string(qti.CodeTooLarge),
+		"request is larger than the configured MAX_SPOOL_SIZE, the room for all uploads at once")
 }
 
 // extendWriteDeadline gives the response writeGrace from now, however long

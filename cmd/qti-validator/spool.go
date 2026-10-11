@@ -46,7 +46,7 @@ func spoolBudget(log *slog.Logger, cfg config.Config, env spoolEnv) int64 {
 		"memory_limit", env.MemoryLimit, "process_headroom", processHeadroom, "spool_budget", budget,
 	}
 	if budget < cfg.MaxRequestSize {
-		log.Error("the temporary directory is a tmpfs without room for uploads; requests will be refused with 503. "+
+		log.Error("the temporary directory is a tmpfs without room for uploads; requests larger than the budget will be refused with 413. "+
 			"Mount a disk volume on it, or raise the memory limit", attrs...)
 		return budget
 	}

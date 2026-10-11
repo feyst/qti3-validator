@@ -105,7 +105,7 @@ func TestAbstractPatternInstance(t *testing.T) {
 func TestValidateStopsWithinBudget(t *testing.T) {
 	const sch = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
 <sch:pattern id="cheap"><sch:rule context="a"><sch:assert test="@ok">no ok</sch:assert></sch:rule></sch:pattern>
-<sch:pattern id="quadratic"><sch:rule context="a"><sch:assert test="count(//a[@id = current()/@id]) = 1">dup</sch:assert></sch:rule></sch:pattern>
+<sch:pattern id="quadratic"><sch:rule context="a"><sch:assert test="count(//a[string(@id) = current()/@id]) = 1">dup</sch:assert></sch:rule></sch:pattern>
 </sch:schema>`
 	rs, err := Extract("x", strings.NewReader(sch))
 	if err != nil {
