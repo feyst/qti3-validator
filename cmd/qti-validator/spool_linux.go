@@ -18,7 +18,7 @@ func tmpfsSize(dir string) int64 {
 	if err := syscall.Statfs(dir, &st); err != nil || st.Type != tmpfsMagic || st.Bsize <= 0 {
 		return 0
 	}
-	bsize := uint64(st.Bsize) //nolint:gosec // positive, checked above
+	bsize := uint64(st.Bsize)
 	if st.Blocks > math.MaxInt64/bsize {
 		return math.MaxInt64
 	}
