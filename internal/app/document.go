@@ -145,7 +145,8 @@ func assessable(res qti.DocumentResult, verdict SchemaVerdict) bool {
 // rules may add errors up to MaxErrors in all, and MaxErrors warnings of
 // their own; warnings do not take the room of errors. Rules that stop before
 // the end add the findings so far and a too_complex finding; rules that fail
-// keep the findings before them and add an internal error.
+// add the findings so far, of the rule sets before and of their own, and an
+// internal error.
 func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.DocumentResult, limits qti.Limits) qti.DocumentResult {
 	if rules == nil {
 		return res
@@ -156,12 +157,6 @@ func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.Doc
 	}
 	res.Ran.Rules = true
 	findings, err := rules.CheckRules(ctx, data, RuleLimits{Errors: remaining, Warnings: limits.MaxErrors})
-	stop, stopped := stopFinding(err)
-	if err != nil && !stopped {
-		// Like a validation that stops: what was found before is kept.
-		res.AddError(qti.Finding{Code: qti.CodeInternal, Message: err.Error()}, qti.OutcomeInternal)
-		return res
-	}
 	for _, f := range findings {
 		if f.Warning {
 			res.Warnings = append(res.Warnings, f.Finding)
@@ -169,8 +164,12 @@ func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.Doc
 		}
 		res.AddError(f.Finding, qti.OutcomeInvalid)
 	}
-	if stopped {
+	switch stop, stopped := stopFinding(err); {
+	case stopped:
 		res.AddError(stop, qti.OutcomeTooComplex)
+	case err != nil:
+		// Like a validation that stops: what was found before is kept.
+		res.AddError(qti.Finding{Code: qti.CodeInternal, Message: err.Error()}, qti.OutcomeInternal)
 	}
 	return res
 }

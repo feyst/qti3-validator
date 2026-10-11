@@ -138,7 +138,8 @@ func TestMaxFailures(t *testing.T) {
 }
 
 // Warnings do not count towards the limit on errors: five warnings before
-// an error leave room for the error. They have a limit of their own.
+// an error leave room for the error. They have a limit of their own, and
+// the warnings beyond it are counted.
 func TestLimitsCountErrorsAndWarningsApart(t *testing.T) {
 	const sch = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
 <sch:pattern id="w"><sch:rule context="a"><sch:report test="true()" role="warning">w</sch:report></sch:rule></sch:pattern>
@@ -164,18 +165,21 @@ func TestLimitsCountErrorsAndWarningsApart(t *testing.T) {
 		return errs, warnings
 	}
 	for _, tc := range []struct {
-		limits         Limits
-		errs, warnings int
+		limits                  Limits
+		errs, warnings, omitted int
 	}{
-		{Limits{}, 2, 5},
-		{Limits{Errors: 1}, 1, 5},
-		{Limits{Errors: 3}, 2, 5},
-		{Limits{Errors: 1, Warnings: 2}, 1, 2},
-		{Limits{Warnings: -1}, 2, 0},
+		{Limits{}, 2, 5, 0},
+		{Limits{Errors: 1}, 1, 5, 0},
+		{Limits{Errors: 3}, 2, 5, 0},
+		{Limits{Errors: 1, Warnings: 2}, 1, 2, 3},
+		{Limits{Warnings: 5}, 2, 5, 0},
+		{Limits{Warnings: 4}, 2, 4, 1},
+		{Limits{Warnings: -1}, 2, 0, 5},
 	} {
-		failures, err := e.Validate(nil, doc, tc.limits)
-		if errs, warnings := count(failures); err != nil || errs != tc.errs || warnings != tc.warnings {
-			t.Errorf("%+v: got %d errors, %d warnings, %v; want %d, %d", tc.limits, errs, warnings, err, tc.errs, tc.warnings)
+		res, err := e.Check(nil, doc, tc.limits)
+		if errs, warnings := count(res.Failures); err != nil || errs != tc.errs || warnings != tc.warnings || res.OmittedWarnings != tc.omitted {
+			t.Errorf("%+v: got %d errors, %d warnings, %d omitted, %v; want %d, %d, %d",
+				tc.limits, errs, warnings, res.OmittedWarnings, err, tc.errs, tc.warnings, tc.omitted)
 		}
 	}
 }

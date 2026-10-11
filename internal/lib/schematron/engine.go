@@ -205,36 +205,54 @@ type Limits struct {
 	// Validate stops; zero means no limit.
 	Errors int
 	// Warnings is the number of warnings Validate keeps; further warnings
-	// are dropped, but validation goes on. Zero means no limit; a negative
-	// number keeps none.
+	// are dropped and counted (see Result.OmittedWarnings), but validation
+	// goes on. Zero means no limit; a negative number keeps none.
 	Warnings int
 }
 
-// Validate runs every pattern on doc and returns the failures within
-// limits, in pattern order and then document order.
+// Result is what Check found.
+type Result struct {
+	// Failures are the failures within the limits, in pattern order and
+	// then document order.
+	Failures []Failure
+	// OmittedWarnings is the number of warnings that fired after
+	// Limits.Warnings were kept, until the validation ended. They are
+	// counted when their assertion fires, so their messages are not
+	// rendered.
+	OmittedWarnings int
+}
+
+// Validate is Check without the count of omitted warnings.
+func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, limits Limits) ([]Failure, error) {
+	res, err := e.Check(s, doc, limits)
+	return res.Failures, err
+}
+
+// Check runs every pattern on doc and returns the failures within limits,
+// and how many warnings it left out.
 //
 // Every expression is evaluated in session s, which may stop the validation
 // with an error wrapping xpath.ErrTooComplex or the error of its context;
 // the failures found until then are returned with it. One session should
 // serve one document, so the paths it remembers are reused across the rules;
 // nil runs without limits in a session of its own.
-func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, limits Limits) ([]Failure, error) { //nolint:gocognit // the evaluation loop of ISO Schematron; tested against the reference implementation
+func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Result, error) { //nolint:gocognit // the evaluation loop of ISO Schematron; tested against the reference implementation
 	if s == nil {
 		s = xpath.NewSession(context.Background(), 0)
 	}
 	var index map[expandedName][]*xpath.Node
-	var failures []Failure
+	var res Result
 	errorCount, warningCount := 0, 0
 	for _, es := range e.sets {
 		vars, err := bindLets(s, es.lets, doc.Root, map[string]xpath.Value{})
 		if err != nil {
-			return failures, err
+			return res, err
 		}
 		for _, p := range es.patterns {
 			pvars := vars
 			if len(p.lets) > 0 {
 				if pvars, err = bindLets(s, p.lets, doc.Root, maps.Clone(vars)); err != nil {
-					return failures, err
+					return res, err
 				}
 			}
 			// First-match bookkeeping is only needed with several rules.
@@ -250,7 +268,7 @@ func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, limits Limits) 
 					}
 					nodes = index[*r.byName]
 				} else if nodes, err = r.context.Select(xpath.Context{Node: doc.Root, Variables: pvars, Session: s}); err != nil {
-					return failures, err
+					return res, err
 				}
 				for _, n := range nodes {
 					if seen != nil {
@@ -262,29 +280,30 @@ func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, limits Limits) 
 					rvars := pvars
 					if len(r.lets) > 0 {
 						if rvars, err = bindLets(s, r.lets, n, maps.Clone(pvars)); err != nil {
-							return failures, err
+							return res, err
 						}
 					}
 					for _, a := range r.assertions {
 						fired, err := a.fires(s, n, rvars)
 						if err != nil {
-							return failures, err
+							return res, err
 						}
 						if !fired {
 							continue
 						}
 						warning := warningRoles[strings.ToLower(a.role)]
 						if warning && (limits.Warnings < 0 || limits.Warnings > 0 && warningCount >= limits.Warnings) {
+							res.OmittedWarnings++
 							continue // no room for more warnings; errors are still looked for
 						}
 						msg, err := a.render(s, n, rvars)
 						if err != nil {
-							return failures, err
+							return res, err
 						}
 						if warning {
 							warningCount++
 						}
-						failures = append(failures, Failure{
+						res.Failures = append(res.Failures, Failure{
 							Source: es.source, Pattern: p.id, Assertion: a.id, Report: a.report,
 							Role: a.role, Flag: a.flag, Warning: warning,
 							Message: msg, Node: n,
@@ -294,14 +313,14 @@ func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, limits Limits) 
 						}
 						errorCount++
 						if limits.Errors > 0 && errorCount >= limits.Errors {
-							return failures, nil
+							return res, nil
 						}
 					}
 				}
 			}
 		}
 	}
-	return failures, nil
+	return res, nil
 }
 
 func (a engineAssertion) fires(sess *xpath.Session, n *xpath.Node, vars map[string]xpath.Value) (bool, error) {

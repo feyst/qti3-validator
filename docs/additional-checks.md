@@ -98,7 +98,8 @@ wrong.
 | `pci-module-exists` | The `primary-path` or `fallback-path` of a PCI module, and its module configurations, are files in the package; `.js` may be left out. A missing `primary-path` with a `fallback-path` that exists is a warning | The interaction cannot load | error, or warning |
 | `catalog-file-exists` | The `qti-file-href` of a catalog card is a file in the package | "these files MUST be contained in the corresponding QTI content package" | error |
 | `template-location-exists` | A local `template-location` of response processing is a file in the package | A delivery engine that does not know the template cannot fetch it | warning |
-| `test-item-variable-declared` | A test's `ITEM.VARIABLE` refers to a variable the item declares, or a built-in one. `ITEM` is an item ref of that test, or of a section it includes with `qti-assessment-section-ref`; two tests may use the same item-ref identifier for different items | "All variables must be declared" | error |
+| `item-ref-identifier-unique` | The item refs of a test and of the sections it includes with `qti-assessment-section-ref`, however deeply nested, have distinct identifiers across these documents; reported on the test, once per identifier. Within one document `test-identifier-unique` checks this; two tests may use the same item-ref identifier | "must be unique within the test" | error |
+| `test-item-variable-declared` | A test's `ITEM.VARIABLE` refers to a variable the item declares, or a built-in one. `ITEM` is an item ref of that test, or of a section it includes with `qti-assessment-section-ref`; two tests may use the same item-ref identifier for different items. Not checked when `ITEM` names different items in the test (see `item-ref-identifier-unique`) | "All variables must be declared" | error |
 
 ## Value types
 

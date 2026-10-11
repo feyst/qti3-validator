@@ -49,7 +49,8 @@ func (e SchemaElements) Declares(local string) bool { return e.Global[local] || 
 // the findings within limits. When it stops before the end, because the
 // rules take more work than it allows for one document or ctx is done, it
 // returns the findings so far with an error wrapping ErrTooComplex or
-// ctx.Err().
+// ctx.Err(). When a rule fails, it returns the findings so far with any
+// other error.
 type RuleChecker interface {
 	CheckRules(ctx context.Context, data []byte, limits RuleLimits) ([]RuleFinding, error)
 }
@@ -61,7 +62,8 @@ type RuleLimits struct {
 	// no limit.
 	Errors int
 	// Warnings is the number of warnings kept; the rules go on looking for
-	// errors after it. Zero means no limit.
+	// errors after it, and add one warning with qti.CodeLimitExceeded that
+	// says how many warnings they left out. Zero means no limit.
 	Warnings int
 }
 
