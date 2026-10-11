@@ -204,7 +204,7 @@ All settings are environment variables. Sizes are in bytes.
 | `MAX_DEPTH` | `256` | Deepest element nesting accepted |
 | `MAX_CONCURRENT` | number of CPUs | Validations that run at the same time; further requests wait |
 | `MAX_QUEUE` | 4 × `MAX_CONCURRENT` | Requests that may wait for a validation slot; further requests get 503 at once |
-| `MAX_SPOOL_SIZE` | 4 × `MAX_PACKAGE_SIZE` | Request bodies kept in `/tmp` at once, counted by the bytes received (reserved 1 MiB at a time); an upload that does not fit gets 503 at once, one larger than all of it 413. Lowered automatically when `/tmp` is a tmpfs; see [Temporary files](docs/deployment.md#temporary-files) |
+| `MAX_SPOOL_SIZE` | 4 × `MAX_PACKAGE_SIZE` | Request bodies kept in `/tmp` at once, counted by the bytes received; an upload that does not fit gets 503 at once, one larger than all of it 413. Lowered automatically when `/tmp` is a tmpfs; see [Temporary files](docs/deployment.md#temporary-files) |
 | `REQUEST_TIMEOUT` | `60s` | Time limit per request: receiving the body, waiting for a free slot and validating. Running out while the body arrives gives 408; a validation still running then stops with `too_complex`, 422 (the XML Schema check of the current document finishes first) |
 | `VALIDATORS_DIR` | `/validators` | Directory with extra validators; see [Custom validators](docs/custom-validators.md) |
 

@@ -25,11 +25,6 @@ func spooled(s *Server) int64 {
 	return s.spoolUsed
 }
 
-// withChunk makes the server reserve its budget n bytes at a time.
-func withChunk(n int64) func(*Server) {
-	return func(s *Server) { s.spoolChunk = n }
-}
-
 // startRaw opens a connection and sends the start of a request to
 // POST /api/validate: head (header lines, each ending in CRLF) and body.
 func startRaw(t *testing.T, srv *httptest.Server, head, body string) net.Conn {
@@ -93,8 +88,9 @@ func tempFiles(t *testing.T, dir string) int {
 	return len(entries)
 }
 
-// Connections that declare a large body and then stall hold only the budget
-// for what they sent: they do not lock other uploads out.
+// Connections that declare a large body and then stall hold exactly the
+// budget for what they sent: locking other uploads out takes sending the
+// whole budget, not opening many connections.
 func TestSpoolStalledUploadsHoldWhatTheySent(t *testing.T) {
 	const maxPackage = 100 << 20
 	srv, s := newFakeServer(t, Options{MaxPackageSize: maxPackage, MaxConcurrent: 2, RequestTimeout: 60 * time.Second}, fakeValidator{})
@@ -104,10 +100,10 @@ func TestSpoolStalledUploadsHoldWhatTheySent(t *testing.T) {
 	for range 4 {
 		startRaw(t, srv, fmt.Sprintf("Content-Type: application/zip\r\nContent-Length: %d\r\n", maxPackage), "PK")
 	}
-	waitFor(t, "four stalled uploads", func() bool { return spooled(s) > 0 })
+	waitFor(t, "four stalled uploads", func() bool { return spooled(s) == 8 })
 	time.Sleep(100 * time.Millisecond)
-	if got := spooled(s); got > 4*defaultSpoolChunk {
-		t.Fatalf("four uploads of 2 bytes reserve %d bytes, want at most %d", got, 4*defaultSpoolChunk)
+	if got := spooled(s); got != 8 {
+		t.Fatalf("four uploads of 2 bytes reserve %d bytes, want 8", got)
 	}
 	if status := postStatus(t, srv.URL+"/api/validate", "application/xml", []byte("<x/>")); status != http.StatusOK {
 		t.Fatalf("a small document beside four stalled uploads: %d, want 200", status)
@@ -121,11 +117,13 @@ func TestSpoolBudgetFull(t *testing.T) {
 	t.Setenv("TMPDIR", dir)
 	const limit = 8 << 10
 	srv, s := newFakeServer(t, Options{MaxPackageSize: limit, MaxDocumentSize: limit, MaxSpoolSize: 10 << 10, MaxConcurrent: 4},
-		fakeValidator{}, withChunk(1<<10))
+		fakeValidator{})
 	url := srv.URL + "/api/validate"
 
-	finish := stalledUpload(t, url, "application/zip", "PK"+strings.Repeat(" ", 6<<10-3), 6<<10)
-	waitFor(t, "the first upload", func() bool { return spooled(s) == 6<<10 })
+	// The first upload stalls one byte short of its 6 KiB.
+	const held = 6<<10 - 1
+	finish := stalledUpload(t, url, "application/zip", "PK"+strings.Repeat(" ", held-2), 6<<10)
+	waitFor(t, "the first upload", func() bool { return spooled(s) == held })
 
 	if status := postStatus(t, url, "application/zip", bytes.Repeat([]byte(" "), 3<<10)); status != http.StatusOK {
 		t.Fatalf("an upload that fits beside it: %d", status)
@@ -135,7 +133,7 @@ func TestSpoolBudgetFull(t *testing.T) {
 		firstCode(got.body) != codeBusy || got.header.Get("Retry-After") == "" {
 		t.Fatalf("chunked upload that does not fit: %d %v Retry-After %q", got.status, got.body, got.header.Get("Retry-After"))
 	}
-	waitFor(t, "the refused uploads to free their budget", func() bool { return spooled(s) == 6<<10 })
+	waitFor(t, "the refused uploads to free their budget", func() bool { return spooled(s) == held })
 	waitFor(t, "the refused uploads' files to be removed", func() bool { return tempFiles(t, dir) == 1 })
 
 	if status := finish(); status != http.StatusOK {
@@ -177,7 +175,7 @@ func TestSpoolShrinksToSize(t *testing.T) {
 func TestSpoolLargerThanBudget(t *testing.T) {
 	const limit = 8 << 10
 	srv, s := newFakeServer(t, Options{MaxPackageSize: limit, MaxDocumentSize: limit, MaxSpoolSize: 4 << 10},
-		fakeValidator{}, withChunk(1<<10))
+		fakeValidator{})
 	url := srv.URL + "/api/validate"
 	wantTooLarge := func(t *testing.T, got response) {
 		t.Helper()
@@ -217,7 +215,7 @@ func TestSpoolReleased(t *testing.T) {
 	t.Setenv("TMPDIR", dir)
 	const limit = 8 << 10
 	srv, s := newFakeServer(t, Options{MaxPackageSize: limit, MaxDocumentSize: limit, MaxSpoolSize: 10 << 10, RequestTimeout: 300 * time.Millisecond},
-		fakeValidator{}, withChunk(1<<10))
+		fakeValidator{})
 	url := srv.URL + "/api/validate"
 	released := func(t *testing.T) {
 		t.Helper()

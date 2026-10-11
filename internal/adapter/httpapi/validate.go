@@ -131,11 +131,10 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 }
 
 // reserveBody returns the reservation in MaxSpoolSize for the temporary
-// file of the body of r, empty until the body arrives. Its steps are bounded
-// by the Content-Length, or without one by the most the file may take. A
-// Content-Length over the limit of the request shape, or over the whole
-// budget, is refused as too large before the body is read. On failure the
-// response has been written.
+// file of the body of r, empty until the body arrives. A Content-Length
+// over the limit of the request shape, or over the whole budget, is refused
+// as too large before the body is read. On failure the response has been
+// written.
 func (s *Server) reserveBody(w http.ResponseWriter, r *http.Request, shape requestShape) (*spoolReservation, bool) {
 	// spool writes one byte past its limit to tell that a body is too large.
 	most, limit := s.opts.MaxPackageSize+1, s.opts.MaxPackageSize
@@ -162,7 +161,7 @@ func (s *Server) reserveBody(w http.ResponseWriter, r *http.Request, shape reque
 			return nil, false
 		}
 	}
-	return s.newSpoolReservation(most), true
+	return s.newSpoolReservation(), true
 }
 
 // writeSpoolTooLarge answers 413 for a body that does not fit in

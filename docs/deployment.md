@@ -62,12 +62,11 @@ so a slow upload holds no slot. An upload must complete within
 package needs about 14 Mbit/s.
 
 `MAX_SPOOL_SIZE` bounds the bytes in `/tmp` across all requests; by default
-it is 4 × `MAX_PACKAGE_SIZE`, 400 MiB. A request reserves its share 1 MiB at
-a time as its body arrives, so an upload holds budget only for the bytes it
-has sent: a stalled upload does not lock others out. An upload whose next
-bytes do not fit gets 503 at once, with `Retry-After`. Once the body is in,
-the reservation shrinks to its size, and it is freed when the request
-finishes. A body that could never fit gets 413 instead: a Content-Length
+it is 4 × `MAX_PACKAGE_SIZE`, 400 MiB. A request reserves its share as its
+body arrives, so an upload holds budget only for the bytes it has sent:
+stalled uploads do not lock others out, however many there are. An upload
+whose next bytes do not fit gets 503 at once, with `Retry-After`. The
+reservation is freed when the request finishes. A body that could never fit gets 413 instead: a Content-Length
 above the limit of its kind or above `MAX_SPOOL_SIZE` at once, a chunked
 body as soon as it grows past either. Give `/tmp` at least
 `MAX_SPOOL_SIZE`.
