@@ -51,10 +51,11 @@ type Node struct {
 	// Attributes report the position of their element.
 	Line, Column int
 
-	index   int // position in the parent's Children or Attrs
-	order   int // document order; attributes follow their element
-	end     int // roots and elements: the order after their last descendant
-	nsOrder int // namespace nodes: 1-based position among the owner's
+	root    *Node // the root of the document, set by Parse
+	index   int   // position in the parent's Children or Attrs
+	order   int   // document order; attributes follow their element
+	end     int   // roots and elements: the order after their last descendant
+	nsOrder int   // namespace nodes: 1-based position among the owner's
 	nsDecls []nsBinding
 	nsNodes []*Node // built on first use of the namespace axis
 	// The root only: indexes of count-by-attribute, built on first use.
@@ -128,6 +129,23 @@ func (n *Node) Path() string {
 	return n.Parent.Path()
 }
 
+// documentRoot returns the root of the tree of n. Parse stores it on every
+// node, so finding it does not depend on how deep the node lies; a node
+// built otherwise is followed up to its root.
+func (n *Node) documentRoot() *Node {
+	if n.root != nil {
+		return n.root
+	}
+	for n.Parent != nil {
+		n = n.Parent
+	}
+	return n
+}
+
+// Before reports whether n precedes m in document order. Both must be nodes
+// of one document.
+func (n *Node) Before(m *Node) bool { return before(n, m) }
+
 // before reports whether a precedes b in document order.
 func before(a, b *Node) bool {
 	if a.order != b.order {
@@ -165,7 +183,7 @@ func (n *Node) namespaces() []*Node {
 			continue // xmlns="" undeclares the default namespace
 		}
 		nodes = append(nodes, &Node{
-			Kind: NamespaceNode, Local: p, Data: scope[p], Parent: n,
+			Kind: NamespaceNode, Local: p, Data: scope[p], Parent: n, root: n.root,
 			order: n.order, Line: n.Line, Column: n.Column,
 		})
 	}
@@ -183,6 +201,7 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 	dec := xml.NewDecoder(r)
 	dec.Strict = true
 	root := &Node{Kind: RootNode, Line: 1, Column: 1}
+	root.root = root
 	order := 1
 	cur := root
 	scopes := []map[string]string{{"xml": NamespaceXML}}
@@ -196,6 +215,7 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 	}
 	appendChild := func(parent, c *Node) {
 		c.Parent = parent
+		c.root = root
 		c.index = len(parent.Children)
 		c.order = order
 		order++
@@ -238,7 +258,7 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 				}
 				at := &Node{
 					Kind: AttributeNode, Prefix: a.Name.Space, Local: a.Name.Local, Data: a.Value,
-					Parent: el, index: len(el.Attrs), order: order, Line: line, Column: col,
+					Parent: el, root: root, index: len(el.Attrs), order: order, Line: line, Column: col,
 				}
 				order++
 				if at.Prefix != "" {

@@ -202,12 +202,18 @@ How the engine is checked:
 - **XPath shortcuts:** the engine evaluates some forms faster without
   changing their results, by static analysis at compile time: a step ending
   in `[1]` stops at its first match (the nearest ancestor, for a reverse
-  axis); `//a[@id = current()/@ref]` looks the value up in an index of
+  axis), unless a predicate before the `[1]` could raise a type error on a
+  later node, such as `$v/x` with a variable that may not be a node-set;
+  `//a[@id = current()/@ref]` looks the value up in an index of
   `//a` by attribute; descendant steps by name use an index of the document,
   and skip context nodes nested in others; `//a[@x]` is one descendant step;
   `=` against a remembered path or a schema or pattern variable uses a hash
-  set. `TestOptimisedEvaluationMatchesPlain` in `internal/lib/xpath`
-  compares each with plain evaluation.
+  set, as long as the string-values a session keeps for such sets fit in
+  4 MiB. `TestOptimisedEvaluationMatchesPlain` in `internal/lib/xpath`
+  compares each with plain evaluation, values and errors, and
+  `TestOptimisedMatchesPlainOnGeneratedExpressions` does so for generated
+  expressions and documents (`FZ_SEEDS=40 go test -run GeneratedExpressions
+  ./internal/lib/xpath` for a longer run).
 - **Own rules:** `rules/qti3-additional-checks.sch` is compiled with the
   embedded rules. On the 4528 well-formed documents of the public corpora the
   engine gives the same 2339 messages as the reference implementation. The
