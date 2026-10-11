@@ -91,6 +91,7 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 				Code:    qti.CodeTooLarge,
 				Message: fmt.Sprintf("XML in the package exceeds %d uncompressed bytes", limits.MaxUncompressedSize),
 			})
+			v.stopFragments(ctx, outcomes, &res, limits.MaxFileSize, req)
 			return res
 		}
 		res.Files = append(res.Files, fr)
@@ -185,9 +186,10 @@ func (v *Validator) decide(ctx context.Context, outcomes []fileOutcome, res *qti
 	}
 }
 
-// stopFragments makes the fragment resources read so far say that they were
-// not validated, when a package ran out of time before decide validated
-// them: until then their result is that of a file that is no QTI document.
+// stopFragments gives the fragment resources read so far their result as
+// fragments when a package stops before decide validated them, out of time
+// or over its size: until then their result is that of a file that is no
+// QTI document. Out of time, that result says they were not validated.
 func (v *Validator) stopFragments(ctx context.Context, outcomes []fileOutcome, res *qti.PackageResult, maxSize int64, req qti.VersionRequest) {
 	for _, u := range outcomes {
 		if u.fragment {

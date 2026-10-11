@@ -412,6 +412,23 @@ func TestPackageOutOfTimeBeforeFragments(t *testing.T) {
 	}
 }
 
+// A package that stops over its size before the fragments are validated
+// does not leave a fragment resource read so far with the result of a file
+// that is no QTI document.
+func TestPackageTooLargeBeforeFragments(t *testing.T) {
+	m := fakeEntry{name: qti.ManifestName, data: strings.Replace(manifest("3.0.0"), `</resources>`,
+		`<resource type="imsqti_fragment_xmlv3p0" href="frag.xml"/></resources>`, 1)}
+	frag := fakeEntry{name: "frag.xml", data: `<div xmlns="` + qti.NamespaceASI + `"/>`}
+	v := newTestValidator(t, &fakeSchema{verdict: validVerdict}, nil, m, frag, fakeEntry{name: "item.xml", data: item})
+	res := validatePkg(t, v, qti.PackageLimits{MaxUncompressedSize: int64(len(m.data)+len(frag.data)) + 5})
+	if res.Valid || res.Outcome != qti.OutcomeTooLarge || res.Errors[len(res.Errors)-1].Code != qti.CodeTooLarge {
+		t.Fatalf("got %+v", res)
+	}
+	if f := fileResult(t, res, "frag.xml"); !f.Valid || len(f.Errors) != 0 {
+		t.Fatalf("frag.xml: %+v", f)
+	}
+}
+
 // Out of time while the included files are validated as fragments, a
 // package stops the same way: the fragment that was running reports
 // too_complex, and the package names the ones that were not validated.
