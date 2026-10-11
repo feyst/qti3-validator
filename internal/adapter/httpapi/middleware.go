@@ -17,6 +17,9 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+// Unwrap lets http.ResponseController reach the connection.
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
 // logRequests logs method, path, status and duration, and turns a panic into
 // a 500. Bodies are never logged.
 func (s *Server) logRequests(next http.Handler) http.Handler {

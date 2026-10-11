@@ -58,6 +58,7 @@ func newTestServer(t *testing.T, o testOptions) *httptest.Server {
 	if o.MaxPackageSize != 0 {
 		opts.MaxPackageSize = o.MaxPackageSize
 	}
+	opts.MaxDocumentSize = o.MaxRequestSize
 	srv := httptest.NewServer(New(opts, v, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
 	t.Cleanup(srv.Close)
 	return srv

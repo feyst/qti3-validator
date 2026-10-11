@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -23,7 +24,14 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 	limits := q.Limits.WithDefaults()
 	res := qti.PackageResult{Files: []qti.FileResult{}, Outcome: qti.OutcomeValid}
 
-	archive, err := v.openArchive(q.Package, q.Size)
+	archive, err := v.openArchive(q.Package, q.Size, limits.MaxFiles)
+	if errors.Is(err, ErrTooManyEntries) {
+		res.Fail(qti.OutcomeTooLarge, qti.Finding{
+			Code:    qti.CodeTooManyFiles,
+			Message: fmt.Sprintf("package has more entries than the limit of %d", limits.MaxFiles),
+		})
+		return res
+	}
 	if err != nil {
 		res.Fail(qti.OutcomeMalformed, qti.Finding{Code: qti.CodeInvalidZIP, Message: err.Error()})
 		return res

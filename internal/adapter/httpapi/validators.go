@@ -5,8 +5,6 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-
-	"qti3-validator/internal/domain/qti"
 )
 
 // ValidatorInfo describes a validator in GET /api/validators, in the shape
@@ -40,8 +38,8 @@ func (s *Server) filePart(w http.ResponseWriter, r *http.Request) (*multipart.Pa
 	for {
 		part, err := mr.NextPart()
 		if err != nil {
-			if isTooLarge(err) {
-				writeError(w, http.StatusRequestEntityTooLarge, string(qti.CodeTooLarge), "request is larger than the configured MAX_PACKAGE_SIZE")
+			if isTooLarge(err) || isTimeout(err) {
+				writeReadError(w, err, "request is larger than the configured MAX_PACKAGE_SIZE")
 				return nil, false
 			}
 			writeError(w, http.StatusBadRequest, codeInvalidRequest, `multipart field "file" is missing`)

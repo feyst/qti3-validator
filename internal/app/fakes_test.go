@@ -76,7 +76,7 @@ func newTestValidator(t *testing.T, schema SchemaChecker, rules RuleChecker, ent
 	t.Helper()
 	cfg := Config{
 		Versions: map[string]Profile{},
-		OpenArchive: func(io.ReaderAt, int64) (Archive, error) {
+		OpenArchive: func(io.ReaderAt, int64, int) (Archive, error) {
 			if entries == nil {
 				return nil, errors.New("not a zip")
 			}
