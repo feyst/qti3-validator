@@ -325,3 +325,35 @@ func TestNestedStepsScale(t *testing.T) {
 		t.Errorf("500 levels: %d steps, 1000 levels: %d", small, large)
 	}
 }
+
+// Each evaluation of a descendant step from many nodes pays for looking at
+// them, also when an index answers the step itself for one step.
+func TestStepFromManyNodesIsCharged(t *testing.T) {
+	doc := nestedDoc(t, 2000, 1, 0)
+	all, err := Compile("//*", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := all.Select(Context{Node: doc.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := all.Evaluate(Context{Node: doc.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := Compile("$all//q:none", Options{Namespaces: indexNS, Variables: map[string]bool{"all": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const budget, times = int64(1) << 40, 50
+	session := NewSession(context.Background(), budget)
+	for range times {
+		if _, err := e.Evaluate(Context{Node: doc.Root, Variables: map[string]Value{"all": v}, Session: session}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if used, want := budget-session.remaining, int64(times*len(nodes)); used < want {
+		t.Errorf("%d evaluations from %d nodes took %d steps, want at least %d", times, len(nodes), used, want)
+	}
+}
