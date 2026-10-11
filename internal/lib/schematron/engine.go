@@ -15,7 +15,14 @@ import (
 // Engine runs compiled rules. It is immutable and safe for concurrent use.
 type Engine struct {
 	sets []*engineSet
+	// namespaceAxis reports that a rule has a step on the namespace axis.
+	namespaceAxis bool
 }
+
+// UsesNamespaceAxis reports whether an expression of the rules has a step
+// on the namespace axis, which takes memory beside the document's: see
+// xpath.Expr.UsesNamespaceAxis.
+func (e *Engine) UsesNamespaceAxis() bool { return e.namespaceAxis }
 
 // Failure is a failed assert or a fired report.
 type Failure struct {
@@ -95,7 +102,7 @@ func New(c *Compiled) (*Engine, error) {
 	}
 	e := &Engine{}
 	for _, cs := range c.Sets {
-		l := loader{ns: cs.Namespaces, cache: map[string]*xpath.Expr{}, vars: map[string]bool{}}
+		l := loader{ns: cs.Namespaces, cache: map[string]*xpath.Expr{}, vars: map[string]bool{}, namespaceAxis: &e.namespaceAxis}
 		es := &engineSet{source: cs.Source}
 		var err error
 		if es.lets, err = l.lets(cs.Lets, l.vars); err != nil {
@@ -125,6 +132,8 @@ type loader struct {
 	ns    map[string]string
 	cache map[string]*xpath.Expr
 	vars  map[string]bool
+	// namespaceAxis is set when an expression uses the namespace axis.
+	namespaceAxis *bool
 }
 
 // compile parses an expression, reusing an earlier parse of the same
@@ -136,6 +145,9 @@ func (l loader) compile(src string, vars map[string]bool) (*xpath.Expr, error) {
 	e, err := xpath.Compile(src, xpath.Options{Namespaces: l.ns, Variables: vars})
 	if err != nil {
 		return nil, err
+	}
+	if e.UsesNamespaceAxis() {
+		*l.namespaceAxis = true
 	}
 	if !strings.Contains(src, "$") {
 		l.cache[src] = e

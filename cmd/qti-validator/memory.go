@@ -27,9 +27,14 @@ const (
 	// minValidationMemory keeps the budget of a container that is too small
 	// usable: typical items, of a few thousand nodes, still validate.
 	minValidationMemory = 32 << 20
-	// gomemlimitHeadroom is left to the runtime below the memory limit when
-	// the soft limit is derived, for non-heap memory the GC cannot reclaim.
-	gomemlimitHeadroom = 64 << 20
+	// gomemlimitHeadroom is what the soft limit of the Go runtime stays
+	// below the memory limit: the runtime counts what it manages, the heap
+	// and the stacks, and the limit of the container counts the rest too,
+	// the binary and the buffers of the kernel. It is less than
+	// validationHeadroom on purpose: the budget of the validations and the
+	// idle process together stay below the soft limit, so the collector
+	// does not run without end when the budget is in full use.
+	gomemlimitHeadroom = 40 << 20
 	// minGoMemLimit floors a derived soft limit so a very small container
 	// does not set an unusable one.
 	minGoMemLimit = 32 << 20
@@ -45,10 +50,14 @@ func validationMemoryBudget(log *slog.Logger, cfg config.Config, env spoolEnv, s
 		return cfg.MaxValidationMemory
 	}
 	if env.MemoryLimit <= 0 {
-		log.Warn("no container memory limit detected; the validation-memory budget cannot be sized to the container and falls back to a constant. "+
-			"On a memory-constrained host set MAX_VALIDATION_MEMORY (and a memory limit)",
-			"max_validation_memory", defaultValidationMemory)
-		return defaultValidationMemory
+		budget := int64(defaultValidationMemory)
+		if env.PhysicalMemory > 0 {
+			budget = max(min(budget, env.PhysicalMemory-validationHeadroom), minValidationMemory)
+		}
+		log.Warn("no memory limit detected, on the container or above it; the memory of the validations cannot be sized to it and falls back to a constant. "+
+			"On a host with less to spare set MAX_VALIDATION_MEMORY, or a memory limit",
+			"physical_memory", env.PhysicalMemory, "max_validation_memory", budget)
+		return budget
 	}
 	budget := env.MemoryLimit - validationHeadroom
 	tmpfsShare := int64(0)
@@ -65,21 +74,22 @@ func validationMemoryBudget(log *slog.Logger, cfg config.Config, env spoolEnv, s
 	return budget
 }
 
-// applyMemoryLimit derives the Go soft memory limit (GOMEMLIMIT) from the
-// container's memory limit when it is not set explicitly, so a larger
-// container collects less often and a smaller one sooner. It leaves
-// GOMEMLIMIT untouched when it is set, keeping today's behaviour for the
-// default image, which sets GOMEMLIMIT=90MiB. Running the binary with
-// GOMEMLIMIT empty (-e GOMEMLIMIT=) opts into the derived limit.
+// applyMemoryLimit sets the soft memory limit of the Go runtime (GOMEMLIMIT)
+// from the container's memory limit, unless GOMEMLIMIT is set, which is
+// kept. Near the soft limit the collector works harder, so the process
+// stays within the container; far below it the collector runs as usual,
+// when the heap has doubled. Without a memory limit there is nothing to
+// stay within, and no soft limit.
 func applyMemoryLimit(log *slog.Logger, env spoolEnv) {
 	if v, ok := os.LookupEnv("GOMEMLIMIT"); ok && v != "" {
-		return // set explicitly; the runtime already applied it
+		log.Info("GOMEMLIMIT is set and kept", "gomemlimit", v, "memory_limit", env.MemoryLimit)
+		return // the runtime applied it
 	}
 	if env.MemoryLimit <= 0 {
-		return // nothing to derive from
+		return
 	}
 	soft := max(env.MemoryLimit-gomemlimitHeadroom, minGoMemLimit)
 	debug.SetMemoryLimit(soft)
-	log.Info("derived GOMEMLIMIT from the memory limit",
+	log.Info("soft memory limit of the Go runtime derived from the memory limit",
 		"memory_limit", env.MemoryLimit, "headroom", gomemlimitHeadroom, "gomemlimit", soft)
 }

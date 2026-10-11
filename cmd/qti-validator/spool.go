@@ -15,11 +15,15 @@ const processHeadroom = 160 << 20
 type spoolEnv struct {
 	TmpfsSize   int64 // size of the tmpfs holding the temporary directory; 0 when it is not one
 	MemoryLimit int64 // the container's memory limit; 0 when unknown or unlimited
+	// PhysicalMemory is the memory of the machine; 0 when unknown. A
+	// MemoryLimit is never more.
+	PhysicalMemory int64
 }
 
 // probeSpoolEnv inspects the temporary directory and the cgroup.
 func probeSpoolEnv() spoolEnv {
-	return spoolEnv{TmpfsSize: tmpfsSize(os.TempDir()), MemoryLimit: memoryLimit()}
+	limit, physical := memoryLimit()
+	return spoolEnv{TmpfsSize: tmpfsSize(os.TempDir()), MemoryLimit: limit, PhysicalMemory: physical}
 }
 
 // spoolBudget is the MaxSpoolSize the server uses. Request bodies in a tmpfs

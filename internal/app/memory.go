@@ -15,14 +15,9 @@ import (
 const (
 	readMemoryBase    = 1 << 20
 	readMemoryPerByte = 6
-	// Once read, a document is held in a buffer of up to a quarter more
-	// than its size.
-	heldMemoryBase = 64 << 10
 )
 
 func memoryToRead(size int64) int64 { return readMemoryBase + readMemoryPerByte*size }
-
-func memoryHeld(size int) int64 { return heldMemoryBase + int64(size)*5/4 }
 
 // reserveToRead reserves what reading a document of up to size bytes and
 // checking it against its schema takes. On failure it returns the finding
@@ -68,34 +63,47 @@ func exceededMessage(estimate MemoryEstimate, limit int64) string {
 }
 
 // reserveForRules reserves what the rules take for a document that passed
-// its schema check, which is over: until the rules start, the validation
-// holds the document and nothing else. On failure it returns the finding to
-// report, with the outcome it implies.
-func reserveForRules(ctx context.Context, rules RuleChecker, data []byte) (qti.Finding, qti.Outcome, bool) {
+// its schema check. When there is room it is reserved at once. When there
+// is none, the validation waits for it without the document: it lets go of
+// the bytes it read and of what it reserved, and reads the document again
+// once it has its room, from the upload or the package, which are on disk.
+// So a validation that waits holds no memory, and those that run stay
+// within what the service allows however many wait.
+//
+// On failure it returns the finding to report, with the outcome it implies.
+func reserveForRules(ctx context.Context, rules RuleChecker, src *source) (qti.Finding, qti.Outcome, bool) {
 	m := MemoryFrom(ctx)
 	estimator, ok := rules.(MemoryEstimator)
 	if m == nil || !ok {
 		return qti.Finding{}, qti.OutcomeValid, true
 	}
-	estimate := estimator.EstimateMemory(data)
-	if estimate.Bytes <= 0 {
+	estimate := estimator.EstimateMemory(src.data)
+	if estimate.Bytes <= 0 || m.TryReserve(estimate.Bytes) {
 		return qti.Finding{}, qti.OutcomeValid, true
 	}
-	err := m.Reserve(ctx, memoryHeld(len(data)))
-	if err == nil {
+	err := ErrMemoryBusy // a document that cannot be read again cannot wait
+	if estimate.Bytes > m.Limit() {
+		err = ErrMemoryExceeded
+	} else if src.reread != nil {
+		src.data = nil
 		err = m.Reserve(ctx, estimate.Bytes)
 	}
-	if err == nil {
-		return qti.Finding{}, qti.OutcomeValid, true
+	if err != nil {
+		f, outcome := memoryFinding(err, exceededMessage(estimate, m.Limit()))
+		return f, outcome, false
 	}
-	f, outcome := memoryFinding(err, exceededMessage(estimate, m.Limit()))
-	return f, outcome, false
+	data, failure := src.reread()
+	if failure != nil {
+		return failure.Errors[0], failure.Outcome, false
+	}
+	src.data = data
+	return qti.Finding{}, qti.OutcomeValid, true
 }
 
 // releaseMemory gives back what the validation reserved.
 func releaseMemory(ctx context.Context) {
 	if m := MemoryFrom(ctx); m != nil {
-		_ = m.Reserve(ctx, 0) // reserving less never fails
+		m.TryReserve(0)
 	}
 }
 

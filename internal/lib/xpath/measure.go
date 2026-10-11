@@ -14,6 +14,11 @@ type Size struct {
 	Texts      int // text nodes: a run of character data and CDATA sections
 	Others     int // comments and processing instructions
 	Namespaces int // namespace declarations
+	// NamespaceNodes is the number of namespace nodes the elements have
+	// together: for each element one per namespace declared on it or above
+	// it, and one for the xml prefix. They are built only for the elements
+	// a step on the namespace axis visits.
+	NamespaceNodes int64
 	// TextBytes are the bytes of the text nodes, comments and processing
 	// instructions, and ValueBytes those of the attribute values, as written:
 	// an entity reference counts by its length in the source, which is no
@@ -54,12 +59,23 @@ func (s Size) DOMBytes() int64 {
 		int64(s.Namespaces)*namespaceBytes
 }
 
+// NamespaceAxisBytes is an upper estimate of the memory the namespace nodes
+// take when a step on the namespace axis visits every element: a node for
+// each, the slice that holds them, and the extra part of the element.
+func (s Size) NamespaceAxisBytes() int64 {
+	return s.NamespaceNodes*(nodeBytes+attrSlotBytes) + int64(s.Elements)*(int64(unsafe.Sizeof(nodeExtra{}))+4*smallAllocBytes)
+}
+
 // Measure counts what Parse makes of data, in one pass that allocates
-// nothing. It expects a well-formed document, as Parse does; for any other
+// nothing but a counter per level of nesting. It expects a well-formed document, as Parse does; for any other
 // input the counts are no more than a guess, and never a failure.
 func Measure(data []byte) Size { //nolint:gocognit // one pass over the markup
 	var s Size
 	depth := 0
+	// The namespace declarations in scope, and how many each open element
+	// added to them.
+	inScope := int64(1) // the xml prefix
+	var declared []int32
 	afterText := false // the node before this point is a text node of the same parent
 	text := func(n int) {
 		if n == 0 || depth == 0 {
@@ -128,15 +144,24 @@ func Measure(data []byte) Size { //nolint:gocognit // one pass over the markup
 				return s
 			}
 			depth--
+			if n := len(declared); n > 0 {
+				inScope -= int64(declared[n-1])
+				declared = declared[:n-1]
+			}
 			afterText = false
 			data = data[end+1:]
 		default:
+			before := s.Namespaces
 			rest, empty, ok := s.startTag(data[1:])
 			if !ok {
 				return s
 			}
+			added := int32(s.Namespaces - before) //nolint:gosec // the declarations of one tag
+			s.NamespaceNodes += inScope + int64(added)
 			if !empty {
 				depth++
+				inScope += int64(added)
+				declared = append(declared, added)
 			}
 			afterText = false
 			data = rest

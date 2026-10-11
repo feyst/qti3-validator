@@ -256,8 +256,12 @@ func (a *arena) node() *Node {
 }
 
 // maxNodes is the most nodes a document may have: their positions are 32
-// bits wide.
-const maxNodes = math.MaxInt32 - 1
+// bits wide. A variable for the tests.
+var maxNodes int32 = math.MaxInt32 - 1
+
+// ErrTooManyNodes is returned by Parse for a document of more nodes than a
+// Document can hold, some two thousand million.
+var ErrTooManyNodes = errors.New("the document has too many nodes")
 
 // position narrows a line or column of the source, which stops counting at
 // the largest value a Node holds.
@@ -336,7 +340,7 @@ func ParseContext(ctx context.Context, r io.Reader) (*Document, error) { //nolin
 	}
 	newNode := func(kind NodeKind, line, col int) (*Node, error) {
 		if order > maxNodes {
-			return nil, errors.New("the document has too many nodes")
+			return nil, ErrTooManyNodes
 		}
 		n := nodes.node()
 		n.Kind, n.Line, n.Column = kind, position(line), position(col)

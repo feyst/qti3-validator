@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"qti3-validator/internal/app"
 	"qti3-validator/internal/domain/qti"
@@ -143,6 +144,9 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 		return nil, nil
 	}
 	tree, err := xpath.ParseContext(ctx, bytes.NewReader(data))
+	if errors.Is(err, xpath.ErrTooManyNodes) {
+		return nil, fmt.Errorf("%w: %w", app.ErrTooLarge, err)
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err() // stopped, not a document that does not parse
@@ -250,14 +254,18 @@ func finding(f schematron.Failure, mounted bool) app.RuleFinding {
 
 // What CheckRules takes in memory for a document, beside the document
 // itself and its tree (xpath.Size.DOMBytes): the indexes and remembered
-// node-sets of the session and of the engine, which hold a few pointers for
-// every element. Measured with the built-in rules, the most is some 75
-// bytes an element, for documents of nothing but empty HTML elements;
-// bootstrap's TestMemoryEstimate holds the estimate to what validation
-// really takes.
+// node-sets of the session and of the engine. They hold a few pointers for
+// every element, at most some 75 bytes an element with the built-in rules,
+// for documents of nothing but empty HTML elements; and the indexes of
+// identifiers hold a string and a position for every attribute they index,
+// at most some 45 bytes an attribute, for documents of nothing but choices
+// with an identifier. Rules with a step on the namespace axis build the
+// namespace nodes of the elements as well. bootstrap's TestMemoryEstimate
+// holds the estimate to what validation really takes.
 const (
-	memoryBase       = 2 << 20
-	memoryPerElement = 80
+	memoryBase         = 2 << 20
+	memoryPerElement   = 80
+	memoryPerAttribute = 64
 )
 
 var _ app.MemoryEstimator = (*Checker)(nil)
@@ -271,10 +279,16 @@ func (c *Checker) EstimateMemory(data []byte) app.MemoryEstimate {
 		return app.MemoryEstimate{}
 	}
 	size := xpath.Measure(data)
-	return app.MemoryEstimate{
-		// The document as read, its tree, the buffer of the parser for the
-		// largest piece of content, and the indexes.
-		Bytes: memoryBase + int64(len(data))*5/4 + size.DOMBytes() + size.Largest*3/2 + int64(size.Elements)*memoryPerElement,
-		Nodes: size.Nodes(),
+	// The document as read, its tree, the buffer of the parser for the
+	// largest piece of content, and the indexes.
+	total := memoryBase + int64(len(data))*5/4 + size.DOMBytes() + size.Largest*3/2 +
+		int64(size.Elements)*memoryPerElement + int64(size.Attributes)*memoryPerAttribute
+	if c.usesNamespaceAxis() {
+		total += size.NamespaceAxisBytes()
 	}
+	return app.MemoryEstimate{Bytes: total, Nodes: size.Nodes()}
+}
+
+func (c *Checker) usesNamespaceAxis() bool {
+	return slices.ContainsFunc(c.sets, func(s ruleSet) bool { return s.engine.UsesNamespaceAxis() })
 }

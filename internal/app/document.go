@@ -43,7 +43,25 @@ func (v *Validator) validateReader(ctx context.Context, r io.Reader, size int64,
 	if failure != nil {
 		return *failure
 	}
-	return v.validate(ctx, data, req, limits)
+	src := &source{data: data}
+	if seeker, ok := r.(io.Seeker); ok {
+		src.reread = func() ([]byte, *qti.DocumentResult) {
+			if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+				res := qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "read: "+err.Error())
+				return nil, &res
+			}
+			return readDocument(ctx, r, limits)
+		}
+	}
+	return v.validate(ctx, src, req, limits)
+}
+
+// source is a document in memory, and the way to read it again when there
+// is one: a validation that must wait for memory keeps nothing while it
+// waits, not even its document (see reserveForRules).
+type source struct {
+	data   []byte
+	reread func() ([]byte, *qti.DocumentResult)
 }
 
 // readDocument reads a document into memory, bounded by MaxDocumentSize. On
@@ -72,20 +90,20 @@ func readDocument(ctx context.Context, r io.Reader, limits qti.Limits) ([]byte, 
 // validate validates a document in memory. When ctx is done or the rules
 // need too much work, it stops with a too_complex finding after the findings
 // so far.
-func (v *Validator) validate(ctx context.Context, data []byte, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
-	root, err := xmldoc.DetectRoot(bytes.NewReader(data))
+func (v *Validator) validate(ctx context.Context, src *source, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
+	root, err := xmldoc.DetectRoot(bytes.NewReader(src.data))
 	if err != nil {
 		return detectionFailure(err)
 	}
 	docType, ok := qti.LookupDocumentType(root)
 	if !ok {
 		if p, ok := v.custom[root]; ok {
-			return v.validateCustom(ctx, v.customTypes[root], p, data, limits)
+			return v.validateCustom(ctx, v.customTypes[root], p, src, limits)
 		}
 		// Malformed XML is reported as such, whatever its root.
 		// The check is bound like the checks of a supported document: by
 		// the nesting depth and by ctx.
-		if err := xmldoc.CheckWellFormed(ctx, bytes.NewReader(data), limits.MaxDepth); err != nil {
+		if err := xmldoc.CheckWellFormed(ctx, bytes.NewReader(src.data), limits.MaxDepth); err != nil {
 			return detectionFailure(err)
 		}
 		return qti.Failure(qti.OutcomeInvalid, "", qti.CodeUnsupportedDocument,
@@ -94,15 +112,15 @@ func (v *Validator) validate(ctx context.Context, data []byte, req qti.VersionRe
 
 	var declared qti.DeclaredVersion
 	if docType.Namespace == qti.NamespaceManifest {
-		declared = manifestSchemaVersion(data)
+		declared = manifestSchemaVersion(src.data)
 	}
 	choice := qti.ChooseVersion(req, declared)
 	profile := v.versions[choice.Version.Name]
 
-	if f, refused := exceedsMemory(ctx, profile.Rules, data); refused {
+	if f, refused := exceedsMemory(ctx, profile.Rules, src.data); refused {
 		return qti.DocumentResult{Schema: docType.Schema, Version: choice.Version.Name, Errors: []qti.Finding{f}, Outcome: qti.OutcomeTooLarge}
 	}
-	res, verdict := checkSchema(ctx, profile.Schema, docType, data, limits)
+	res, verdict := checkSchema(ctx, profile.Schema, docType, src.data, limits)
 	if choice.ReplacesSchemaVerdict {
 		res.DropSchemaVersionVerdict()
 	}
@@ -114,18 +132,18 @@ func (v *Validator) validate(ctx context.Context, data []byte, req qti.VersionRe
 	if !assessed {
 		return res // not well-formed, too large, not assessable, or stopped
 	}
-	return checkRules(ctx, profile.Rules, data, res, limits)
+	return checkRules(ctx, profile.Rules, src, res, limits)
 }
 
-func (v *Validator) validateCustom(ctx context.Context, docType qti.DocumentType, p Profile, data []byte, limits qti.Limits) qti.DocumentResult {
-	if f, refused := exceedsMemory(ctx, p.Rules, data); refused {
+func (v *Validator) validateCustom(ctx context.Context, docType qti.DocumentType, p Profile, src *source, limits qti.Limits) qti.DocumentResult {
+	if f, refused := exceedsMemory(ctx, p.Rules, src.data); refused {
 		return qti.DocumentResult{Schema: docType.Schema, Errors: []qti.Finding{f}, Outcome: qti.OutcomeTooLarge}
 	}
-	res, verdict := checkSchema(ctx, p.Schema, docType, data, limits)
+	res, verdict := checkSchema(ctx, p.Schema, docType, src.data, limits)
 	if !assessable(res, verdict) {
 		return res
 	}
-	return checkRules(ctx, p.Rules, data, res, limits)
+	return checkRules(ctx, p.Rules, src, res, limits)
 }
 
 // checkSchema runs the schema check. The check itself cannot be
@@ -166,7 +184,7 @@ func assessable(res qti.DocumentResult, verdict SchemaVerdict) bool {
 // the end add the findings so far and a too_complex finding; rules that fail
 // add the findings so far, of the rule sets before and of their own, and an
 // internal error.
-func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.DocumentResult, limits qti.Limits) qti.DocumentResult {
+func checkRules(ctx context.Context, rules RuleChecker, src *source, res qti.DocumentResult, limits qti.Limits) qti.DocumentResult {
 	if rules == nil {
 		return res
 	}
@@ -174,14 +192,14 @@ func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.Doc
 	if remaining <= 0 {
 		return res
 	}
-	if f, outcome, ok := reserveForRules(ctx, rules, data); !ok {
+	if f, outcome, ok := reserveForRules(ctx, rules, src); !ok {
 		// The rules did not run: the document has no room in memory, now
 		// or ever.
 		res.AddError(f, outcome)
 		return res
 	}
 	res.Ran.Rules = true
-	findings, err := rules.CheckRules(ctx, data, RuleLimits{Errors: remaining, Warnings: limits.MaxErrors})
+	findings, err := rules.CheckRules(ctx, src.data, RuleLimits{Errors: remaining, Warnings: limits.MaxErrors})
 	for _, f := range findings {
 		if f.Warning {
 			res.Warnings = append(res.Warnings, f.Finding)
@@ -190,6 +208,8 @@ func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.Doc
 		res.AddError(f.Finding, qti.OutcomeInvalid)
 	}
 	switch stop, stopped := stopFinding(err); {
+	case errors.Is(err, ErrTooLarge):
+		res.AddError(qti.Finding{Code: qti.CodeTooLarge, Message: "the document has more nodes than the rules can check"}, qti.OutcomeTooLarge)
 	case stopped:
 		res.AddError(stop, qti.OutcomeTooComplex)
 	case err != nil:

@@ -2,6 +2,7 @@ package xpath
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -145,5 +146,94 @@ func TestMeasureDOMBytes(t *testing.T) {
 			}
 			runtime.KeepAlive(doc)
 		})
+	}
+}
+
+// namespaceNodes counts the namespace nodes of the elements below n, which
+// builds them.
+func namespaceNodes(n *Node) int64 {
+	total := int64(len(n.namespaces()))
+	for _, c := range n.Children {
+		total += namespaceNodes(c)
+	}
+	return total
+}
+
+// Measure counts the namespace nodes a step on the namespace axis builds,
+// and NamespaceAxisBytes covers what they take.
+func TestMeasureNamespaceNodes(t *testing.T) {
+	for name, tc := range map[string]struct {
+		doc  string
+		want int64
+	}{
+		"none declared":     {`<a><b/><b><c/></b></a>`, 4},
+		"declared at root":  {`<a xmlns="urn:a" xmlns:x="urn:x"><b/><x:b><c/></x:b></a>`, 12},
+		"declared below":    {`<a><b xmlns:x="urn:x"><c/></b><b/></a>`, 6},
+		"declared on empty": {`<a><b xmlns:x="urn:x"/><b/></a>`, 4},
+	} {
+		doc, err := Parse(strings.NewReader(tc.doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, built := Measure([]byte(tc.doc)).NamespaceNodes, namespaceNodes(doc.Root); got != tc.want || built != tc.want {
+			t.Errorf("%s: Measure counts %d namespace nodes, the axis builds %d, want %d", name, got, built, tc.want)
+		}
+	}
+	// A prefix declared again counts twice, which is more than is built.
+	again := `<a xmlns:x="urn:x"><b xmlns:x="urn:y"/></a>`
+	doc, _ := Parse(strings.NewReader(again))
+	if got, built := Measure([]byte(again)).NamespaceNodes, namespaceNodes(doc.Root); got < built {
+		t.Errorf("Measure counts %d namespace nodes, the axis builds %d", got, built)
+	}
+
+	data := []byte(`<r xmlns:a="urn:a" xmlns:b="urn:b" xmlns:c="urn:c" xmlns:d="urn:d">` + strings.Repeat(`<p><b/></p>`, 50000) + `</r>`)
+	var before, after runtime.MemStats
+	doc, err := Parse(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	built := namespaceNodes(doc.Root)
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	took, estimate := int64(after.HeapAlloc)-int64(before.HeapAlloc), Measure(data).NamespaceAxisBytes()
+	t.Logf("%d namespace nodes take %d bytes, NamespaceAxisBytes %d (%.2f×)", built, took, estimate, float64(estimate)/float64(took))
+	if estimate < took || estimate > took*3/2 {
+		t.Errorf("NamespaceAxisBytes %d for namespace nodes that take %d bytes", estimate, took)
+	}
+	runtime.KeepAlive(doc)
+}
+
+func TestUsesNamespaceAxis(t *testing.T) {
+	for src, want := range map[string]bool{
+		`namespace::*`:                        true,
+		`//p[count(namespace::*) > 2]`:        true,
+		`count(a/b[c = d/namespace::x]) > 0`:  true,
+		`string(namespace-uri(.))`:            false,
+		`//p[@a]/ancestor::*[name() = 'x']`:   false,
+		`(a | b)[1]/c[namespace::*[. = 'u']]`: true,
+	} {
+		e, err := Compile(src, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := e.UsesNamespaceAxis(); got != want {
+			t.Errorf("%s: UsesNamespaceAxis %v, want %v", src, got, want)
+		}
+	}
+}
+
+// A document of more nodes than a Document holds is refused with
+// ErrTooManyNodes.
+func TestParseTooManyNodes(t *testing.T) {
+	old := maxNodes
+	maxNodes = 5
+	defer func() { maxNodes = old }()
+	if _, err := Parse(strings.NewReader(`<a><b/><b/><b/><b/></a>`)); err != nil {
+		t.Fatalf("5 nodes: %v", err)
+	}
+	if _, err := Parse(strings.NewReader(`<a><b/><b/><b/><b x="1"/></a>`)); !errors.Is(err, ErrTooManyNodes) {
+		t.Fatalf("6 nodes: %v", err)
 	}
 }

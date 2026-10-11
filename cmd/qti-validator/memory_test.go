@@ -27,6 +27,8 @@ func TestValidationMemoryBudget(t *testing.T) {
 		{"256 MiB with a tmpfs", config.Default(), spoolEnv{MemoryLimit: 256 * mib, TmpfsSize: 4096 * mib}, 96 * mib, 96 * mib, "INFO"},
 		{"too small for anything", config.Default(), spoolEnv{MemoryLimit: 64 * mib}, 400 * mib, minValidationMemory, "INFO"},
 		{"no limit", config.Default(), spoolEnv{}, 400 * mib, defaultValidationMemory, "WARN"},
+		{"no limit on a large machine", config.Default(), spoolEnv{PhysicalMemory: 16384 * mib}, 400 * mib, defaultValidationMemory, "WARN"},
+		{"no limit on a small machine", config.Default(), spoolEnv{PhysicalMemory: 512 * mib}, 400 * mib, 448 * mib, "WARN"},
 		{"set", explicit, spoolEnv{MemoryLimit: 256 * mib}, 400 * mib, 100 * mib, ""},
 		{"set, no limit", explicit, spoolEnv{}, 400 * mib, 100 * mib, ""},
 	}
@@ -55,7 +57,7 @@ func TestApplyMemoryLimit(t *testing.T) {
 	current := func() int64 { return debug.SetMemoryLimit(-1) }
 	quiet := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 
-	// Set explicitly: left alone, as the image's GOMEMLIMIT is.
+	// Set explicitly: left alone.
 	t.Setenv("GOMEMLIMIT", "90MiB")
 	debug.SetMemoryLimit(90 * mib)
 	applyMemoryLimit(quiet, spoolEnv{MemoryLimit: 1024 * mib})

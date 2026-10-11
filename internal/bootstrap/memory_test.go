@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"runtime/metrics"
@@ -118,31 +119,47 @@ var memoryShapes = []struct {
 	{"invalid-100-errors", func(size int) []byte {
 		return repeatTo(size, itemOpen+`<qti-item-body>`, `<x/>`, `</qti-item-body></qti-assessment-item>`)
 	}},
+	// Choices with an identifier, which the rules index by it.
+	{"hottext", func(size int) []byte {
+		return numberedTo(size, itemOpen+`<qti-response-declaration identifier="R" cardinality="multiple" base-type="identifier"/><qti-item-body><qti-hottext-interaction response-identifier="R"><p>`,
+			`</p></qti-hottext-interaction></qti-item-body></qti-assessment-item>`, func(b *bytes.Buffer, i int) {
+				fmt.Fprintf(b, `<qti-hottext identifier="h%x"/>`, i)
+			})
+	}},
+	{"gaps", func(size int) []byte {
+		return numberedTo(size, itemOpen+`<qti-item-body><qti-gap-match-interaction response-identifier="R"><p>`,
+			`</p></qti-gap-match-interaction></qti-item-body></qti-assessment-item>`, func(b *bytes.Buffer, i int) {
+				fmt.Fprintf(b, `<qti-gap identifier="g%x"/>`, i)
+			})
+	}},
 	{"comments", func(size int) []byte {
 		return repeatTo(size, itemOpen+`<qti-item-body>`, `<!---->`, `</qti-item-body></qti-assessment-item>`)
 	}},
 }
 
 // phases samples the live heap while a validation runs, apart for the time
-// before and after the rules start: the first reservation that grows after
-// one that shrank is the one for the rules (app.Memory).
+// before and after the rules start: the reservation for the rules is the
+// one the validation tries without waiting (app.Memory).
 type phases struct {
 	phase    atomic.Int32
 	peak     [2]atomic.Int64
 	reserved [2]int64 // the most reserved in each phase
-	held     int64
-	shrank   bool
 }
 
 func (p *phases) Limit() int64 { return 1 << 60 }
 
-func (p *phases) Reserve(_ context.Context, n int64) error {
-	if n < p.held {
-		p.shrank = true
-	} else if n > p.held && p.shrank {
+func (p *phases) TryReserve(n int64) bool {
+	if n > 0 {
+		// What the schema check left behind is garbage by now: it is not
+		// what the rules take.
+		runtime.GC()
 		p.phase.Store(1)
 	}
-	p.held = n
+	_ = p.Reserve(context.Background(), n)
+	return true
+}
+
+func (p *phases) Reserve(_ context.Context, n int64) error {
 	i := p.phase.Load()
 	p.reserved[i] = max(p.reserved[i], n)
 	return nil
@@ -186,7 +203,7 @@ func measure(v *app.Validator, doc []byte) (p *phases, res qti.DocumentResult, e
 // What a validation reserves in memory (app.Memory) is held to what it
 // really takes, for documents of every shape: never less, or the documents
 // in progress would not fit in the memory the service was given, and for
-// the rules, which take most, not more than half as much again, or
+// the rules, which take most, not more than 1.5 times as much, or
 // documents that fit would be refused. The estimate follows the layout of
 // xpath.Node and the indexes of the rules, so a change there that makes
 // documents larger or smaller in memory fails here, and the constants
@@ -238,8 +255,9 @@ func TestMemoryEstimate(t *testing.T) {
 			t.Errorf("%s: the rules took %.1f MiB, more than the %.1f MiB reserved", shape.name, inMiB(rules), inMiB(p.reserved[1]))
 		}
 		// A small tree is all base: the bound is for documents that matter.
-		if rules > 8*mib && p.reserved[1] > rules*3/2 {
-			t.Errorf("%s: %.1f MiB reserved for the rules, more than 1.5 times the %.1f MiB they took",
+		// It is 1.5 times, and a tenth for the noise of the measurement.
+		if rules > 8*mib && p.reserved[1] > rules*16/10 {
+			t.Errorf("%s: %.1f MiB reserved for the rules, more than 1.6 times the %.1f MiB they took",
 				shape.name, inMiB(p.reserved[1]), inMiB(rules))
 		}
 		if scan > elapsed/10 {
@@ -281,5 +299,59 @@ func TestMemoryLargestDocuments(t *testing.T) {
 			fmt.Fprintf(&line, " %4.0f MiB: %6.1f MiB |", budget, (budget*mib-base)/slope/mib)
 		}
 		t.Log(line.String())
+	}
+}
+
+// namespaceAxisRules is a Schematron file for a validators directory whose
+// rule walks the namespace axis of every element.
+const namespaceAxisRules = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+  <sch:pattern id="NS">
+    <sch:rule context="*">
+      <sch:assert test="count(namespace::*) &lt; 100">Too many namespaces in scope.</sch:assert>
+    </sch:rule>
+  </sch:pattern>
+</sch:schema>`
+
+// Rules with a step on the namespace axis build the namespace nodes of the
+// elements they visit, one for every namespace in scope, which the document
+// does not hold otherwise. The estimate counts them when the rules that are
+// loaded use that axis, and only then.
+func TestMemoryEstimateNamespaceAxis(t *testing.T) {
+	if raceEnabled || testing.Short() {
+		t.Skip("measures the heap: not with the race detector, which changes it, nor in short mode")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "namespaces.sch"), []byte(namespaceAxisRules), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mounted, err := NewValidator(Options{ValidatorsDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	builtin, err := NewValidator(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Six bindings in scope of 130,000 elements.
+	open := strings.Replace(itemOpen, `<qti-assessment-item `, `<qti-assessment-item xmlns:a="urn:a" xmlns:b="urn:b" xmlns:c="urn:c" xmlns:d="urn:d" xmlns:e="urn:e" `, 1)
+	doc := repeatTo(1<<20, open+`<qti-item-body>`, `<p><b/></p>`, `</qti-item-body></qti-assessment-item>`)
+	const mib = 1 << 20
+	plain, res, _ := measure(builtin, doc)
+	if !res.Valid {
+		t.Fatalf("got %+v", res)
+	}
+	p, res, _ := measure(mounted, doc)
+	if !res.Valid || !res.Ran.Rules {
+		t.Fatalf("got %+v", res)
+	}
+	took, reserved := p.peak[1].Load(), p.reserved[1]
+	t.Logf("rules with the namespace axis took %.1f MiB, %.1f MiB reserved (%.2f×); without it %.1f MiB taken, %.1f MiB reserved",
+		float64(took)/mib, float64(reserved)/mib, float64(reserved)/float64(took), float64(plain.peak[1].Load())/mib, float64(plain.reserved[1])/mib)
+	if took > reserved || reserved > took*3/2 {
+		t.Errorf("the rules took %.1f MiB with %.1f MiB reserved", float64(took)/mib, float64(reserved)/mib)
+	}
+	if plain.reserved[1] >= reserved-50*mib {
+		t.Errorf("%.1f MiB reserved without rules on the namespace axis, %.1f MiB with them: want the namespace nodes counted only with them",
+			float64(plain.reserved[1])/mib, float64(reserved)/mib)
 	}
 }
