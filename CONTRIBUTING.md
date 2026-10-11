@@ -188,6 +188,15 @@ How the engine is checked:
   or … or starts-with(name(@*[N]), 'data-')`. The build compiles them to
   shared name lists instead of XPath. A test checks that both evaluations agree
   on every one of them.
+- **Indexed identifier counts:** the uniqueness checks of the own rules count,
+  for each element, the elements with the same identifier:
+  `count(SCOPE//qti:*[self::… or …][@identifier = current()/@identifier])`.
+  As XPath that walks the scope again for every element, so 20,000 choices in
+  one interaction took minutes. The build rewrites counts of this form into
+  `qtiv:count-by-attribute`, an XPath extension that answers from counts per
+  identifier, built once per scope and document; the `.sch` file stays plain
+  XPath. Tests check that the rules give the same findings both ways on
+  generated documents, and that the uniqueness checks are rewritten.
 - **Own rules:** `rules/qti3-additional-checks.sch` is compiled with the
   embedded rules. On the 4528 well-formed documents of the public corpora the
   engine gives the same 2339 messages as the reference implementation. The
@@ -290,8 +299,8 @@ The tests are layered like the code:
   per file with `testdata/features/golden/corpus.json`. Without the corpus
   this test is skipped, so CI does not need the network for it.
 - **Libraries:** the Schematron engine (every supported feature, first-match
-  semantics, unsupported constructs, native naming checks) and XPath 1.0
-  conformance against libxml2.
+  semantics, unsupported constructs, native naming checks, indexed counts)
+  and XPath 1.0 conformance against libxml2.
 
 None of them need the internet once the schemas are fetched.
 
