@@ -1,6 +1,7 @@
 package xpath
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"slices"
@@ -20,11 +21,20 @@ type Context struct {
 	Node *Node
 	// Variables holds the values of the variables declared at compile time.
 	Variables map[string]Value
+	// Session bounds the evaluation and shares remembered node-sets with
+	// the other evaluations in it. Without one, the evaluation has no limit
+	// and remembers node-sets only while it runs.
+	Session *Session
 }
 
-// Evaluate evaluates the expression in ctx.
+// Evaluate evaluates the expression in ctx. It fails with an error wrapping
+// ErrTooComplex or the session context's error when the session stops it.
 func (e *Expr) Evaluate(ctx Context) (Value, error) {
-	ev := &evalCtx{node: ctx.Node, pos: 1, size: 1, current: ctx.Node, vars: ctx.Variables}
+	s := ctx.Session
+	if s == nil {
+		s = NewSession(context.Background(), 0)
+	}
+	ev := &evalCtx{node: ctx.Node, pos: 1, size: 1, current: ctx.Node, vars: ctx.Variables, s: s}
 	v, err := e.root.eval(ev)
 	if err != nil {
 		return nil, fmt.Errorf("xpath %q: %w", e.source, err)
@@ -68,10 +78,11 @@ type evalCtx struct {
 	pos, size int
 	current   *Node
 	vars      map[string]Value
+	s         *Session
 }
 
 func (c *evalCtx) with(n *Node, pos, size int) *evalCtx {
-	return &evalCtx{node: n, pos: pos, size: size, current: c.current, vars: c.vars}
+	return &evalCtx{node: n, pos: pos, size: size, current: c.current, vars: c.vars, s: c.s}
 }
 
 type expr interface {
@@ -160,7 +171,7 @@ func (e *binaryExpr) eval(c *evalCtx) (Value, error) {
 	}
 	switch e.op {
 	case "=", "!=", "<", "<=", ">", ">=":
-		return compare(e.op, l, r), nil
+		return compare(c, e.op, l, r)
 	}
 	a, b := toNumber(l), toNumber(r)
 	switch e.op {
@@ -178,43 +189,46 @@ func (e *binaryExpr) eval(c *evalCtx) (Value, error) {
 	return nil, fmt.Errorf("unknown operator %s", e.op)
 }
 
-// compare implements XPath 1.0 section 3.4.
-func compare(op string, l, r Value) bool {
+// compare implements XPath 1.0 section 3.4. Each pair of values compared is
+// a step.
+func compare(c *evalCtx, op string, l, r Value) (bool, error) {
 	ln, lIsSet := l.(NodeSet)
 	rn, rIsSet := r.(NodeSet)
 	switch {
 	case lIsSet && rIsSet:
 		for _, a := range ln {
 			av := a.StringValue()
-			for _, b := range rn {
-				if compareAtoms(op, av, b.StringValue()) {
-					return true
-				}
+			found, err := anyNode(c, rn, func(bv string) bool { return compareAtoms(op, av, bv) })
+			if found || err != nil {
+				return found, err
 			}
 		}
-		return false
+		return false, nil
 	case lIsSet:
 		if b, ok := r.(bool); ok {
-			return compareAtoms(op, len(ln) > 0, b)
+			return compareAtoms(op, len(ln) > 0, b), nil
 		}
-		for _, a := range ln {
-			if compareAtoms(op, atomFor(a.StringValue(), r), r) {
-				return true
-			}
-		}
-		return false
+		return anyNode(c, ln, func(s string) bool { return compareAtoms(op, atomFor(s, r), r) })
 	case rIsSet:
 		if b, ok := l.(bool); ok {
-			return compareAtoms(op, b, len(rn) > 0)
+			return compareAtoms(op, b, len(rn) > 0), nil
 		}
-		for _, b := range rn {
-			if compareAtoms(op, l, atomFor(b.StringValue(), l)) {
-				return true
-			}
-		}
-		return false
+		return anyNode(c, rn, func(s string) bool { return compareAtoms(op, l, atomFor(s, l)) })
 	}
-	return compareAtoms(op, l, r)
+	return compareAtoms(op, l, r), nil
+}
+
+// anyNode reports whether the string-value of a node in ns satisfies f.
+func anyNode(c *evalCtx, ns NodeSet, f func(string) bool) (bool, error) {
+	if err := c.s.charge(len(ns)); err != nil {
+		return false, err
+	}
+	for _, n := range ns {
+		if f(n.StringValue()) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // atomFor converts a node's string-value to the type of the other operand
@@ -276,6 +290,10 @@ type pathExpr struct {
 	absolute bool
 	filter   expr
 	steps    []step
+	// independent marks an absolute path that refers to neither current()
+	// nor a variable: it selects the same nodes wherever in a document it is
+	// evaluated, so a session evaluates it once per document.
+	independent bool
 }
 
 func (e *pathExpr) eval(c *evalCtx) (Value, error) {
@@ -291,10 +309,18 @@ func (e *pathExpr) eval(c *evalCtx) (Value, error) {
 		for root.Parent != nil {
 			root = root.Parent
 		}
+		if e.independent {
+			return c.s.remember(e, root, func() (NodeSet, error) { return e.walk(NodeSet{root}, c) })
+		}
 		nodes = NodeSet{root}
 	default:
 		nodes = NodeSet{c.node}
 	}
+	return e.walk(nodes, c)
+}
+
+// walk applies the steps of the path to nodes.
+func (e *pathExpr) walk(nodes NodeSet, c *evalCtx) (NodeSet, error) {
 	for _, s := range e.steps {
 		var out NodeSet
 		for _, n := range nodes {
@@ -403,14 +429,20 @@ type step struct {
 	preds []expr
 }
 
-// apply returns the nodes the step selects from n, in document order.
+// apply returns the nodes the step selects from n, in document order. Each
+// node on the axis is a step, and so is the step itself.
 func (s step) apply(n *Node, c *evalCtx) (NodeSet, error) {
 	var nodes NodeSet
+	visited := 0
 	s.collect(n, func(m *Node) {
+		visited++
 		if s.test.match(m) {
 			nodes = append(nodes, m)
 		}
 	})
+	if err := c.s.charge(visited + 1); err != nil {
+		return nil, err
+	}
 	// nodes is in axis order, which predicates use for proximity positions.
 	nodes, err := applyPredicates(nodes, s.preds, c)
 	if err != nil {
@@ -520,6 +552,9 @@ func applyPredicates(nodes NodeSet, preds []expr, c *evalCtx) (NodeSet, error) {
 	for _, pred := range preds {
 		var kept NodeSet
 		for i, n := range nodes {
+			if err := c.s.charge(1); err != nil {
+				return nil, err
+			}
 			v, err := pred.eval(c.with(n, i+1, len(nodes)))
 			if err != nil {
 				return nil, err

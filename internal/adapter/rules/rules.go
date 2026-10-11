@@ -4,6 +4,7 @@ package rules
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 
@@ -19,12 +20,21 @@ import (
 // docs/additional-checks.md describes them.
 const AdditionalChecks = "qti3-additional-checks.sch"
 
+// StepBudget is how many XPath steps (see xpath.Session) the rules may take
+// on one document. The most expensive of the 1162 documents in testdata,
+// examples and the 1EdTech corpus takes about 220,000 steps; at 50 to 70 ns
+// a step, the budget stops a document after some 5 to 7 seconds of work,
+// well within the default REQUEST_TIMEOUT, and the same way every time.
+const StepBudget = 100_000_000
+
 // Checker runs one or more rule sets on a document, which it parses once.
 // It is safe for concurrent use.
 type Checker struct {
 	sets []ruleSet
 	// types runs the type checks of types.go after the rule sets.
 	types bool
+	// budget replaces StepBudget when it is not zero.
+	budget int64
 }
 
 var _ app.RuleChecker = (*Checker)(nil)
@@ -76,7 +86,11 @@ func Chain(checkers ...*Checker) *Checker {
 // CheckRules implements app.RuleChecker. Each rule set runs while fewer than
 // maxFindings errors were found; warnings do not count. A nil Checker has no
 // rules.
-func (c *Checker) CheckRules(data []byte, maxFindings int) ([]app.RuleFinding, error) {
+//
+// All rule sets share one budget of StepBudget XPath steps for the
+// document. When it runs out, or ctx is done, CheckRules returns the
+// findings so far with an error wrapping app.ErrTooComplex or ctx.Err().
+func (c *Checker) CheckRules(ctx context.Context, data []byte, maxFindings int) ([]app.RuleFinding, error) {
 	if c == nil {
 		return nil, nil
 	}
@@ -84,6 +98,11 @@ func (c *Checker) CheckRules(data []byte, maxFindings int) ([]app.RuleFinding, e
 	if err != nil {
 		return nil, errors.New("parse for Schematron: " + err.Error())
 	}
+	budget := c.budget
+	if budget == 0 {
+		budget = StepBudget
+	}
+	session := xpath.NewSession(ctx, budget)
 	var out []app.RuleFinding
 	errorCount := 0
 	for _, set := range c.sets {
@@ -93,16 +112,21 @@ func (c *Checker) CheckRules(data []byte, maxFindings int) ([]app.RuleFinding, e
 				break
 			}
 		}
-		failures, err := set.engine.Validate(tree, remaining)
-		if err != nil {
-			return nil, errors.New("Schematron: " + err.Error())
-		}
+		failures, err := set.engine.Validate(session, tree, remaining)
 		for _, f := range failures {
 			rf := finding(f, set.mounted)
 			if !rf.Warning {
 				errorCount++
 			}
 			out = append(out, rf)
+		}
+		switch {
+		case errors.Is(err, xpath.ErrTooComplex):
+			return out, fmt.Errorf("%w: %w", app.ErrTooComplex, err)
+		case ctx.Err() != nil && errors.Is(err, ctx.Err()):
+			return out, err
+		case err != nil:
+			return nil, errors.New("Schematron: " + err.Error())
 		}
 	}
 	if c.types {

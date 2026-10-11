@@ -2,6 +2,7 @@ package xpath
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -39,7 +40,63 @@ func Compile(source string, opts Options) (*Expr, error) {
 	if err != nil {
 		return nil, fmt.Errorf("xpath %q: %w", source, err)
 	}
+	markIndependent(root)
 	return &Expr{source: source, root: root}, nil
+}
+
+// markIndependent marks the absolute paths in e that select the same nodes
+// wherever they are evaluated. Such a path depends on its context only
+// through current() and variables: its predicates evaluate in contexts of
+// their own, with their own position and size. A rule such as
+// count(//a[@id = //b/@ref]) evaluates //b/@ref for every a, and the whole
+// path for every context node of the rule; marked, each is evaluated once
+// per document.
+func markIndependent(e expr) {
+	if p, ok := e.(*pathExpr); ok && p.absolute && p.filter == nil && len(p.steps) > 0 {
+		p.independent = !dependsOnContext(p)
+	}
+	for _, sub := range subexpressions(e) {
+		markIndependent(sub)
+	}
+}
+
+// dependsOnContext reports whether e refers to current() or a variable.
+func dependsOnContext(e expr) bool {
+	switch x := e.(type) {
+	case variableExpr:
+		return true
+	case *callExpr:
+		if x.name == "current" {
+			return true
+		}
+	}
+	return slices.ContainsFunc(subexpressions(e), dependsOnContext)
+}
+
+// subexpressions returns the operands, arguments and predicates of e.
+func subexpressions(e expr) []expr {
+	switch x := e.(type) {
+	case *negateExpr:
+		return []expr{x.e}
+	case *unionExpr:
+		return []expr{x.left, x.right}
+	case *binaryExpr:
+		return []expr{x.left, x.right}
+	case *filterExpr:
+		return append([]expr{x.primary}, x.preds...)
+	case *callExpr:
+		return x.args
+	case *pathExpr:
+		var out []expr
+		if x.filter != nil {
+			out = append(out, x.filter)
+		}
+		for _, s := range x.steps {
+			out = append(out, s.preds...)
+		}
+		return out
+	}
+	return nil
 }
 
 // mergeDescendantSteps rewrites descendant-or-self::node()/child::T into

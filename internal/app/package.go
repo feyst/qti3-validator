@@ -66,8 +66,11 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 		if name == qti.ManifestName {
 			hasManifest = true
 		}
-		if err := ctx.Err(); err != nil {
-			res.Fail(qti.OutcomeInternal, qti.Finding{Code: qti.CodeInternal, Message: "validation interrupted: " + err.Error()})
+		if stop, stopped := stopFinding(ctx.Err()); stopped {
+			// Out of time: the files from here on are not validated, and the
+			// package references are not checked, as they would miss files.
+			stop.Message += "; " + name + " and the files after it were not validated"
+			res.Fail(qti.OutcomeTooComplex, stop)
 			return res
 		}
 		fr, outcome, doc := v.validateEntry(ctx, e, limits.MaxFileSize, &budget, req, manifest.qtiFiles[name])
@@ -166,7 +169,7 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 	if failure != nil {
 		res = *failure
 	} else {
-		res = v.validate(data, req, limits)
+		res = v.validate(ctx, data, req, limits)
 	}
 	*budget -= counted.n
 	doc := v.documentReferences(data, res)
@@ -188,8 +191,8 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 	case len(res.Errors) == 1 && res.Errors[0].Code == qti.CodeUnsupportedDocument && !qtiResource:
 		out.Valid, out.Skipped = true, true
 		return out, qti.OutcomeValid, doc
-	case res.Outcome == qti.OutcomeInternal:
-		return out, qti.OutcomeInternal, doc
+	case res.Outcome == qti.OutcomeInternal, res.Outcome == qti.OutcomeTooComplex:
+		return out, res.Outcome, doc
 	}
 	// Inside a package a malformed or oversized document makes the package
 	// invalid; the request itself was fine.

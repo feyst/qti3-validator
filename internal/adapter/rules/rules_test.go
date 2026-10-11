@@ -2,7 +2,9 @@ package rules
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"qti3-validator/internal/adapter/schemastore"
+	"qti3-validator/internal/app"
 	"qti3-validator/internal/domain/qti"
 	"qti3-validator/internal/lib/schematron"
 	"qti3-validator/internal/testutil"
@@ -48,7 +51,7 @@ func messages(t *testing.T, c *Checker, file string, own, markWarnings bool) ([]
 	if err != nil {
 		t.Fatal(err)
 	}
-	findings, err := c.CheckRules(data, 0)
+	findings, err := c.CheckRules(context.Background(), data, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,17 +167,54 @@ func TestChain(t *testing.T) {
 		t.Fatal("a chain of nil checkers is not nil")
 	}
 	var none *Checker
-	if f, err := none.CheckRules([]byte("<x/>"), 0); f != nil || err != nil {
+	if f, err := none.CheckRules(context.Background(), []byte("<x/>"), 0); f != nil || err != nil {
 		t.Fatalf("nil checker: %v, %v", f, err)
 	}
 	c := versionRules(t, "3.0.0")
 	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
-	all, err := Chain(c, c).CheckRules(data, 0)
+	all, err := Chain(c, c).CheckRules(context.Background(), data, 0)
 	if err != nil || len(all) != 2 {
 		t.Fatalf("chain of two: %d findings, %v", len(all), err)
 	}
-	limited, _ := Chain(c, c).CheckRules(data, 1)
+	limited, _ := Chain(c, c).CheckRules(context.Background(), data, 1)
 	if len(limited) != 1 {
 		t.Fatalf("limited to 1: %d findings", len(limited))
+	}
+}
+
+// The rule sets of a chain share one budget per document. When it runs out,
+// the findings so far come back with app.ErrTooComplex.
+func TestBudget(t *testing.T) {
+	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
+	check := func(c *Checker, budget int64) ([]app.RuleFinding, error) {
+		c.budget = budget
+		return c.CheckRules(context.Background(), data, 0)
+	}
+	// Find the least budget one rule set needs.
+	c := versionRules(t, "3.0.0")
+	lo, hi := int64(0), int64(StepBudget)
+	for lo+1 < hi {
+		mid := (lo + hi) / 2
+		if _, err := check(c, mid); err != nil {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	if _, err := check(c, lo); !errors.Is(err, app.ErrTooComplex) {
+		t.Fatalf("got %v, want app.ErrTooComplex", err)
+	}
+	findings, err := check(Chain(c, c), hi)
+	if !errors.Is(err, app.ErrTooComplex) || len(findings) != 1 {
+		t.Fatalf("chain of two on the budget of one: %d findings, %v", len(findings), err)
+	}
+}
+
+func TestContextEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
+	if _, err := versionRules(t, "3.0.0").CheckRules(ctx, data, 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v, want context.Canceled", err)
 	}
 }

@@ -147,7 +147,8 @@ curl -X POST 'http://localhost:8080/api/validate?version=3.0.1&name=toets.zip' \
 ### Outcomes
 
 Every request that could be validated gets **HTTP 200** and a report, also
-when the content is invalid. Each finding is listed under its outcome
+when the content is invalid; a validation that had to stop before the end
+gets HTTP 422 with the report so far. Each finding is listed under its outcome
 (`errors`, `warnings`, `fatals`, …), and `summary.outcome` is the most severe
 one:
 
@@ -157,7 +158,7 @@ one:
 | `WARNING` | Something to look at that does not break the item, such as an outcome that is never used | yes |
 | `ERROR` | A document breaks the XML Schema or a rule, or a package misses its manifest | no |
 | `FATAL` | Something could not be read at all: XML that is not well-formed, not UTF-8 or has a `DOCTYPE`, a document that is not QTI 3, or a body that is not a ZIP | no |
-| `EXCEPTION` | The service itself failed, for example a validation interrupted by `REQUEST_TIMEOUT`; the response is then HTTP 500 | no |
+| `EXCEPTION` | The validation did not finish: it stopped because a document is too complex or took longer than `REQUEST_TIMEOUT` (code `too_complex`, HTTP 422), or the service itself failed (code `internal`, HTTP 500) | no |
 | `NOT_RUN` | A check was skipped: an XML file that is not a QTI document, or the checks after a `FATAL` | does not count |
 
 In a package, every file gets its own findings, so one package can contain
@@ -182,6 +183,7 @@ JSON body:
 | 400 | `unknown_validator` | `validatorId` is not listed by `GET /api/validators` |
 | 400 | `invalid_request` | The body could not be read |
 | 413 | `too_large`, `too_many_files` | The request, package, or the XML in a package exceeds a limit |
+| 422 | `too_complex` | Validation stopped before the end: a document's rules need more work than one document may take (some seconds of CPU), or validation took longer than `REQUEST_TIMEOUT`; the body is a report with outcome `EXCEPTION` and the findings so far |
 | 500 | `internal` | The service failed; the body is a report with outcome `EXCEPTION` |
 | 503 | `busy` | All validation slots stayed busy for `REQUEST_TIMEOUT`; retry later |
 
@@ -200,7 +202,7 @@ All settings are environment variables. Sizes are in bytes.
 | `MAX_ERRORS` | `100` | Most errors reported per document |
 | `MAX_DEPTH` | `256` | Deepest element nesting accepted |
 | `MAX_CONCURRENT` | number of CPUs | Validations that run at the same time; further requests wait |
-| `REQUEST_TIMEOUT` | `60s` | Time limit per request, including waiting for a free slot |
+| `REQUEST_TIMEOUT` | `60s` | Time limit per request, including waiting for a free slot; a validation still running then stops with `too_complex` (the XML Schema check of the current document finishes first) |
 | `VALIDATORS_DIR` | `/validators` | Directory with extra validators; see [Custom validators](docs/custom-validators.md) |
 
 For example:
