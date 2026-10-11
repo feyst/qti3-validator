@@ -222,7 +222,7 @@ func idle(s *Server) bool {
 			return false
 		}
 	}
-	return len(s.slots) == 0 && len(s.largeSlots) == 0 && queued(s) == 0
+	return len(s.slots) == 0 && len(s.express) == 0 && queued(s) == 0
 }
 
 // Documents that together take more memory than the budget are validated
@@ -345,9 +345,10 @@ func TestMemoryBoundByNodes(t *testing.T) {
 	}
 }
 
-// With two or more slots one is kept for small requests: large documents
-// that take long do not keep a typical item waiting.
-func TestSlotKeptForSmallRequests(t *testing.T) {
+// Beside the regular slots there is an express slot for small requests:
+// large documents that take long on every regular slot do not keep a typical
+// item waiting, and they run MaxConcurrent at a time.
+func TestExpressSlotForSmallRequests(t *testing.T) {
 	release := make(chan struct{})
 	var running atomic.Int64
 	v := fakeValidator{wait: func(context.Context) {
@@ -357,25 +358,78 @@ func TestSlotKeptForSmallRequests(t *testing.T) {
 	srv, s := newFakeServer(t, Options{MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 2}, v)
 	url := srv.URL + "/api/validate"
 	large := []byte("<x>" + strings.Repeat(" ", smallRequestSize) + "</x>")
-	done := postAsync(t, url, large, 2)
-	waitFor(t, "one large document running and one waiting", func() bool { return running.Load() == 1 && s.waiting.Load() == 1 })
-	small := postAsync(t, url, []byte("<x/>"), 1)
-	waitFor(t, "the small document running beside it", func() bool { return running.Load() == 2 })
-	if s.waiting.Load() != 1 || len(s.slots) != 2 {
-		t.Fatalf("waiting %d, slots %d", s.waiting.Load(), len(s.slots))
+	done := postAsync(t, url, large, 3)
+	waitFor(t, "two large documents running and one waiting", func() bool { return running.Load() == 2 && s.waiting.Load() == 1 })
+	if len(s.slots) != 2 || len(s.express) != 0 {
+		t.Fatalf("regular slots %d, express %d: the large documents take every regular slot and no other", len(s.slots), len(s.express))
+	}
+	small := postAsync(t, url, []byte("<x/>"), 2)
+	waitFor(t, "a small document running beside them, and one waiting for it", func() bool {
+		return running.Load() == 3 && s.waitingSmall.Load() == 1
+	})
+	if s.waiting.Load() != 1 || len(s.slots) != 2 || len(s.express) != 1 {
+		t.Fatalf("waiting %d, regular slots %d, express %d", s.waiting.Load(), len(s.slots), len(s.express))
 	}
 	close(release)
-	for _, c := range []chan int{done, done, small} {
+	for _, c := range []chan int{done, done, done, small, small} {
 		if status := <-c; status != http.StatusOK {
 			t.Fatalf("status %d", status)
 		}
 	}
 	waitFor(t, "everything released", func() bool { return idle(s) })
 
-	// One slot is for whoever comes.
+	// A small request takes the express slot first, and a regular one when
+	// that is taken; a large request takes a regular one only.
 	one := New(Options{MaxPackageSize: 1 << 20, MaxConcurrent: 1}, v, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if one.largeSlots != nil || !one.tryTakeSlot(true) || one.tryTakeSlot(false) {
-		t.Fatal("with one slot a large request takes it")
+	if one.tryTakeSlot(false) != expressSlot || one.tryTakeSlot(true) != regularSlot ||
+		one.tryTakeSlot(true) != noSlot || one.tryTakeSlot(false) != noSlot {
+		t.Fatal("with MaxConcurrent 1: one regular slot and the express slot")
+	}
+	one.freeSlot(regularSlot)
+	if one.tryTakeSlot(false) != regularSlot {
+		t.Fatal("a small request takes a regular slot when the express slot is taken")
+	}
+}
+
+// A small request whose validation reserves more than a small one may is a
+// large one from then on: it leaves the express slot for a regular one, and
+// when there is none free it waits for one, holding neither. So what runs
+// beside the regular slots takes its memory from the small share only.
+func TestExpressSlotIsLeftByAValidationThatGrowsLarge(t *testing.T) {
+	s := memServer(108*mib, 1, 4)
+	ctx := context.Background()
+	slot := s.acquire(ctx, httptest.NewRecorder(), false)
+	h := s.newMemoryHold(slot, false)
+	if slot != expressSlot || !h.TryReserve(2*mib) || !h.held.small {
+		t.Fatalf("slot %v, reservation %+v: a small request starts on the express slot, in the small share", slot, h.held)
+	}
+	if !h.TryReserve(20*mib) || h.slot != regularSlot || !h.large || h.held.small || len(s.express) != 0 || len(s.slots) != 1 {
+		t.Fatalf("grown large: slot %v, large %v, reservation %+v, express %d, regular %d", h.slot, h.large, h.held, len(s.express), len(s.slots))
+	}
+	// The regular slot is taken now: the next one cannot swap, and waits.
+	slot2 := s.acquire(ctx, httptest.NewRecorder(), false)
+	h2 := s.newMemoryHold(slot2, false)
+	if slot2 != expressSlot || !h2.TryReserve(2*mib) {
+		t.Fatalf("second request: slot %v", slot2)
+	}
+	if h2.TryReserve(20*mib) || h2.slot != expressSlot || h2.held.n != 2*mib || len(s.slots) != 1 {
+		t.Fatalf("no regular slot free: slot %v, reservation %+v, regular %d", h2.slot, h2.held, len(s.slots))
+	}
+	got := make(chan error, 1)
+	go func() { got <- h2.Reserve(ctx, 20*mib) }()
+	waitFor(t, "the second request waiting without a slot", func() bool { return s.waiting.Load() == 1 && len(s.express) == 0 && len(s.slots) == 1 })
+	select {
+	case err := <-got:
+		t.Fatalf("it got its room without a regular slot: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	h.release()
+	if err := <-got; err != nil || h2.slot != regularSlot || len(s.express) != 0 {
+		t.Fatalf("after the first released: %v, slot %v, express %d", err, h2.slot, len(s.express))
+	}
+	h2.release()
+	if !idle(s) {
+		t.Fatal("not idle in the end")
 	}
 }
 
@@ -435,7 +489,7 @@ func TestMemoryBoundStress(t *testing.T) {
 	s := memServer(budget, 4, 16)
 	var peak peakOf
 	var wg sync.WaitGroup
-	var ok, busy, noSlot atomic.Int64
+	var ok, busy, refused atomic.Int64
 	requests, spread := 400, 3000
 	if testing.Short() {
 		requests, spread = 100, 500
@@ -451,11 +505,12 @@ func TestMemoryBoundStress(t *testing.T) {
 				go func() { time.Sleep(d); cancel() }()
 			}
 			large := r.Intn(3) > 0
-			if !s.acquire(ctx, httptest.NewRecorder(), large) {
-				noSlot.Add(1)
+			slot := s.acquire(ctx, httptest.NewRecorder(), large)
+			if slot == noSlot {
+				refused.Add(1)
 				return
 			}
-			h := s.newMemoryHold(large)
+			h := s.newMemoryHold(slot, large)
 			defer h.release()
 			for range 1 + r.Intn(3) {
 				size := int64(1+r.Intn(10)) * mib
@@ -466,8 +521,14 @@ func TestMemoryBoundStress(t *testing.T) {
 					if used > budget {
 						t.Errorf("%d MiB reserved of %d", used/mib, budget/mib)
 					}
-					if h.held.n > 0 && !h.slot {
+					if h.held.n > 0 && h.slot == noSlot {
 						t.Errorf("%d bytes reserved without a slot", h.held.n)
+					}
+					if h.slot == expressSlot && (h.large || !h.held.small && h.held.n > 0) {
+						t.Errorf("on the express slot: large %v, reservation %+v", h.large, h.held)
+					}
+					if n := len(s.slots); n > 4 {
+						t.Errorf("%d regular slots taken of 4", n)
 					}
 					time.Sleep(time.Duration(r.Intn(15)) * time.Millisecond)
 				})
@@ -481,10 +542,10 @@ func TestMemoryBoundStress(t *testing.T) {
 	}
 	wg.Wait()
 	t.Logf("%d validated, %d found no memory in time, %d no slot; at most %d MiB reserved of %d",
-		ok.Load(), busy.Load(), noSlot.Load(), peak.Load()/mib, budget/mib)
+		ok.Load(), busy.Load(), refused.Load(), peak.Load()/mib, budget/mib)
 	if !idle(s) || ok.Load() == 0 {
 		t.Errorf("in the end: used %d, urgent %v, waiting %d, slots %d, large %d; %d validated",
-			usedOf(s.mem), s.mem.urgent, queued(s), len(s.slots), len(s.largeSlots), ok.Load())
+			usedOf(s.mem), s.mem.urgent, queued(s), len(s.slots), len(s.express), ok.Load())
 	}
 }
 
@@ -513,12 +574,13 @@ func TestMemoryBoundHoldsWithManyWaiting(t *testing.T) {
 				time.Sleep(time.Duration(i) * time.Millisecond)
 				for time.Now().Before(deadline) {
 					ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-					if !s.acquire(ctx, httptest.NewRecorder(), true) {
+					slot := s.acquire(ctx, httptest.NewRecorder(), true)
+					if slot == noSlot {
 						cancel()
 						time.Sleep(5 * time.Millisecond)
 						continue
 					}
-					h := s.newMemoryHold(true)
+					h := s.newMemoryHold(slot, true)
 					if validateLike(ctx, h, size, estimate,
 						func(d int64) { held.see(holding.Add(d)) },
 						func(phase time.Duration) {

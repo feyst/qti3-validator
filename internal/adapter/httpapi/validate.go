@@ -5,7 +5,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -71,7 +70,8 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Freed last, once the temporary file is removed.
+	// Freed last, once the body is let go of and its temporary file, if it
+	// has one, is removed.
 	reservation, ok := s.reserveBody(w, r, shape)
 	if !ok {
 		return
@@ -87,7 +87,9 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	_ = rc.SetReadDeadline(deadline)
 	_ = rc.SetWriteDeadline(deadline.Add(s.writeGrace))
 
-	body, uploadName, limit := io.Reader(r.Body), "", s.opts.MaxPackageSize
+	// length is the length of the input when the request declares it,
+	// negative when it does not.
+	body, uploadName, limit, length := io.Reader(r.Body), "", s.opts.MaxPackageSize, r.ContentLength
 	switch shape {
 	case shapeMultipart:
 		part, ok := s.filePart(w, r)
@@ -95,6 +97,12 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		body, uploadName = part, part.FileName()
+		// The file is the request less the multipart headers around it:
+		// how long it is shows only as it arrives, unless the request is
+		// so long that it cannot be small.
+		if length < smallRequestSize+multipartOverhead {
+			length = -1
+		}
 	case shapeDocument:
 		// The validator reports a document over its limit; one byte more is
 		// enough for it to tell.
@@ -104,27 +112,27 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 
 	// The input is received in full before a slot is taken, so a slow upload
 	// holds none: slots bound the work of validation, not the network.
-	f, size, ok := s.spool(w, body, limit, reservation)
+	u, ok := s.spool(w, body, limit, length, reservation)
 	if !ok {
 		return
 	}
-	defer os.Remove(f.Name())
-	defer f.Close()
+	defer u.close()
 
-	large := size >= smallRequestSize
-	if !s.acquire(ctx, w, large) {
+	large := u.size >= smallRequestSize
+	slot := s.acquire(ctx, w, large)
+	if slot == noSlot {
 		return
 	}
 	// The validation reserves its memory from the hold as it goes, and may
 	// give up its slot while it waits for room.
-	hold := s.newMemoryHold(large)
+	hold := s.newMemoryHold(slot, large)
 	defer hold.release()
 	ctx = hold.context(ctx)
 
-	isPackage := shape == shapePackage || shape != shapeDocument && isZIPFile(f)
+	isPackage := shape == shapePackage || shape != shapeDocument && isZIP(u)
 	if isPackage {
 		res := s.validator.ValidatePackage(ctx, app.ValidatePackage{
-			Package: f, Size: size, Limits: s.opts.PackageLimits, Version: version,
+			Package: u, Size: u.size, Limits: s.opts.PackageLimits, Version: version,
 		})
 		if hold.refused(w) {
 			return
@@ -133,7 +141,7 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 		s.writePackageReport(w, res, newMeta(inputName(r, uploadName, defaultPackageName)))
 		return
 	}
-	res := s.validator.ValidateDocument(ctx, app.ValidateDocument{Document: io.NewSectionReader(f, 0, size), Size: size, Version: version})
+	res := s.validator.ValidateDocument(ctx, app.ValidateDocument{Document: u.reader(), Size: u.size, Version: version})
 	if hold.refused(w) {
 		return
 	}
@@ -141,8 +149,8 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	s.writeDocumentReport(w, res, newMeta(inputName(r, uploadName, defaultDocumentName)))
 }
 
-// reserveBody returns the reservation in MaxSpoolSize for the temporary
-// file of the body of r, empty until the body arrives. A Content-Length
+// reserveBody returns the reservation in MaxSpoolSize for the body of r,
+// empty until the body arrives. A Content-Length
 // over the limit of the request shape, or over the whole budget, is refused
 // as too large before the body is read. On failure the response has been
 // written.
@@ -236,10 +244,10 @@ func (s *Server) writePackageReport(w http.ResponseWriter, res qti.PackageResult
 	writeJSON(w, statusFor(res.Outcome), report.ForPackage(res, meta))
 }
 
-// isZIPFile reports whether f starts with a ZIP signature: a local file
+// isZIP reports whether f starts with a ZIP signature: a local file
 // header, the end of central directory record of an empty archive, or the
 // marker of a spanned archive.
-func isZIPFile(f *os.File) bool {
+func isZIP(f io.ReaderAt) bool {
 	var magic [4]byte
 	n, _ := f.ReadAt(magic[:], 0)
 	switch string(magic[:n]) {

@@ -10,8 +10,8 @@ docker run -d -p 8080:8080 \
   ghcr.io/feyst/qti3-validator
 ```
 
-The volume holds uploads while they are validated (see
-[Temporary files](#temporary-files)).
+The volume holds the uploads of 256 KiB and more while they are validated
+(see [Temporary files](#temporary-files)).
 
 On SIGTERM the service stops accepting requests and waits up to
 `REQUEST_TIMEOUT` for the running ones. Give it that long before it is
@@ -74,10 +74,21 @@ The service bounds the memory of the validations in progress, not only their
 number:
 
 - **`MAX_CONCURRENT`** (default: the number of CPUs) bounds how many
-  validations run at once: the CPU bound. With two or more, one of them is
-  kept for requests under 256 KiB, which a typical item is: large documents
-  that take seconds each then take at most `MAX_CONCURRENT` − 1 at a time,
-  and do not keep small requests waiting.
+  validations run at once: the CPU bound. Any request may take one of these
+  slots. Beside them there is one express slot, which only a request under
+  256 KiB may take, as a typical item is: large documents that take seconds
+  each run `MAX_CONCURRENT` at a time, and do not keep small requests
+  waiting for a slot. A typical item takes about a millisecond of CPU, so
+  the one that runs beside `MAX_CONCURRENT` others costs them little. With
+  `MAX_CONCURRENT=1` there are two slots as well: one for any request and
+  the express slot.
+
+  The express slot is no CPU of its own. While large documents keep every
+  CPU busy, a small request shares the CPUs with them and takes longer: with
+  2 CPUs and 8 clients sending 1 MiB documents, 27 of those are validated a
+  second, and a typical item beside them takes 15 ms (median; 29 ms for 9 in
+  10) instead of 1 ms. Without the express slot it would wait for a slot
+  behind them, 240 ms in that test.
 - **`MAX_VALIDATION_MEMORY`** bounds what they hold in memory together: the
   memory bound.
 
@@ -102,7 +113,9 @@ are validated one after the other; neither is slowed down by the other.
 
 A validation that waits holds nothing: no slot, and no memory. It gives up
 what it reserved and lets go of the document it read, and reads it again
-from the upload in `/tmp` once it has its room. So what the validations
+from the upload once it has its room: from `/tmp`, or for an upload under
+256 KiB from the copy the service holds of it (see
+[Temporary files](#temporary-files)). So what the validations
 reserve together never exceeds `MAX_VALIDATION_MEMORY`, however many
 requests wait and whatever `MAX_CONCURRENT` and `MAX_QUEUE` are: with 40
 clients sending 10 MiB documents that each take nearly all that one document
@@ -116,14 +129,17 @@ Typical items are kept apart from all this. A share of the budget is theirs:
 and with 8 CPUs 23 MiB in a 256 MiB container, 32 MiB in a larger one. A
 validation that reserves no more than 4 MiB takes
 it from that share whenever there is room in it, whatever waits for the
-rest; a typical item reserves 2 to 3 MiB. Together with the slot kept for
+rest; a typical item reserves 2 to 3 MiB. Together with the express slot for
 requests under 256 KiB, and a queue of their own of `MAX_QUEUE` places, this
 keeps small requests served while large documents queue up: in the test
 with 40 clients above, a typical item sent five times a second was validated
 every time, in 2 ms. The rest of the budget is what one document may take.
 A request under 256 KiB whose document needs more than 4 MiB, one of many
-nodes in few bytes, is a large one from then on: it waits for a place among
-the large ones and for room in the rest of the budget.
+nodes in few bytes, is a large one from then on: it leaves the express slot
+for one of the `MAX_CONCURRENT` slots, waiting for one if need be, and takes
+its memory from the rest of the budget. So what runs on the express slot
+takes its memory from the share of the typical items only, and the memory
+bound is the same with the express slot as without it.
 
 Only a document that could never fit, with nothing else running, is refused.
 The answer is 413 with code `too_large` and the numbers:
@@ -190,7 +206,9 @@ never makes the service fail, only collect sooner. After large documents the
 process keeps the memory it used, up to the soft limit, and gives it back to
 the system over time.
 
-These figures exclude uploads, which are kept in `/tmp` (see
+These figures exclude uploads. Those under 256 KiB are kept in memory, at
+most a thirty-second of `MAX_VALIDATION_MEMORY` of them (5.75 MiB in a
+256 MiB container), and the others in `/tmp` (see
 [Temporary files](#temporary-files)). If `/tmp` is a tmpfs, its files count
 against the container's memory limit too, and the service takes them off the
 budget of the validations.
@@ -200,24 +218,45 @@ compiled; memory briefly peaks at about 100 MB.
 
 ## Temporary files
 
-Every request body is written whole to `/tmp` before it is validated: up to
+Every request body is received whole before it is validated: up to
 `MAX_PACKAGE_SIZE` (100 MiB) for a package, a multipart upload or a body
 without an XML Content-Type, and up to `MAX_REQUEST_SIZE` (10 MiB) for a body
-sent as `application/xml`. The file is deleted when the request finishes.
+sent as `application/xml`.
+
+A body under 256 KiB, which a typical item and a small package are, stays in
+memory: no file is made for it. That saves about 0.1 ms per request, which
+is a fifth of what a typical item takes, and the page cache its file would
+take. Any other body is written to a file in `/tmp`, which is deleted when
+the request finishes: one of 256 KiB or more, by its Content-Length or as
+soon as it grows that long, and the file of a multipart upload likewise.
+
+The bodies in memory have a budget of their own: a thirty-second of
+`MAX_VALIDATION_MEMORY`, at least 4 MiB and at most 32 MiB, which is
+5.75 MiB in a 256 MiB container and 30 MiB in one of 1 GiB. It has no
+setting. A body reserves the memory it is read into before it takes it,
+16 KiB at most to start with and then at most about twice what it has sent
+so far, and holds it until its request finishes. When there is no room, the
+body goes to a file in `/tmp` instead, as does one that started in memory
+and finds no room for its next bytes: such a request is slower by that
+0.1 ms, not refused. So the bodies in memory never take more than their
+budget, however many connections there are: thousands of connections that
+each send most of a small body and then stall hold that budget in memory and
+the rest in `/tmp`, where `MAX_SPOOL_SIZE` bounds them.
 
 A body is received in full before the request waits for a validation slot,
 so a slow upload holds no slot. An upload must complete within
 `REQUEST_TIMEOUT` (60 s), or the request fails with 408; at 60 s, a 100 MiB
 package needs about 14 Mbit/s.
 
-`MAX_SPOOL_SIZE` bounds the bytes in `/tmp` across all requests; by default
-it is 4 × `MAX_PACKAGE_SIZE`, 400 MiB. A request reserves its share as its
-body arrives, so an upload holds budget only for the bytes it has sent:
-stalled uploads do not lock others out, however many there are. An upload
-whose next bytes do not fit gets 503 at once, with `Retry-After`. The
-reservation is freed when the request finishes. A body that could never fit gets 413 instead: a Content-Length
-above the limit of its kind or above `MAX_SPOOL_SIZE` at once, a chunked
-body as soon as it grows past either. Give `/tmp` at least
+`MAX_SPOOL_SIZE` bounds the bytes of all request bodies together, those in
+`/tmp` and those in memory; by default it is 4 × `MAX_PACKAGE_SIZE`,
+400 MiB. A request reserves its share as its body arrives, so an upload
+holds budget only for the bytes it has sent: stalled uploads do not lock
+others out, however many there are. An upload whose next bytes do not fit
+gets 503 at once, with `Retry-After`. The reservation is freed when the
+request finishes. A body that could never fit gets 413 instead: a
+Content-Length above the limit of its kind or above `MAX_SPOOL_SIZE` at
+once, a chunked body as soon as it grows past either. Give `/tmp` at least
 `MAX_SPOOL_SIZE`.
 
 Give `/tmp` disk, not memory:
@@ -284,17 +323,19 @@ nginx buffers each request body before it passes it on, so slow clients are
 held by the proxy, and the service receives each body at once.
 
 Some risk remains: `MAX_CONCURRENT` requests whose documents take the most
-work can hold every slot for up to `REQUEST_TIMEOUT`, and validation of other
-requests waits until then. Rate limits per client (`limit_req`) make that
+work can hold every slot but the express slot for up to `REQUEST_TIMEOUT`,
+and validation of other requests of 256 KiB and more waits until then; so
+does that of smaller ones, when a small package made to take long holds the
+express slot as well. Rate limits per client (`limit_req`) make that
 harder; a lower `REQUEST_TIMEOUT`, such as `15s`, shortens it, at the cost of
 `too_complex` for the largest legitimate packages.
 
 ## Hardening
 
 The image contains only the service binary. It runs as an unprivileged user
-and needs no network access. It writes only to `/tmp`, where an upload is
-kept while it is validated. It can therefore run with a read-only root
-filesystem, with a volume for `/tmp`:
+and needs no network access. It writes only to `/tmp`, where an upload of
+256 KiB or more is kept while it is validated. It can therefore run with a
+read-only root filesystem, with a volume for `/tmp`:
 
 ```sh
 docker run -d -p 8080:8080 \

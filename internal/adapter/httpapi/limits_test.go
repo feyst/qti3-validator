@@ -144,8 +144,9 @@ func TestQueueCap(t *testing.T) {
 	url := srv.URL + "/api/validate"
 	doc := []byte("<x/>")
 
-	results := make(chan int, 2)
-	for range 2 {
+	// Two small requests run, on the regular slot and on the express slot.
+	results := make(chan int, 3)
+	for range 3 {
 		go func() {
 			client := http.Client{Timeout: 5 * time.Second}
 			resp, err := client.Post(url, "application/xml", bytes.NewReader(doc))
@@ -157,12 +158,14 @@ func TestQueueCap(t *testing.T) {
 			results <- resp.StatusCode
 		}()
 	}
-	waitFor(t, "one running and one waiting", func() bool { return len(s.slots) == 1 && s.waitingSmall.Load() == 1 })
+	waitFor(t, "two running and one waiting", func() bool {
+		return len(s.slots) == 1 && len(s.express) == 1 && s.waitingSmall.Load() == 1
+	})
 
 	postBusy(t, url, "application/xml", doc)
 
 	close(release)
-	for range 2 {
+	for range 3 {
 		if status := <-results; status != http.StatusOK {
 			t.Fatalf("running or waiting request: %d", status)
 		}
@@ -170,6 +173,8 @@ func TestQueueCap(t *testing.T) {
 	if s.waitingSmall.Load() != 0 {
 		t.Fatalf("waiting: %d", s.waitingSmall.Load())
 	}
+	// The refused request and the others gave back what their bodies held.
+	waitFor(t, "the release", func() bool { return spooled(s) == 0 && bodyMemoryUsed(s) == 0 })
 }
 
 // Work that outlasts the read deadline still gets its response written: the
