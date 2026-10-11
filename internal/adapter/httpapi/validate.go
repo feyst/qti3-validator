@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -53,11 +54,12 @@ func shapeOf(r *http.Request) requestShape {
 }
 
 // apiValidate serves POST /api/validate, the one validation endpoint: the
-// input in the multipart field "file", answered with HTTP 200 and a report,
-// and 400 for an unknown validatorId (the request shape follows the public
-// OpenAPI at https://vc.1ed.tech/v3/api-docs). The input may also be sent as
-// the body: an XML document as application/xml, a package as
-// application/zip.
+// input in the multipart field "file", answered with a report, and 400 for an
+// unknown validatorId (the request shape follows the public OpenAPI at
+// https://vc.1ed.tech/v3/api-docs). A report is HTTP 200 whatever it found,
+// and 422 when validation stopped before the end (too_complex); see
+// statusFor. The input may also be sent as the body: an XML document as
+// application/xml, a package as application/zip.
 func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	if id := r.URL.Query().Get("validatorId"); id != "" && !slices.ContainsFunc(Validators, func(v ValidatorInfo) bool { return v.ID == id }) {
 		writeError(w, http.StatusBadRequest, codeUnknownValidator, "validatorId must be one of the ids listed by GET /api/validators")
@@ -69,12 +71,20 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	free, ok := s.reserveBody(w, r, shape)
+	if !ok {
+		return
+	}
+	defer free()
+
 	// One deadline bounds the request: receiving the body, waiting for a
-	// slot and validating.
+	// slot and validating. The response may be written writeGrace later.
 	ctx, cancel := context.WithTimeout(r.Context(), s.opts.RequestTimeout)
 	defer cancel()
 	deadline, _ := ctx.Deadline()
-	_ = http.NewResponseController(w).SetReadDeadline(deadline)
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(deadline)
+	_ = rc.SetWriteDeadline(deadline.Add(s.writeGrace))
 
 	body, uploadName, limit := io.Reader(r.Body), "", s.opts.MaxPackageSize
 	switch shape {
@@ -110,11 +120,48 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 		res := s.validator.ValidatePackage(ctx, app.ValidatePackage{
 			Package: f, Size: size, Limits: s.opts.PackageLimits, Version: version,
 		})
+		s.extendWriteDeadline(rc)
 		s.writePackageReport(w, res, newMeta(inputName(r, uploadName, defaultPackageName)))
 		return
 	}
 	res := s.validator.ValidateDocument(ctx, app.ValidateDocument{Document: io.NewSectionReader(f, 0, size), Version: version})
+	s.extendWriteDeadline(rc)
 	s.writeDocumentReport(w, res, newMeta(inputName(r, uploadName, defaultDocumentName)))
+}
+
+// reserveBody reserves room in MaxSpoolSize for the temporary file of the
+// body of r: its Content-Length, or without one the most the file may take.
+// A Content-Length over the limit of the request shape is refused as too
+// large before the body is read. On failure the response has been written.
+func (s *Server) reserveBody(w http.ResponseWriter, r *http.Request, shape requestShape) (func(), bool) {
+	// spool writes one byte past its limit to tell that a body is too large.
+	most, limit := s.opts.MaxPackageSize+1, s.opts.MaxPackageSize
+	tooLarge := "package is larger than the configured MAX_PACKAGE_SIZE"
+	switch shape {
+	case shapeDocument:
+		// Cut one byte past the limit, for the validator to report; any
+		// length is accepted.
+		most, limit = s.opts.MaxDocumentSize+1, math.MaxInt64
+	case shapeMultipart:
+		limit, tooLarge = s.opts.MaxPackageSize+multipartOverhead, "request is larger than the configured MAX_PACKAGE_SIZE"
+	case shapePackage, shapeSniff:
+	}
+	if r.ContentLength > limit {
+		refuseUnread(w)
+		writeError(w, http.StatusRequestEntityTooLarge, string(qti.CodeTooLarge), tooLarge)
+		return nil, false
+	}
+	if r.ContentLength >= 0 {
+		most = min(most, r.ContentLength)
+	}
+	return s.reserveSpool(w, most)
+}
+
+// extendWriteDeadline gives the response writeGrace from now, however long
+// validation overran REQUEST_TIMEOUT: the client gets its report rather than
+// a reset connection.
+func (s *Server) extendWriteDeadline(rc *http.ResponseController) {
+	_ = rc.SetWriteDeadline(time.Now().Add(s.writeGrace))
 }
 
 // versionParam reads the optional version query parameter, which forces the

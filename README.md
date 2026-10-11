@@ -186,7 +186,7 @@ JSON body:
 | 413 | `too_large`, `too_many_files` | The request, package, or the XML in a package exceeds a limit |
 | 422 | `too_complex` | Validation stopped before the end: a document's rules need more work than one document may take (a budget of XPath steps that grows with the size of the document), or validation took longer than `REQUEST_TIMEOUT`; the body is a report with outcome `EXCEPTION` and the findings so far |
 | 500 | `internal` | The service failed; the body is a report with outcome `EXCEPTION` |
-| 503 | `busy` | All validation slots stayed busy for `REQUEST_TIMEOUT`; retry later |
+| 503 | `busy` | No room for the request now: no validation slot came free within `REQUEST_TIMEOUT`, `MAX_QUEUE` requests are already waiting for one, or the uploads in progress fill `MAX_SPOOL_SIZE`; retry after the seconds in `Retry-After` |
 
 ## Configuration
 
@@ -203,7 +203,9 @@ All settings are environment variables. Sizes are in bytes.
 | `MAX_ERRORS` | `100` | Most errors reported per document |
 | `MAX_DEPTH` | `256` | Deepest element nesting accepted |
 | `MAX_CONCURRENT` | number of CPUs | Validations that run at the same time; further requests wait |
-| `REQUEST_TIMEOUT` | `60s` | Time limit per request, including waiting for a free slot; a validation still running then stops with `too_complex` (the XML Schema check of the current document finishes first) |
+| `MAX_QUEUE` | 4 × `MAX_CONCURRENT` | Requests that may wait for a validation slot; further requests get 503 at once |
+| `MAX_SPOOL_SIZE` | 4 × `MAX_PACKAGE_SIZE` | Request bodies kept in `/tmp` at once, counted by their Content-Length or, without one, their limit; further requests get 503 at once. Lowered automatically when `/tmp` is a tmpfs; see [Temporary files](docs/deployment.md#temporary-files) |
+| `REQUEST_TIMEOUT` | `60s` | Time limit per request: receiving the body, waiting for a free slot and validating. Running out while the body arrives gives 408; a validation still running then stops with `too_complex`, 422 (the XML Schema check of the current document finishes first) |
 | `VALIDATORS_DIR` | `/validators` | Directory with extra validators; see [Custom validators](docs/custom-validators.md) |
 
 For example:
@@ -215,8 +217,8 @@ docker run --rm -p 8080:8080 \
   ghcr.io/feyst/qti3-validator
 ```
 
-[Running in production](docs/deployment.md) covers memory, a read-only
-container, Docker Compose, Kubernetes and logging.
+[Running in production](docs/deployment.md) covers memory, uploads, public
+deployments, a read-only container, Docker Compose, Kubernetes and logging.
 
 ## Limitations
 
