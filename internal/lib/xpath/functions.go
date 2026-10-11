@@ -205,6 +205,9 @@ func init() { //nolint:gocognit // the table of the XPath 1.0 core functions
 			}
 			return id, nil
 		}},
+
+		// Extension functions.
+		CountByAttribute: {5, 5, countByAttribute},
 	}
 }
 

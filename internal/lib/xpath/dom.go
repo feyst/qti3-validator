@@ -1,6 +1,7 @@
 // Package xpath implements XPath 1.0 (W3C Recommendation, 16 November 1999)
 // over a small read-only DOM, plus the XSLT 1.0 functions current() and
-// generate-id() that Schematron rules commonly use.
+// generate-id() that Schematron rules commonly use, and one extension
+// function, qtiv:count-by-attribute (see CountByAttribute).
 //
 // Compiled expressions are immutable and safe for concurrent use; a Document
 // is not, and belongs to one goroutine.
@@ -55,6 +56,8 @@ type Node struct {
 	nsOrder int // namespace nodes: 1-based position among the owner's
 	nsDecls []nsBinding
 	nsNodes []*Node // built on first use of the namespace axis
+	// The root only: indexes of qtiv:count-by-attribute, built on first use.
+	attrIndexes map[attrIndexKey]map[string]int
 }
 
 type nsBinding struct{ prefix, uri string }
