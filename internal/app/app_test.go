@@ -1,7 +1,10 @@
 package app
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -194,4 +197,90 @@ func TestPackageEntryFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Rules that stop before the end keep the findings so far, the schema's and
+// their own, and add too_complex, whether the budget or the time ran out.
+func TestRulesStopped(t *testing.T) {
+	schema := &fakeSchema{verdict: SchemaVerdict{
+		Outcome: qti.OutcomeInvalid, Conclusive: true, Findings: []qti.Finding{{Code: qti.CodeValidation}},
+	}}
+	for name, err := range map[string]error{
+		"budget":   fmt.Errorf("%w: out of steps", ErrTooComplex),
+		"deadline": fmt.Errorf("xpath: %w", context.DeadlineExceeded),
+	} {
+		rules := &fakeRules{findings: []RuleFinding{{Finding: qti.Finding{Code: qti.CodeSchematron}}}, err: err}
+		res := validateDoc(t, newTestValidator(t, schema, rules), item)
+		if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Errors) != 3 ||
+			res.Errors[0].Code != qti.CodeValidation || res.Errors[1].Code != qti.CodeSchematron ||
+			res.Errors[2].Code != qti.CodeTooComplex || !strings.HasPrefix(res.Errors[2].Message, "validation stopped: ") {
+			t.Errorf("%s: got %+v", name, res)
+		}
+	}
+}
+
+// The schema check cannot be interrupted, but a context that ends during it
+// stops the validation before the rules.
+func TestContextEndsDuringSchemaCheck(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	rules := &fakeRules{}
+	v := newTestValidator(t, &fakeSchema{verdict: validVerdict, during: cancel}, rules)
+	res := v.ValidateDocument(ctx, ValidateDocument{Document: strings.NewReader(item)})
+	if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Errors) != 1 || res.Errors[0].Code != qti.CodeTooComplex {
+		t.Fatalf("got %+v", res)
+	}
+	if rules.checked != 0 {
+		t.Fatal("rules ran after the context ended")
+	}
+}
+
+// A document that is too complex is reported in its file; the other files
+// are still validated.
+func TestPackageDocumentTooComplex(t *testing.T) {
+	rules := &fakeRules{err: ErrTooComplex}
+	v := newTestValidator(t, &fakeSchema{verdict: validVerdict}, rules,
+		fakeEntry{name: qti.ManifestName, data: manifest("3.0.0")},
+		fakeEntry{name: "item.xml", data: item},
+	)
+	res := validatePkg(t, v, qti.PackageLimits{})
+	if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Errors) != 0 || len(res.Files) != 2 {
+		t.Fatalf("got %+v", res)
+	}
+	f := fileResult(t, res, "item.xml")
+	if f.Valid || len(f.Errors) != 1 || f.Errors[0].Code != qti.CodeTooComplex || f.Errors[0].File != "item.xml" {
+		t.Fatalf("item.xml: %+v", f)
+	}
+}
+
+// Out of time, a package stops: the file that was running reports
+// too_complex, and the package names the files that were not validated.
+func TestPackageOutOfTime(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	v := newTestValidator(t, &fakeSchema{verdict: validVerdict, during: cancel}, nil,
+		fakeEntry{name: qti.ManifestName, data: manifest("3.0.0")},
+		fakeEntry{name: "item.xml", data: item},
+	)
+	res := v.ValidatePackage(ctx, ValidatePackage{Package: bytes.NewReader(nil)})
+	if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Files) != 1 || len(res.Errors) != 1 {
+		t.Fatalf("got %+v", res)
+	}
+	if f := res.Files[0]; f.File != qti.ManifestName || f.Errors[0].Code != qti.CodeTooComplex {
+		t.Fatalf("manifest: %+v", f)
+	}
+	if e := res.Errors[0]; e.Code != qti.CodeTooComplex || !strings.Contains(e.Message, "item.xml and the files after it were not validated") {
+		t.Fatalf("package: %+v", e)
+	}
+}
+
+func fileResult(t *testing.T, res qti.PackageResult, name string) qti.FileResult {
+	t.Helper()
+	for _, f := range res.Files {
+		if f.File == name {
+			return f
+		}
+	}
+	t.Fatalf("no result for %s in %+v", name, res.Files)
+	return qti.FileResult{}
 }

@@ -16,6 +16,7 @@ const (
 	CodeVersionOverridden   Code = "version_overridden"
 	CodeLimitExceeded       Code = "limit_exceeded"
 	CodeTooLarge            Code = "too_large"
+	CodeTooComplex          Code = "too_complex" // validation stopped before it finished
 	CodeInternal            Code = "internal"
 	CodeInvalidZIP          Code = "invalid_zip"
 	CodeUnsafePath          Code = "unsafe_path"

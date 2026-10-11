@@ -39,10 +39,15 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 // statusFor maps a validation outcome to the HTTP status of its report. A
 // report is HTTP 200 whatever it found, as with 1EdTech's validators: the
-// verdict is summary.outcome. Only a failure of the service itself is 500.
+// verdict is summary.outcome. A validation that stopped before the end,
+// because the input needs too much work or time, is 422 with the findings so
+// far; a failure of the service itself is 500.
 func statusFor(o qti.Outcome) int {
-	if o == qti.OutcomeInternal {
+	switch o {
+	case qti.OutcomeInternal:
 		return http.StatusInternalServerError
+	case qti.OutcomeTooComplex:
+		return http.StatusUnprocessableEntity
 	}
 	return http.StatusOK
 }

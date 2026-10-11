@@ -2,6 +2,7 @@ package schematron
 
 import (
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,7 +47,7 @@ func validateFile(t *testing.T, e *Engine, name string) []Failure {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failures, err := e.Validate(parseDoc(t, string(data)), 0)
+	failures, err := e.Validate(nil, parseDoc(t, string(data)), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +90,7 @@ func TestFeaturesInvalid(t *testing.T) {
 
 func TestAbstractPatternInstance(t *testing.T) {
 	e := compileFeatures(t)
-	failures, err := e.Validate(parseDoc(t, `<order xmlns="urn:order" code="ABC"><line id="a" qty="1"/></order>`), 0)
+	failures, err := e.Validate(nil, parseDoc(t, `<order xmlns="urn:order" code="ABC"><line id="a" qty="1"/></order>`), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,10 +100,38 @@ func TestAbstractPatternInstance(t *testing.T) {
 	}
 }
 
+// A session that runs out of steps stops the validation, which returns the
+// failures found before.
+func TestValidateStopsWithinBudget(t *testing.T) {
+	const sch = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+<sch:pattern id="cheap"><sch:rule context="a"><sch:assert test="@ok">no ok</sch:assert></sch:rule></sch:pattern>
+<sch:pattern id="quadratic"><sch:rule context="a"><sch:assert test="count(//a[@id = current()/@id]) = 1">dup</sch:assert></sch:rule></sch:pattern>
+</sch:schema>`
+	rs, err := Extract("x", strings.NewReader(sch))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := Compile(rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	b.WriteString(`<r><a id="first"/>`)
+	for i := range 1000 {
+		fmt.Fprintf(&b, `<a ok="1" id="a%d"/>`, i)
+	}
+	b.WriteString("</r>")
+	doc := parseDoc(t, b.String())
+	failures, err := e.Validate(xpath.NewSession(t.Context(), 100_000), doc, 0)
+	if !errors.Is(err, xpath.ErrTooComplex) || len(failures) != 1 || failures[0].Pattern != "cheap" {
+		t.Fatalf("got %+v, %v", failures, err)
+	}
+}
+
 func TestMaxFailures(t *testing.T) {
 	e := compileFeatures(t)
 	data, _ := os.ReadFile("testdata/order-invalid.xml")
-	failures, err := e.Validate(parseDoc(t, string(data)), 3)
+	failures, err := e.Validate(nil, parseDoc(t, string(data)), 3)
 	if err != nil || len(failures) != 3 {
 		t.Fatalf("got %d failures, %v", len(failures), err)
 	}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -14,10 +15,14 @@ import (
 type fakeSchema struct {
 	verdict SchemaVerdict
 	checked int
+	during  func() // called while checking
 }
 
 func (f *fakeSchema) CheckSchema([]byte, qti.Limits) SchemaVerdict {
 	f.checked++
+	if f.during != nil {
+		f.during()
+	}
 	return f.verdict
 }
 
@@ -29,7 +34,7 @@ type fakeRules struct {
 	checked  int
 }
 
-func (f *fakeRules) CheckRules(_ []byte, maxFindings int) ([]RuleFinding, error) {
+func (f *fakeRules) CheckRules(_ context.Context, _ []byte, maxFindings int) ([]RuleFinding, error) {
 	f.checked++
 	f.max = maxFindings
 	return f.findings, f.err
