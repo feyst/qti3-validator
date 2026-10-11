@@ -272,16 +272,13 @@ reports that version, and the commit gets the tag and a GitHub release with
 notes.
 
 For a minor or major release, start the workflow by hand: Actions → CI → Run
-workflow, and pick the bump. Such a run always runs; it is not replaced by a
-later push that is waiting too.
+workflow, and pick the bump.
 
-The version job reserves the version by creating its tag before the image is
-built, because a tag can be created only once: two runs that release at the
-same time get different versions. The GitHub release follows when the image
-is pushed. If the run fails before that, its last job removes the tag again
-and the next run takes the same number. Re-run such a run with "Re-run all
-jobs": "Re-run failed jobs" keeps the version of the first attempt, which is
-no longer reserved, and the image job refuses to push it.
+Runs of main and of tags are never cancelled while running and run one after
+the other, so two releases never pick the same version. GitHub keeps only one
+waiting run per group, so a waiting run (for example a manual release) is
+replaced when another one is queued behind it: start it again if that
+happens.
 
 ### Dependency updates
 
