@@ -3,7 +3,9 @@
 !README.md
 Dockerfile
 .dockerignore
+# Fixtures of the tests, here and beside the packages: nothing embeds them.
 testdata
+**/testdata
 # Schemas are always downloaded in the build, never copied from a checkout.
 internal/adapter/schemastore/schemas/purl.imsglobal.org
 internal/adapter/schemastore/schemas/schematron.json.gz

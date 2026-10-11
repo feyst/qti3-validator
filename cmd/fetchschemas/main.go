@@ -183,14 +183,18 @@ func readLock(name string) ([]pin, error) {
 			continue
 		}
 		fields := strings.Fields(text)
-		if len(fields) != 2 || len(fields[0]) != sha256.Size*2 {
+		if len(fields) != 2 {
 			return nil, fmt.Errorf("%s:%d: want \"<sha256> <url>\"", name, line)
 		}
-		u, err := url.Parse(fields[1])
-		if err != nil || u.Scheme != "https" || u.Host == "" {
-			return nil, fmt.Errorf("%s:%d: want an https URL", name, line)
+		// Hexadecimal in either case; compared in lower case.
+		if sum, err := hex.DecodeString(fields[0]); err != nil || len(sum) != sha256.Size {
+			return nil, fmt.Errorf("%s:%d: want \"<sha256> <url>\": the checksum is not 64 hexadecimal digits", name, line)
 		}
-		pins = append(pins, pin{sha256: fields[0], url: u})
+		u, err := url.Parse(fields[1])
+		if err != nil || u.Scheme != "https" || !validHost(u.Hostname()) {
+			return nil, fmt.Errorf("%s:%d: want an https URL with a host name", name, line)
+		}
+		pins = append(pins, pin{sha256: strings.ToLower(fields[0]), url: u})
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
@@ -201,9 +205,20 @@ func readLock(name string) ([]pin, error) {
 	return pins, nil
 }
 
+// validHost reports whether host can name the directory of a schema host: a
+// name with a dot in it, and more than dots. "." and ".." would be the
+// output directory and its parent, and a name without a dot could be a file
+// of the output directory, such as the lock file.
+func validHost(host string) bool {
+	return strings.Contains(host, ".") && strings.Trim(host, ".") != ""
+}
+
 // localName is the file a schema is stored in, relative to the output
 // directory: its URL host and path plus ".gz".
 func localName(p pin) (string, error) {
+	if !validHost(p.url.Hostname()) {
+		return "", errors.New("URL has no host name to store the schema under")
+	}
 	rel := path.Clean(p.url.Host + p.url.Path)
 	if !filepath.IsLocal(rel) {
 		return "", errors.New("URL does not map to a local path")
@@ -214,16 +229,26 @@ func localName(p pin) (string, error) {
 // fetch downloads one schema, verifies it, stores it compressed and returns
 // its bytes. A stored file with another checksum than the pinned one is
 // removed, so it is never embedded, also when the download fails.
+//
+// The output directory is read and written through a root, like prune: a
+// link in it that leads outside is an error, not a place to write.
 func (f fetcher) fetch(p pin) ([]byte, error) {
 	name, err := localName(p)
 	if err != nil {
 		return nil, err
 	}
-	dst := filepath.Join(f.outDir, name)
-	if data, ok := cached(dst, p.sha256, f.maxBytes); ok {
+	if err := os.MkdirAll(f.outDir, 0o750); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(f.outDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	if data, ok := cached(root, name, p.sha256, f.maxBytes); ok {
 		return data, nil
 	}
-	if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	resp, err := f.client.Get(p.url.String())
@@ -256,16 +281,16 @@ func (f fetcher) fetch(p pin) ([]byte, error) {
 	if err := zw.Close(); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+	if err := root.MkdirAll(filepath.Dir(name), 0o750); err != nil {
 		return nil, err
 	}
-	return data, os.WriteFile(dst, gz.Bytes(), 0o600)
+	return data, root.WriteFile(name, gz.Bytes(), 0o600)
 }
 
 // cached returns a schema stored by an earlier run, if its checksum is the
 // pinned one.
-func cached(name, sha string, maxBytes int) ([]byte, bool) {
-	f, err := os.Open(name)
+func cached(root *os.Root, name, sha string, maxBytes int) ([]byte, bool) {
+	f, err := root.Open(name)
 	if err != nil {
 		return nil, false
 	}

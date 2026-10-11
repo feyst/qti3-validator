@@ -24,6 +24,8 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       UPSTREAM: jacoelho/xsd
+      # Marks the issues of this workflow; made when the first one is opened.
+      LABEL: xsd-upstream
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,8 +33,14 @@ jobs:
       - name: Compare with the latest upstream release
         run: |
           # The version of the copy: the one go.mod requires, as a single
-          # line or inside a require block.
-          current=$(awk -v m="github.com/$UPSTREAM" '$1 == "require" && $2 == m { print $3 } $1 == m { print $2 }' go.mod | head -n 1)
+          # line or inside a require block. A replace line or block names
+          # the module too, but no version behind it.
+          current=$(awk -v m="github.com/$UPSTREAM" '
+            $1 == "require" && $2 == "(" { block = 1; next }
+            $1 == ")" { block = 0 }
+            $1 == "require" && $2 == m && $3 ~ /^v[0-9]/ { print $3 }
+            block && $1 == m && $2 ~ /^v[0-9]/ { print $2 }
+          ' go.mod | head -n 1)
           latest=$(gh api "repos/$UPSTREAM/releases/latest" --jq .tag_name)
           version='^v[0-9]+\.[0-9]+\.[0-9]+$'
           if ! [[ $current =~ $version && $latest =~ $version ]]; then
@@ -58,22 +66,37 @@ jobs:
           5. Set the version in \`go.mod\` (\`require github.com/$UPSTREAM $latest\`) and where CONTRIBUTING.md names it.
           6. Run \`make check\` and \`make corpus\`, and measure memory as CONTRIBUTING.md describes under "Performance and memory".
 
-          The steps are also in CONTRIBUTING.md, under "Updating the XSD library". This issue was opened by the workflow \`.github/workflows/xsd-upstream.yml\`, which updates it when a newer release appears. Close it to skip this release.
+          The steps are also in CONTRIBUTING.md, under "Updating the XSD library". This issue was opened by the workflow \`.github/workflows/xsd-upstream.yml\`, which updates it when a newer release appears and recognises it by its author and the label \`$LABEL\`. Close it to skip this release.
           EOF
 
           # One issue at a time: an open issue about an older release is
           # brought up to date, and a release whose issue was closed is not
-          # reported again.
-          issues() { gh issue list --repo "$GITHUB_REPOSITORY" --state "$1" --limit 1000 --json number,title; }
-          about='^'"$UPSTREAM"' v[0-9.]+ is available$'
+          # reported again. Only the issues this workflow made count, or
+          # anyone could silence it by opening and closing an issue with the
+          # right title, or have their own issue rewritten: an issue counts
+          # when it has the label, which only people with triage access can
+          # set, and was opened with a workflow's token. gh names that
+          # author app/github-actions; the API calls it github-actions[bot].
+          issues() {
+            gh issue list --repo "$GITHUB_REPOSITORY" --state "$1" --label "$LABEL" --limit 1000 --json number,title,author,labels |
+              jq --arg mark "$LABEL" --arg re '^'"$UPSTREAM"' v[0-9]+\.[0-9]+\.[0-9]+ is available$' '[.[]
+                | select((.author.login // "") as $login
+                    | ($login | ltrimstr("app/") | rtrimstr("[bot]")) == "github-actions"
+                      and ($login != "github-actions" or .author.is_bot == true))
+                | select(any(.labels[]?; .name == $mark))
+                | select(.title | test($re))]'
+          }
           if [ -n "$(issues closed | jq -r --arg t "$title" '.[] | select(.title == $t) | .number')" ]; then
             echo "The issue \"$title\" was closed; not opening it again"
             exit 0
           fi
-          open=$(issues open | jq -r --arg re "$about" '[.[] | select(.title | test($re))] | sort_by(.number) | .[0] | .number // empty, .title // empty')
+          open=$(issues open | jq -r 'sort_by(.number) | .[0] | .number // empty, .title // empty')
           number=$(sed -n 1p <<< "$open")
           if [ -z "$number" ]; then
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+            # --force: no error when the label exists.
+            gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" --force --color 5319e7 \
+              --description "Opened by the workflow that watches releases of $UPSTREAM"
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label "$LABEL" --body-file body.md
           elif [ "$(sed -n 2p <<< "$open")" = "$title" ]; then
             echo "Issue #$number is open for $latest"
           else

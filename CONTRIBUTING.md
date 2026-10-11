@@ -67,8 +67,10 @@ runtime.
   the lock file.
 - **Integrity:** every file is pinned by SHA-256. A changed upstream file fails
   the build, and nothing of it is stored. A file stored by an earlier run is
-  used only if it still has the pinned checksum. Only `https` URLs are
-  accepted, and a redirect is followed only over `https` to the same host.
+  used only if it still has the pinned checksum. Only `https` URLs with a
+  host name are accepted, and a redirect is followed only over `https` to
+  the same host. The schema directory is read and written through an
+  `os.Root`, so a link in it cannot lead the build outside it.
 - **Nothing else is embedded:** the validator embeds the whole directory of
   the schema host, so `fetchschemas` removes every file there that the lock
   file does not list, such as a schema that was dropped from it.
@@ -251,8 +253,9 @@ docker run --rm -p 8080:8080 feyst/qti3-validator
 ```
 
 An image built this way reports the version `dev-<commit>` in `/version` and
-in reports (`dev` outside a git checkout); only the images CI builds carry a
-release number.
+in reports, `dev-<commit>-dirty` when the work tree has uncommitted changes,
+and `dev` outside a git checkout; only the images CI builds carry a release
+number.
 
 CI builds the image for linux/amd64 and linux/arm64 after the checks pass, and
 pushes it to `ghcr.io/feyst/qti3-validator`: `latest` and `main` from main,
@@ -311,9 +314,12 @@ Two things do not update by themselves:
   The workflow `.github/workflows/xsd-upstream.yml` compares the version
   `go.mod` requires with the latest upstream release every week and opens an
   issue "jacoelho/xsd vX.Y.Z is available" when a newer one is out; a later
-  release updates that issue instead of opening another, and closing it
-  skips that release. What to do then is under
-  [Updating the XSD library](#updating-the-xsd-library).
+  release updates that issue instead of opening another. Closing it skips
+  that release: the workflow does not open it again, and reports the next
+  release in a new issue. The workflow knows its own issues by their author,
+  the workflow's token, and the label `xsd-upstream`; an issue with the same
+  title that someone else opened or closed changes nothing. What to do with
+  the issue is under [Updating the XSD library](#updating-the-xsd-library).
 - **The schemas.** They are pinned by checksum on purpose; see
   [Schemas](#schemas).
 
@@ -353,10 +359,12 @@ make check     # linters, tests with the race detector, vulnerability check
 make bench
 ```
 
-The targets that compile the code fetch the schemas first when they are
-missing, so `make check` works on a fresh clone. They do so again when
-`schemas.lock`, `rules/` or the code that compiles the rules changed, without
-downloading what is already there. `make schemas` does it regardless.
+The targets that compile the code fetch the schemas first when the compiled
+rules or one of the files in `schemas.lock` is missing, so `make check` works
+on a fresh clone and after removing the schema directory. They do so again
+when `schemas.lock`, `rules/` or the code that compiles the rules changed,
+without downloading what is already there. `make schemas` does it
+regardless. The Makefile runs one recipe at a time, also under `-j`.
 
 `make check` is what CI runs (`.github/workflows/ci.yml`). It covers:
 

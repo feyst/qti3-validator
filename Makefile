@@ -4,8 +4,9 @@ GOLANGCI_LINT_VERSION := v2.14.0
 GOVULNCHECK_VERSION   := v1.8.0
 GOBIN                 := $(shell go env GOPATH)/bin
 IMAGE                 := feyst/qti3-validator
-# The version a locally built image reports: dev-<commit>, or dev without git.
-DEV_VERSION           := $(or $(addprefix dev-,$(shell git rev-parse --short HEAD 2>/dev/null)),dev)
+# The version a locally built image reports: dev-<commit>, with -dirty when
+# the work tree differs from that commit, or dev without git.
+DEV_VERSION           := $(or $(addprefix dev-,$(shell git rev-parse --short HEAD 2>/dev/null)),dev)$(if $(shell git status --porcelain 2>/dev/null),-dirty)
 # The public 1EdTech QTI examples, pinned by commit; see CONTRIBUTING.md.
 CORPUS_REPO           := https://github.com/1EdTech/qti-examples.git
 CORPUS_COMMIT         := 0a92fbbb6d2e620a1f7fad19977be4c418246bc0
@@ -21,8 +22,19 @@ SCHEMAS_DIR           := internal/adapter/schemastore/schemas
 SCHEMAS               := $(SCHEMAS_DIR)/schematron.json.gz
 SCHEMAS_DEPS          := $(SCHEMAS_DIR)/schemas.lock $(wildcard rules/*.sch) \
                          $(filter-out %_test.go,$(wildcard cmd/fetchschemas/*.go internal/lib/schematron/*.go internal/lib/xpath/*.go internal/lib/xmlenc/*.go))
+# The files the lock file pins, as `fetchschemas` stores them. When one is
+# missing, as after removing their directory, the compiled rules are made
+# again whatever their age, which fetches what is missing.
+SCHEMA_FILES          := $(shell awk '!/^\#/ && NF == 2 { sub("^https://", "", $$2); print "$(SCHEMAS_DIR)/" $$2 ".gz" }' $(SCHEMAS_DIR)/schemas.lock)
+ifneq ($(words $(wildcard $(SCHEMA_FILES))),$(words $(SCHEMA_FILES)))
+SCHEMAS_DEPS          += FORCE
+endif
 
-.PHONY: help schemas build test race cover bench lint fmt vuln check image tools corpus
+# One recipe at a time, also under -j: `make -j schemas build` would run two
+# `fetchschemas` writing the same files, and the checks share the Go cache.
+.NOTPARALLEL:
+
+.PHONY: help schemas build test race cover bench lint fmt vuln check image tools corpus FORCE
 
 help: ## Show the targets
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -32,6 +44,8 @@ schemas: ## Fetch the pinned schemas and compile the Schematron rules, also when
 
 $(SCHEMAS): $(SCHEMAS_DEPS)
 	go run ./cmd/fetchschemas
+
+FORCE:
 
 build: $(SCHEMAS) ## Build the service binary
 	CGO_ENABLED=0 go build -trimpath -o bin/qti-validator ./cmd/qti-validator

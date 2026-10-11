@@ -163,6 +163,11 @@ func TestReadLock(t *testing.T) {
 		"long checksum":    {sha + "0 https://example.org/a.xsd\n", `:1: want "<sha256> <url>"`},
 		"no URL":           {"# c\n" + sha + "\n", `:2: want "<sha256> <url>"`},
 		"three fields":     {sha + " https://example.org/a.xsd extra\n", `:1: want "<sha256> <url>"`},
+		"checksum not hex": {sha[:63] + "g https://example.org/a.xsd\n", ":1: want \"<sha256> <url>\": the checksum is not 64 hexadecimal digits"},
+		"host of a dot":    {sha + " https://./a.xsd\n", ":1: want an https URL with a host name"},
+		"host of dots":     {sha + " https://../a.xsd\n", ":1: want an https URL with a host name"},
+		"host without dot": {sha + " https://schemas/a.xsd\n", ":1: want an https URL with a host name"},
+		"only a port":      {sha + " https://:443/a.xsd\n", ":1: want an https URL with a host name"},
 		"http":             {sha + " http://example.org/a.xsd\n", ":1: want an https URL"},
 		"file":             {sha + " file:///etc/passwd\n", ":1: want an https URL"},
 		"no scheme":        {sha + " example.org/a.xsd\n", ":1: want an https URL"},
@@ -183,6 +188,151 @@ func TestReadLock(t *testing.T) {
 
 	if _, err := readLock(filepath.Join(t.TempDir(), "missing.lock")); err == nil {
 		t.Fatal("a missing lock file is accepted")
+	}
+
+	// A checksum in upper case is the same checksum: it is compared in
+	// lower case, as sha256sum and this command write it.
+	writeFile(t, lock, strings.ToUpper(sha)+" https://example.org/a.xsd\n")
+	pins, err = readLock(lock)
+	if err != nil || len(pins) != 1 || pins[0].sha256 != sha {
+		t.Fatalf("upper case checksum: got %+v, %v", pins, err)
+	}
+}
+
+// A schema is stored under its host, so a host that is no name of a
+// directory of its own is refused, also for a pin that did not come from a
+// lock file.
+func TestLocalNameNeedsHostName(t *testing.T) {
+	for raw, ok := range map[string]bool{
+		"https://purl.example.org/a.xsd": true,
+		"https://127.0.0.1:8443/a.xsd":   true,
+		"https://./a.xsd":                false,
+		"https://../a.xsd":               false,
+		"https://.../a.xsd":              false,
+		"https://schemas/a.xsd":          false,
+		"https://localhost:8443/a.xsd":   false,
+		"https:///a.xsd":                 false,
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name, err := localName(pin{url: u})
+		if ok != (err == nil) {
+			t.Errorf("%s: got %q, %v", raw, name, err)
+		}
+	}
+}
+
+// The redirect policy itself, without a server: https only, the pinned host
+// only, and at most maxRedirects redirects.
+func TestCheckRedirect(t *testing.T) {
+	request := func(raw string) *http.Request {
+		req, err := http.NewRequest(http.MethodGet, raw, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return req
+	}
+	// via holds the requests made so far: the first one and n-1 redirects.
+	via := func(n int) []*http.Request {
+		reqs := make([]*http.Request, n)
+		for i := range reqs {
+			reqs[i] = request("https://purl.example.org/a.xsd")
+		}
+		return reqs
+	}
+	if maxRedirects != 5 {
+		t.Fatalf("maxRedirects is %d; this test is written for 5", maxRedirects)
+	}
+	for _, tc := range []struct {
+		name, to string
+		via      int
+		want     string // part of the error; empty when followed
+	}{
+		{"https on the same host", "https://purl.example.org/b.xsd", 1, ""},
+		{"http on the same host", "http://purl.example.org/b.xsd", 1, "refused: only https on purl.example.org"},
+		{"https on another host", "https://other.example.org/b.xsd", 1, "refused: only https on purl.example.org"},
+		{"https on another port", "https://purl.example.org:8443/b.xsd", 1, "refused: only https on purl.example.org"},
+		{"https on a subdomain", "https://www.purl.example.org/b.xsd", 1, "refused: only https on purl.example.org"},
+		{"http on another host", "http://other.example.org/b.xsd", 1, "refused: only https on purl.example.org"},
+		{"another scheme", "ftp://purl.example.org/b.xsd", 1, "refused: only https on purl.example.org"},
+		{"fifth redirect", "https://purl.example.org/b.xsd", 5, ""},
+		{"sixth redirect", "https://purl.example.org/b.xsd", 6, "more than 5 redirects"},
+		{"many redirects", "https://purl.example.org/b.xsd", 50, "more than 5 redirects"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkRedirect(request(tc.to), via(tc.via))
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+				return
+			}
+			wantError(t, err, tc.want)
+		})
+	}
+}
+
+// The output directory is written through a root: a host directory that is
+// a link to somewhere else is not written through, read from or removed
+// from.
+func TestFetchDoesNotFollowLinksOutOfOutput(t *testing.T) {
+	up := newUpstream(t, map[string]string{schemaPath: schema})
+	host := strings.TrimPrefix(up.URL, "https://")
+	p := up.pin(t, schemaPath, sum(schema))
+
+	t.Run("host directory", func(t *testing.T) {
+		out, outside := t.TempDir(), t.TempDir()
+		if err := os.Symlink(outside, filepath.Join(out, host)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := up.fetcher(out).fetch(p); err == nil {
+			t.Error("fetched through a link out of the output directory")
+		}
+		if got := files(t, outside); len(got) != 0 {
+			t.Errorf("wrote %v outside the output directory", got)
+		}
+	})
+	t.Run("stored file", func(t *testing.T) {
+		// A stored schema outside is neither trusted nor removed, though
+		// its checksum is the pinned one.
+		out, outside := t.TempDir(), t.TempDir()
+		target := filepath.Join(outside, "spec", "x", "schema.xsd.gz")
+		writeGzip(t, target, schema)
+		if err := os.Symlink(outside, filepath.Join(out, host)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := up.fetcher(out).fetch(p); err == nil {
+			t.Error("used a stored file outside the output directory")
+		}
+		if got := readGzip(t, target); got != schema {
+			t.Errorf("the file outside is now %q", got)
+		}
+	})
+	t.Run("link that stays inside", func(t *testing.T) {
+		out := t.TempDir()
+		if err := os.Mkdir(filepath.Join(out, "real"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("real", filepath.Join(out, host)); err != nil {
+			t.Fatal(err)
+		}
+		if data, err := up.fetcher(out).fetch(p); err != nil || string(data) != schema {
+			t.Fatalf("got %q, %v", data, err)
+		}
+		if got := readGzip(t, filepath.Join(out, "real", "spec", "x", "schema.xsd.gz")); got != schema {
+			t.Errorf("stored %q", got)
+		}
+	})
+
+	// The output directory is made when it does not exist yet.
+	out := filepath.Join(t.TempDir(), "new", "schemas")
+	if _, err := up.fetcher(out).fetch(p); err != nil {
+		t.Fatal(err)
+	}
+	if got := readGzip(t, stored(t, out, p)); got != schema {
+		t.Errorf("stored %q", got)
 	}
 }
 
