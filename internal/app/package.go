@@ -18,8 +18,8 @@ import (
 // Every document is validated against one QTI version: the one the query
 // forces, otherwise the one the manifest declares, otherwise the latest.
 //
-// This checks the documents, not the package semantics: it does not verify
-// that the manifest and its resources reference each other correctly.
+// After the documents, it checks that the references between the files of
+// the package resolve (qti.CheckReferences).
 func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.PackageResult {
 	limits := q.Limits.WithDefaults()
 	res := qti.PackageResult{Files: []qti.FileResult{}, Outcome: qti.OutcomeValid}
@@ -183,7 +183,7 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 	*budget -= counted.n
 	doc := v.documentReferences(data, res)
 
-	out.Schema, out.Version = res.Schema, res.Version
+	out.Schema, out.Version, out.Ran = res.Schema, res.Version, res.Ran
 	out.Errors, out.Warnings = inFile(res.Errors, name), inFile(res.Warnings, name)
 	switch {
 	case counted.err != nil:

@@ -112,14 +112,15 @@ func Chain(checkers ...*Checker) *Checker {
 	return &Checker{sets: sets, types: types}
 }
 
-// CheckRules implements app.RuleChecker. Each rule set runs while fewer than
-// maxFindings errors were found; warnings do not count. A nil Checker has no
-// rules.
+// CheckRules implements app.RuleChecker. The rule sets and the type checks
+// run in order until limits.Errors errors were found; warnings do not count
+// towards that, and only the first limits.Warnings of them are kept. A nil
+// Checker has no rules.
 //
 // All rule sets share one budget of XPath steps for the document:
 // BaseSteps plus StepsPerNode for every node. When it runs out, or ctx is done, CheckRules returns the
 // findings so far with an error wrapping app.ErrTooComplex or ctx.Err().
-func (c *Checker) CheckRules(ctx context.Context, data []byte, maxFindings int) ([]app.RuleFinding, error) {
+func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLimits) ([]app.RuleFinding, error) {
 	if c == nil {
 		return nil, nil
 	}
@@ -133,18 +134,18 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, maxFindings int) 
 	}
 	session := xpath.NewSession(ctx, b.steps(tree.Nodes))
 	var out []app.RuleFinding
-	errorCount := 0
+	errorCount, warningCount := 0, 0
 	for _, set := range c.sets {
-		remaining := 0 // no limit
-		if maxFindings > 0 {
-			if remaining = maxFindings - errorCount; remaining <= 0 {
-				break
-			}
+		room, ok := roomLeft(limits, errorCount, warningCount)
+		if !ok {
+			break
 		}
-		failures, err := set.engine.Validate(session, tree, remaining)
+		failures, err := set.engine.Validate(session, tree, room)
 		for _, f := range failures {
 			rf := finding(f, set.mounted)
-			if !rf.Warning {
+			if rf.Warning {
+				warningCount++
+			} else {
 				errorCount++
 			}
 			out = append(out, rf)
@@ -159,8 +160,8 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, maxFindings int) 
 		}
 	}
 	if c.types {
-		for _, f := range checkTypes(tree) {
-			if maxFindings > 0 && errorCount >= maxFindings {
+		for _, f := range checkTypes(tree) { // errors only
+			if limits.Errors > 0 && errorCount >= limits.Errors {
 				break
 			}
 			errorCount++
@@ -168,6 +169,23 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, maxFindings int) 
 		}
 	}
 	return out, nil
+}
+
+// roomLeft returns the limits for the next rule set after the errors and
+// warnings found so far, or false when there is no room for errors left.
+func roomLeft(limits app.RuleLimits, errorCount, warningCount int) (schematron.Limits, bool) {
+	var room schematron.Limits // zero: no limit
+	if limits.Errors > 0 {
+		if room.Errors = limits.Errors - errorCount; room.Errors <= 0 {
+			return room, false
+		}
+	}
+	if limits.Warnings > 0 {
+		if room.Warnings = limits.Warnings - warningCount; room.Warnings <= 0 {
+			room.Warnings = -1 // keep none
+		}
+	}
+	return room, true
 }
 
 func finding(f schematron.Failure, mounted bool) app.RuleFinding {

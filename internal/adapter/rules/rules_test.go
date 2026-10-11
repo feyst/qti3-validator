@@ -51,7 +51,7 @@ func messages(t *testing.T, c *Checker, file string, own, markWarnings bool) ([]
 	if err != nil {
 		t.Fatal(err)
 	}
-	findings, err := c.CheckRules(context.Background(), data, 0)
+	findings, err := c.CheckRules(context.Background(), data, app.RuleLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,16 +167,16 @@ func TestChain(t *testing.T) {
 		t.Fatal("a chain of nil checkers is not nil")
 	}
 	var none *Checker
-	if f, err := none.CheckRules(context.Background(), []byte("<x/>"), 0); f != nil || err != nil {
+	if f, err := none.CheckRules(context.Background(), []byte("<x/>"), app.RuleLimits{}); f != nil || err != nil {
 		t.Fatalf("nil checker: %v, %v", f, err)
 	}
 	c := versionRules(t, "3.0.0")
 	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
-	all, err := Chain(c, c).CheckRules(context.Background(), data, 0)
+	all, err := Chain(c, c).CheckRules(context.Background(), data, app.RuleLimits{})
 	if err != nil || len(all) != 2 {
 		t.Fatalf("chain of two: %d findings, %v", len(all), err)
 	}
-	limited, _ := Chain(c, c).CheckRules(context.Background(), data, 1)
+	limited, _ := Chain(c, c).CheckRules(context.Background(), data, app.RuleLimits{Errors: 1})
 	if len(limited) != 1 {
 		t.Fatalf("limited to 1: %d findings", len(limited))
 	}
@@ -188,7 +188,7 @@ func TestBudget(t *testing.T) {
 	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
 	check := func(c *Checker, steps int64) ([]app.RuleFinding, error) {
 		c.budget = budget{base: steps}
-		return c.CheckRules(context.Background(), data, 0)
+		return c.CheckRules(context.Background(), data, app.RuleLimits{})
 	}
 	// Find the least budget one rule set needs.
 	c := versionRules(t, "3.0.0")
@@ -245,12 +245,12 @@ func TestBudgetGrowsWithDocument(t *testing.T) {
 	linear := []byte(testutil.LinearItem(int(qti.DefaultLimits.MaxDocumentSize / 100)))
 	c := versionRules(t, "3.0.1")
 	c.budget = scaled
-	if findings, err := c.CheckRules(context.Background(), linear, 0); err != nil || len(findings) != 0 {
+	if findings, err := c.CheckRules(context.Background(), linear, app.RuleLimits{}); err != nil || len(findings) != 0 {
 		t.Fatalf("plain content: %d findings, %v", len(findings), err)
 	}
 	// The base alone is not enough.
 	c.budget = budget{base: scaled.base}
-	if _, err := c.CheckRules(context.Background(), linear, 0); !errors.Is(err, app.ErrTooComplex) {
+	if _, err := c.CheckRules(context.Background(), linear, app.RuleLimits{}); !errors.Is(err, app.ErrTooComplex) {
 		t.Fatalf("plain content on the base alone: %v, want app.ErrTooComplex", err)
 	}
 
@@ -260,7 +260,7 @@ func TestBudgetGrowsWithDocument(t *testing.T) {
 	} {
 		c := mountedRules(t, tc.rules)
 		c.budget = scaled
-		if _, err := c.CheckRules(context.Background(), []byte(tc.doc), 0); !errors.Is(err, app.ErrTooComplex) {
+		if _, err := c.CheckRules(context.Background(), []byte(tc.doc), app.RuleLimits{}); !errors.Is(err, app.ErrTooComplex) {
 			t.Errorf("%s: got %v, want app.ErrTooComplex", name, err)
 		}
 	}
@@ -270,7 +270,64 @@ func TestContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
-	if _, err := versionRules(t, "3.0.0").CheckRules(ctx, data, 0); !errors.Is(err, context.Canceled) {
+	if _, err := versionRules(t, "3.0.0").CheckRules(ctx, data, app.RuleLimits{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want context.Canceled", err)
+	}
+}
+
+// warningsBeforeError is an item whose rules give three warnings
+// (correct-response-declared, as R2 has no correct response) before one
+// error (interaction-response-type: a choice interaction bound to a string).
+var warningsBeforeError = `<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="i" title="t" time-dependent="false">
+  <qti-response-declaration identifier="R2" cardinality="single" base-type="identifier"/>
+  <qti-response-declaration identifier="R3" cardinality="single" base-type="string"/>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float"/>
+  <qti-item-body>
+    <qti-choice-interaction response-identifier="R3" max-choices="1">
+      <qti-simple-choice identifier="A">A</qti-simple-choice>
+    </qti-choice-interaction>
+  </qti-item-body>
+  <qti-response-processing>` + strings.Repeat(`<qti-response-condition><qti-response-if>
+      <qti-match><qti-variable identifier="R2"/><qti-correct identifier="R2"/></qti-match>
+      <qti-set-outcome-value identifier="SCORE"><qti-base-value base-type="float">1</qti-base-value></qti-set-outcome-value>
+    </qti-response-if></qti-response-condition>`, 3) + `</qti-response-processing>
+</qti-assessment-item>`
+
+// Warnings do not use up the room for errors, within a rule set or across
+// the sets of a chain; they have a limit of their own.
+func TestLimitsCountErrorsAndWarningsApart(t *testing.T) {
+	c := versionRules(t, "3.0.1")
+	count := func(c *Checker, limits app.RuleLimits) (errs, warnings int) {
+		t.Helper()
+		findings, err := c.CheckRules(context.Background(), []byte(warningsBeforeError), limits)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range findings {
+			if f.Warning {
+				warnings++
+			} else {
+				errs++
+			}
+		}
+		return errs, warnings
+	}
+	if errs, warnings := count(c, app.RuleLimits{}); errs != 1 || warnings != 3 {
+		t.Fatalf("no limits: %d errors, %d warnings; want 1, 3", errs, warnings)
+	}
+	for _, tc := range []struct {
+		checker        *Checker
+		limits         app.RuleLimits
+		errs, warnings int
+	}{
+		{c, app.RuleLimits{Errors: 3, Warnings: 3}, 1, 3},
+		{c, app.RuleLimits{Errors: 1, Warnings: 2}, 1, 2},
+		{Chain(c, c), app.RuleLimits{Errors: 3, Warnings: 4}, 2, 4},
+		{Chain(c, c), app.RuleLimits{Errors: 3, Warnings: 3}, 2, 3},
+	} {
+		if errs, warnings := count(tc.checker, tc.limits); errs != tc.errs || warnings != tc.warnings {
+			t.Errorf("%+v: %d errors, %d warnings; want %d, %d", tc.limits, errs, warnings, tc.errs, tc.warnings)
+		}
 	}
 }

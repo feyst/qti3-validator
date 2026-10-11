@@ -107,9 +107,9 @@ that passed gets a `valids` item.
 | `generated` | When the report was made, in UTC, for example `2026-10-07T08:44:28` |
 | `generator` | The service and its version |
 | `input` | `name` and `type` (`XML` or `ZIP`) of what was validated |
-| `specification` | What it was validated against: `pid` (`qti300.pid` or `qti301.pid`), `shortName` `qti`, `version`, `title` |
+| `specification` | What it was validated against: `pid` (`qti300.pid` or `qti301.pid`), `shortName` `qti`, `version`, `title`. A document that could not be read far enough to know its type (not well-formed, not a QTI 3 document) names the version it would have been validated against: the `version` parameter, or the latest. A document of a type a [custom validator](custom-validators.md) adds has no QTI version: `pid` is `qti.pid`, `title` is `QTI`, and there is no `version` |
 | `summary.outcome` | The most severe outcome in the report; see [Outcomes](#outcomes) |
-| `summary.*` | Number of items per outcome. `totalRun` counts the checks that ran: reading each document, its XML Schema validation and its Schematron rules, and for a package the package itself. `valid` counts the documents that passed |
+| `summary.*` | Number of items per outcome. `totalRun` counts the checks that ran: reading each document, its XML Schema validation and its Schematron rules, and for a package the package itself. Checks that did not run are not counted: the XML Schema and the rules of a document that could not be read, and the rules when the XML Schema check could not assess the whole document, when it found `MAX_ERRORS` errors, or when validation stopped before the rules. A check that started and stopped (`too_complex`) counts. `valid` counts the documents that passed |
 | `fatals`, `errors`, `warnings`, `exceptions`, `notRun`, `valids` | One list per outcome, always present |
 
 Each item in those lists:
@@ -148,7 +148,7 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `valid` | VALID | The document passed |
 | `validation` | ERROR | The document does not conform to the QTI XML Schemas |
 | `schematron` | ERROR | The document breaks a Schematron rule (WARNING for a rule marked as a warning) |
-| `reference` | ERROR | A reference to a file, item or variable does not resolve in the package (WARNING for an unlisted file or a used fallback); see [additional checks](additional-checks.md#references-within-a-package) |
+| `reference` | ERROR | A reference to a file, item or variable does not resolve in the package (WARNING for an unlisted file, a used fallback or a missing `template-location`); see [additional checks](additional-checks.md#references-within-a-package) |
 | `value_type` | ERROR | A value or expression has the wrong base type or cardinality; see [additional checks](additional-checks.md#value-types) |
 | `unsupported_version` | ERROR | A manifest declares a `<schemaversion>` the service does not support; it was validated against the latest version instead |
 | `missing_manifest` | ERROR | There is no `imsmanifest.xml` in the root of the package |
@@ -164,6 +164,20 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `skipped` | NOT_RUN | An XML file in a package that is not a QTI document |
 | `not_run` | NOT_RUN | Checks that could not run after a FATAL finding |
 | `too_complex` | EXCEPTION | Validation stopped before the end: the document's rules need more work than one document may take (a budget of XPath steps that grows with the number of nodes in the document; the rules of plain content stay well within it at any size up to `MAX_REQUEST_SIZE`), or validation took longer than `REQUEST_TIMEOUT`. The findings before it are kept. In a package it is reported in the file that stopped; when time ran out, a package finding also names the files that were not validated. HTTP 422 |
-| `internal` | EXCEPTION | An unexpected error in the service |
+| `internal` | EXCEPTION | An unexpected error in the service. The findings before it are kept |
 
-At most `MAX_ERRORS` findings (100 by default) are reported per document.
+## Limits
+
+`MAX_ERRORS` (100 by default) limits the findings of each document:
+
+- **Errors:** at most `MAX_ERRORS` errors from the XML Schema and the rules
+  together. The rules run only while the XML Schema left room, and stop
+  once the errors reach the limit. Warnings do not count towards it, so they
+  never hide an error.
+- **Warnings of the rules:** at most `MAX_ERRORS`, apart from the errors.
+  Once they reach that, further warnings are left out, but the rules go on
+  looking for errors.
+- **Not limited:** a `too_complex` or `internal` finding, which comes on top
+  of the errors; a `version_overridden` warning; and in a package the
+  `reference` findings and the findings about the package itself, which
+  come after the documents were validated.

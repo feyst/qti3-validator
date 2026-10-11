@@ -101,3 +101,55 @@ func TestCheckReferences(t *testing.T) {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }
+
+// Item-ref identifiers are unique only within a test: two tests that both
+// call their item I1 are each checked against their own item, including
+// items of the sections a test includes.
+func TestCheckVariablesPerTest(t *testing.T) {
+	item := func(declared ...string) PackageDocument {
+		return PackageDocument{Schema: "qti-assessment-item", Refs: DocumentReferences{Declared: declared}}
+	}
+	test := func(href string, vars ...VariableRef) PackageDocument {
+		return PackageDocument{Schema: "qti-assessment-test", Refs: DocumentReferences{
+			References:   []Reference{ref(RefItem, href)},
+			ItemRefs:     []ItemRef{{Identifier: "I1", Href: href}},
+			VariableRefs: vars,
+		}}
+	}
+	p := PackageContents{
+		Files: []string{"a/test.xml", "a/item.xml", "b/test.xml", "b/item.xml", "c/test.xml", "c/section.xml", "c/sub.xml", "c/item.xml"},
+		Documents: map[string]PackageDocument{
+			"a/test.xml": test("item.xml", VariableRef{Item: "I1", Variable: "SCORE_A"}, VariableRef{Item: "I1", Variable: "SCORE_B"}),
+			"a/item.xml": item("SCORE_A"),
+			"b/test.xml": test("item.xml", VariableRef{Item: "I1", Variable: "SCORE_B"}, VariableRef{Item: "I1", Variable: "SCORE_A"}),
+			"b/item.xml": item("SCORE_B"),
+			// c/test.xml has no item refs of its own: its item is in a
+			// section it includes, which includes another section.
+			"c/test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{
+				References:   []Reference{ref(RefSection, "section.xml")},
+				VariableRefs: []VariableRef{{Item: "C1", Variable: "SCORE_C"}, {Item: "C1", Variable: "NOPE"}},
+			}},
+			"c/section.xml": {Schema: "qti-assessment-section", Refs: DocumentReferences{References: []Reference{ref(RefSection, "sub.xml")}}},
+			"c/sub.xml": {Schema: "qti-assessment-section", Refs: DocumentReferences{
+				References: []Reference{ref(RefItem, "item.xml")},
+				ItemRefs:   []ItemRef{{Identifier: "C1", Href: "item.xml"}},
+			}},
+			"c/item.xml": item("SCORE_C"),
+		},
+	}
+	var got []string
+	for _, f := range CheckReferences(p) {
+		if f.Rule == CheckTestItemVariable {
+			got = append(got, f.File+": "+f.Message)
+		}
+	}
+	slices.Sort(got)
+	want := []string{
+		"a/test.xml: qti-variable refers to I1.SCORE_B, but a/item.xml declares no variable SCORE_B.",
+		"b/test.xml: qti-variable refers to I1.SCORE_A, but b/item.xml declares no variable SCORE_A.",
+		"c/test.xml: qti-variable refers to C1.NOPE, but c/item.xml declares no variable NOPE.",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}

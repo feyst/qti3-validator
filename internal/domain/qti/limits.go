@@ -3,7 +3,7 @@ package qti
 // Limits bound the work per document.
 type Limits struct {
 	MaxDocumentSize int64 // bytes per XML document
-	MaxErrors       int   // findings reported per document
+	MaxErrors       int   // errors per document from the XML Schema and the rules; also bounds the rules' warnings
 	MaxDepth        int   // nesting depth of XML elements
 }
 

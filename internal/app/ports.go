@@ -22,13 +22,24 @@ type SchemaVerdict struct {
 	Conclusive bool
 }
 
-// RuleChecker runs Schematron rules on a well-formed document and returns at
-// most maxFindings findings; zero means no limit. When it stops before the
-// end, because the rules take more work than it allows for one document or
-// ctx is done, it returns the findings so far with an error wrapping
-// ErrTooComplex or ctx.Err().
+// RuleChecker runs Schematron rules on a well-formed document and returns
+// the findings within limits. When it stops before the end, because the
+// rules take more work than it allows for one document or ctx is done, it
+// returns the findings so far with an error wrapping ErrTooComplex or
+// ctx.Err().
 type RuleChecker interface {
-	CheckRules(ctx context.Context, data []byte, maxFindings int) ([]RuleFinding, error)
+	CheckRules(ctx context.Context, data []byte, limits RuleLimits) ([]RuleFinding, error)
+}
+
+// RuleLimits bound the findings of a RuleChecker. Errors and warnings are
+// bounded apart, so warnings never take the room of an error.
+type RuleLimits struct {
+	// Errors is the number of errors after which the rules stop; zero means
+	// no limit.
+	Errors int
+	// Warnings is the number of warnings kept; the rules go on looking for
+	// errors after it. Zero means no limit.
+	Warnings int
 }
 
 // ErrTooComplex reports that checking a document takes more work than a

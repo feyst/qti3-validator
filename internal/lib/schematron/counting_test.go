@@ -105,7 +105,7 @@ func TestIndexedCountsBindTheirOwnPrefix(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		failures, err := e.Validate(nil, parseDoc(t, `<r xmlns="urn:q"><a id="x"/><a id="y"/><a id="x"/></r>`), 0)
+		failures, err := e.Validate(nil, parseDoc(t, `<r xmlns="urn:q"><a id="x"/><a id="y"/><a id="x"/></r>`), Limits{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -168,11 +168,11 @@ func TestIndexedCountsMatchXPath(t *testing.T) {
 	findings := 0
 	for i, src := range docs {
 		doc := parseDoc(t, src)
-		want, err := plain.Validate(nil, doc, 0)
+		want, err := plain.Validate(nil, doc, Limits{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := indexed.Validate(nil, doc, 0)
+		got, err := indexed.Validate(nil, doc, Limits{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -319,7 +319,7 @@ func TestIndexedCountsScale(t *testing.T) {
 		b.WriteString(tc.close)
 		doc := parseDoc(t, b.String())
 		start := time.Now()
-		failures, err := e.Validate(nil, doc, 0)
+		failures, err := e.Validate(nil, doc, Limits{})
 		if err != nil {
 			t.Fatal(err)
 		}

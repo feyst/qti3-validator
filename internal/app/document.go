@@ -17,8 +17,17 @@ import (
 // document type a mounted validator adds is checked against that
 // validator's profile and has no QTI version. The document is held in
 // memory, bounded by the MaxDocumentSize limit.
+//
+// A document that could not be read far enough to know its type, such as
+// malformed XML, gets the QTI version it would have been validated against:
+// the forced one or the latest.
 func (v *Validator) ValidateDocument(ctx context.Context, q ValidateDocument) qti.DocumentResult {
-	return v.validateReader(ctx, q.Document, qti.VersionRequest{Forced: q.Version}, v.limits)
+	req := qti.VersionRequest{Forced: q.Version}
+	res := v.validateReader(ctx, q.Document, req, v.limits)
+	if res.Version == "" && res.Schema == "" {
+		res.Version = qti.ChooseVersion(req, qti.DeclaredVersion{}).Version.Name
+	}
+	return res
 }
 
 func (v *Validator) validateReader(ctx context.Context, r io.Reader, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
@@ -117,6 +126,7 @@ func checkSchema(ctx context.Context, s SchemaChecker, docType qti.DocumentType,
 		Schema:  docType.Schema,
 		Errors:  verdict.Findings,
 		Outcome: verdict.Outcome,
+		Ran:     qti.Checks{Schema: true},
 	}
 	if f, ok := stopFinding(ctx.Err()); ok {
 		res.AddError(f, qti.OutcomeTooComplex)
@@ -131,9 +141,11 @@ func assessable(res qti.DocumentResult, verdict SchemaVerdict) bool {
 }
 
 // checkRules runs the rules on a well-formed document and adds their
-// findings to res, as long as fewer than MaxErrors errors were found. Rules
-// that stop before the end add the findings so far and a too_complex
-// finding.
+// findings to res, as long as fewer than MaxErrors errors were found. The
+// rules may add errors up to MaxErrors in all, and MaxErrors warnings of
+// their own; warnings do not take the room of errors. Rules that stop before
+// the end add the findings so far and a too_complex finding; rules that fail
+// keep the findings before them and add an internal error.
 func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.DocumentResult, limits qti.Limits) qti.DocumentResult {
 	if rules == nil {
 		return res
@@ -142,10 +154,13 @@ func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.Doc
 	if remaining <= 0 {
 		return res
 	}
-	findings, err := rules.CheckRules(ctx, data, remaining)
+	res.Ran.Rules = true
+	findings, err := rules.CheckRules(ctx, data, RuleLimits{Errors: remaining, Warnings: limits.MaxErrors})
 	stop, stopped := stopFinding(err)
 	if err != nil && !stopped {
-		return qti.Failure(qti.OutcomeInternal, res.Schema, qti.CodeInternal, err.Error())
+		// Like a validation that stops: what was found before is kept.
+		res.AddError(qti.Finding{Code: qti.CodeInternal, Message: err.Error()}, qti.OutcomeInternal)
+		return res
 	}
 	for _, f := range findings {
 		if f.Warning {
