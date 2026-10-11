@@ -2,7 +2,10 @@
 // internal/adapter/schemastore/schemas/schemas.lock, verifies their checksums, and
 // compiles the Schematron rules embedded in them, together with the
 // validator's own rules in rules/qti3-additional-checks.sch, to
-// schematron.json.gz. A schema already downloaded with the pinned checksum
+// schematron.json.gz. It also reads the names of the elements the QTI
+// schemas declare, which the validator needs for the fragments of a package,
+// to elements.json.gz, so the service does not parse those schemas a second
+// time when it starts. A schema already downloaded with the pinned checksum
 // is reused, so changing a rule needs no network. A file under a schema host's
 // directory that the lock file does not list is removed, because the
 // validator embeds those directories whole.
@@ -36,8 +39,10 @@ import (
 	"strings"
 	"time"
 
+	"qti3-validator/internal/domain/qti"
 	"qti3-validator/internal/lib/schematron"
 	"qti3-validator/internal/lib/xmlenc"
+	"qti3-validator/internal/lib/xsdelements"
 )
 
 // maxSchemaBytes is the largest schema accepted, uncompressed.
@@ -65,9 +70,19 @@ func main() {
 	flag.Parse()
 
 	f := fetcher{client: newClient(&http.Client{Timeout: 2 * time.Minute}), outDir: *outDir, maxBytes: maxSchemaBytes}
-	if err := run(f, *lockPath, *extraRules); err != nil {
+	if err := run(f, *lockPath, *extraRules, elementSchemas()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// elementSchemas are the schemas whose element names the validator needs:
+// the one of the items, tests and fragments of every QTI version.
+func elementSchemas() []string {
+	var urls []string
+	for _, v := range qti.Versions() {
+		urls = append(urls, v.ASI)
+	}
+	return urls
 }
 
 // newClient returns base with the redirect policy of checkRedirect.
@@ -90,13 +105,15 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 }
 
 // run fetches the schemas of the lock file, removes the files the lock file
-// no longer lists, and compiles the Schematron rules.
-func run(f fetcher, lockPath, extraRules string) error {
+// no longer lists, compiles the Schematron rules, and reads the element
+// names of the schemas elementSchemas names, which the lock file must list.
+func run(f fetcher, lockPath, extraRules string, elementSchemas []string) error {
 	pins, err := readLock(lockPath)
 	if err != nil {
 		return err
 	}
 	var ruleSets []schematron.RuleSet
+	elements := &xsdelements.Compiled{Version: xsdelements.CompiledVersion, Schemas: map[string]xsdelements.Schema{}}
 	for _, p := range pins {
 		data, err := f.fetch(p)
 		if err != nil {
@@ -110,6 +127,19 @@ func run(f fetcher, lockPath, extraRules string) error {
 		if len(rs.Patterns) > 0 {
 			ruleSets = append(ruleSets, rs)
 			log.Printf("extracted %d Schematron patterns from %s", len(rs.Patterns), p.url)
+		}
+		if slices.Contains(elementSchemas, p.url.String()) {
+			declared, err := readElements(p.url.String(), data)
+			if err != nil {
+				return err
+			}
+			elements.Schemas[p.url.String()] = xsdelements.Schema{SHA256: p.sha256, Elements: declared}
+			log.Printf("read %d element names from %s", len(declared.Global)+len(declared.Local), p.url)
+		}
+	}
+	for _, u := range elementSchemas {
+		if _, ok := elements.Schemas[u]; !ok {
+			return fmt.Errorf("%s: does not list %s, whose element names the validator needs", lockPath, u)
 		}
 	}
 	removed, err := prune(f.outDir, pins)
@@ -134,6 +164,11 @@ func run(f fetcher, lockPath, extraRules string) error {
 	if err != nil {
 		return err
 	}
+	if err := writeElements(filepath.Join(f.outDir, elementsFile), elements); err != nil {
+		return err
+	}
+	// The rules are written last: the Makefile takes their file for the
+	// time of the whole run.
 	if err := writeRules(filepath.Join(f.outDir, rulesFile), compiled); err != nil {
 		return err
 	}
@@ -143,6 +178,32 @@ func run(f fetcher, lockPath, extraRules string) error {
 
 // rulesFile holds the compiled Schematron rules of all schemas.
 const rulesFile = "schematron.json.gz"
+
+// elementsFile holds the element names of the QTI schemas.
+const elementsFile = "elements.json.gz"
+
+// readElements returns the names of the elements a schema declares. The
+// validator's test of the embedded file reads them with the same function,
+// from the schemas as it serves them.
+func readElements(source string, data []byte) (xsdelements.Elements, error) {
+	data, err := xmlenc.ToUTF8(data)
+	if err != nil {
+		return xsdelements.Elements{}, fmt.Errorf("%s: %w", source, err)
+	}
+	declared, err := xsdelements.Read(bytes.NewReader(data))
+	if err != nil {
+		return xsdelements.Elements{}, fmt.Errorf("read the elements of %s: %w", source, err)
+	}
+	return declared, nil
+}
+
+func writeElements(name string, compiled *xsdelements.Compiled) error {
+	var buf bytes.Buffer
+	if err := compiled.Encode(&buf); err != nil {
+		return err
+	}
+	return os.WriteFile(name, buf.Bytes(), 0o600)
+}
 
 // extractRules returns the Schematron rules embedded in a schema.
 func extractRules(source string, data []byte) (schematron.RuleSet, error) {

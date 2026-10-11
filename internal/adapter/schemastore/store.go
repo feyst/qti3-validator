@@ -6,13 +6,15 @@
 // Each file lives gzip-compressed under its URL host and path plus ".gz", so
 // the absolute schemaLocation URLs in the XSDs map directly to files. The
 // same command compiles the Schematron rules embedded in the XSDs, and the
-// validator's own rules, to schemas/schematron.json.gz.
+// validator's own rules, to schemas/schematron.json.gz, and reads the names
+// of the elements the QTI schemas declare to schemas/elements.json.gz.
 package schemastore
 
 import (
 	"bytes"
 	"compress/gzip"
 	"embed"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,13 +24,18 @@ import (
 
 	"qti3-validator/internal/lib/schematron"
 	"qti3-validator/internal/lib/xmlenc"
+	"qti3-validator/internal/lib/xsdelements"
 )
 
-//go:embed schemas/purl.imsglobal.org schemas/schematron.json.gz
+//go:embed schemas/purl.imsglobal.org schemas/schematron.json.gz schemas/elements.json.gz
 var embedded embed.FS
 
 // RulesFile is the compiled Schematron rules, relative to the schema tree.
 const RulesFile = "schematron.json.gz"
+
+// ElementsFile is the element names of the QTI schemas, relative to the
+// schema tree.
+const ElementsFile = "elements.json.gz"
 
 // Store reads schemas from a file system laid out as URL host and path.
 type Store struct {
@@ -93,6 +100,21 @@ func (s Store) Rules() (*schematron.Compiled, error) {
 	return &compiled, nil
 }
 
+// Elements returns the element names of the QTI schemas, read from them at
+// build time.
+func (s Store) Elements() (*xsdelements.Compiled, error) {
+	f, err := s.fsys.Open(ElementsFile)
+	if err != nil {
+		return nil, fmt.Errorf("schema elements: %w", err)
+	}
+	defer f.Close()
+	compiled, err := xsdelements.Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("schema elements: %w", err)
+	}
+	return compiled, nil
+}
+
 // localPath maps https://host/path to host/path.
 func localPath(schemaURL string) (string, error) {
 	u, err := url.Parse(schemaURL)
@@ -109,25 +131,36 @@ func localPath(schemaURL string) (string, error) {
 	return name, nil
 }
 
+// maxSizeHint is the largest size a gzip trailer is believed to state.
+const maxSizeHint = 64 << 20
+
 // openUTF8 opens a gzip-compressed schema file, transcoding UTF-16 to UTF-8.
 // The XSD library accepts only UTF-8, and the upstream XInclude.xsd is UTF-16
 // with a BOM. Transcoding at load time keeps the pinned files byte-identical
 // to upstream.
 func openUTF8(fsys fs.FS, name string) (io.ReadCloser, error) {
-	f, err := fsys.Open(name)
+	compressed, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	zr, err := gzip.NewReader(f)
+	zr, err := gzip.NewReader(bytes.NewReader(compressed))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
-	data, err := io.ReadAll(zr)
-	if err != nil {
+	// A gzip file ends with its uncompressed size. Room for all of it at
+	// once saves growing the buffer, megabytes at a time for the largest
+	// schemas; the size is a hint, and a wrong one only costs that again.
+	var buf bytes.Buffer
+	if n := len(compressed); n >= 4 {
+		if size := binary.LittleEndian.Uint32(compressed[n-4:]); size <= maxSizeHint {
+			buf.Grow(int(size) + bytes.MinRead)
+		}
+	}
+	if _, err := buf.ReadFrom(zr); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
-	if data, err = xmlenc.ToUTF8(data); err != nil {
+	data, err := xmlenc.ToUTF8(buf.Bytes())
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil

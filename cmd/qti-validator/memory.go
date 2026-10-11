@@ -2,8 +2,6 @@ package main
 
 import (
 	"log/slog"
-	"os"
-	"runtime/debug"
 
 	"qti3-validator/internal/config"
 )
@@ -38,6 +36,14 @@ const (
 	// minGoMemLimit floors a derived soft limit so a very small container
 	// does not set an unusable one.
 	minGoMemLimit = 32 << 20
+	// startupMemoryLimit is the soft limit while the schemas are compiled.
+	// Measured on two CPUs, the process then peaks at 88 MiB instead of
+	// 124 MiB, and is ready some 40 ms later (0.72 s instead of 0.67 s). A
+	// lower limit costs more time than it saves memory: 70 MiB gives a peak
+	// of 78 MiB for another 50 ms, and below 64 MiB the two QTI versions no
+	// longer compile at the same time (bootstrap), which takes 1.0 s.
+	// CONTRIBUTING.md has the measurements.
+	startupMemoryLimit = 80 << 20
 )
 
 // validationMemoryBudget is the MaxValidationMemory the server uses: the
@@ -74,22 +80,42 @@ func validationMemoryBudget(log *slog.Logger, cfg config.Config, env spoolEnv, s
 	return budget
 }
 
-// applyMemoryLimit sets the soft memory limit of the Go runtime (GOMEMLIMIT)
-// from the container's memory limit, unless GOMEMLIMIT is set, which is
-// kept. Near the soft limit the collector works harder, so the process
-// stays within the container; far below it the collector runs as usual,
-// when the heap has doubled. Without a memory limit there is nothing to
-// stay within, and no soft limit.
-func applyMemoryLimit(log *slog.Logger, env spoolEnv) {
-	if v, ok := os.LookupEnv("GOMEMLIMIT"); ok && v != "" {
-		log.Info("GOMEMLIMIT is set and kept", "gomemlimit", v, "memory_limit", env.MemoryLimit)
-		return // the runtime applied it
+// limitStartupMemory sets the soft memory limit of the Go runtime
+// (GOMEMLIMIT) for the compilation of the schemas, and returns the function
+// that sets the one the service runs with, to call once the validator is
+// ready. set is debug.SetMemoryLimit, and gomemlimit the value of
+// GOMEMLIMIT in the environment.
+//
+// The service runs with GOMEMLIMIT if that is set, and else with the
+// container's memory limit less gomemlimitHeadroom. Near the soft limit the
+// collector works harder, so the process stays within the container; far
+// below it the collector runs as usual, when the heap has doubled. Without
+// a memory limit there is nothing to stay within, and no soft limit.
+//
+// The compilation gets startupMemoryLimit, or the limit of the service if
+// that is lower. It makes nearly a gigabyte of garbage around a live heap
+// that ends at some 30 MiB: with the limit of the service, which is far
+// away, the collector lets that garbage pile up to the highest memory use
+// of the whole process.
+func limitStartupMemory(log *slog.Logger, env spoolEnv, gomemlimit string, set func(int64) int64) (ready func()) {
+	running := set(-1) // GOMEMLIMIT as the runtime read it, or no limit
+	explicit := gomemlimit != ""
+	derived := !explicit && env.MemoryLimit > 0
+	if derived {
+		running = max(env.MemoryLimit-gomemlimitHeadroom, minGoMemLimit)
 	}
-	if env.MemoryLimit <= 0 {
-		return
+	startup := min(running, startupMemoryLimit)
+	set(startup)
+	return func() {
+		set(running)
+		switch {
+		case explicit:
+			log.Info("GOMEMLIMIT is set and kept", "gomemlimit", gomemlimit, "memory_limit", env.MemoryLimit,
+				"while_compiling", startup)
+		case derived:
+			log.Info("soft memory limit of the Go runtime derived from the memory limit",
+				"memory_limit", env.MemoryLimit, "headroom", gomemlimitHeadroom, "gomemlimit", running,
+				"while_compiling", startup)
+		}
 	}
-	soft := max(env.MemoryLimit-gomemlimitHeadroom, minGoMemLimit)
-	debug.SetMemoryLimit(soft)
-	log.Info("soft memory limit of the Go runtime derived from the memory limit",
-		"memory_limit", env.MemoryLimit, "headroom", gomemlimitHeadroom, "gomemlimit", soft)
 }

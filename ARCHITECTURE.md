@@ -86,7 +86,7 @@ read, the public 1EdTech report model.
   into reports. It depends on a small `Validator` interface, not on the
   concrete application.
 - **Outbound:** `xsdschema`, `rules` and `ziparchive` implement the ports.
-  `schemastore` serves the embedded schemas and compiled rules;
+  `schemastore` serves the embedded schemas, compiled rules and element names;
   `validatorsdir` turns a mounted directory into extra profiles and rules.
 
 ## Composition: `internal/bootstrap`

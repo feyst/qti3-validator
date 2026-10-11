@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log/slog"
+	"math"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -50,34 +51,81 @@ func TestValidationMemoryBudget(t *testing.T) {
 	}
 }
 
-func TestApplyMemoryLimit(t *testing.T) {
+// The soft limit is low while the schemas compile, and the one of the
+// service once the validator is ready: GOMEMLIMIT when that is set.
+func TestLimitStartupMemory(t *testing.T) {
+	const mib = 1 << 20
+	const none = math.MaxInt64 // what the runtime reports without a limit
+	tests := []struct {
+		name       string
+		gomemlimit string // in the environment
+		applied    int64  // by the runtime, from the environment
+		env        spoolEnv
+		startup    int64
+		running    int64
+		log        string
+	}{
+		{"256 MiB container", "", none, spoolEnv{MemoryLimit: 256 * mib}, startupMemoryLimit, 224 * mib, "derived"},
+		{"1 GiB container", "", none, spoolEnv{MemoryLimit: 1024 * mib}, startupMemoryLimit, 992 * mib, "derived"},
+		{"container smaller than the startup limit", "", none, spoolEnv{MemoryLimit: 96 * mib}, 64 * mib, 64 * mib, "derived"},
+		{"container just above it", "", none, spoolEnv{MemoryLimit: 128 * mib}, startupMemoryLimit, 96 * mib, "derived"},
+		{"tiny container", "", none, spoolEnv{MemoryLimit: 40 * mib}, minGoMemLimit, minGoMemLimit, "derived"},
+		{"no container limit", "", none, spoolEnv{}, startupMemoryLimit, none, ""},
+		{"GOMEMLIMIT above the startup limit", "512MiB", 512 * mib, spoolEnv{MemoryLimit: 256 * mib}, startupMemoryLimit, 512 * mib, "GOMEMLIMIT is set"},
+		{"GOMEMLIMIT below the startup limit", "48MiB", 48 * mib, spoolEnv{MemoryLimit: 256 * mib}, 48 * mib, 48 * mib, "GOMEMLIMIT is set"},
+		{"GOMEMLIMIT without a container limit", "200MiB", 200 * mib, spoolEnv{}, startupMemoryLimit, 200 * mib, "GOMEMLIMIT is set"},
+		{"GOMEMLIMIT=off", "off", none, spoolEnv{MemoryLimit: 256 * mib}, startupMemoryLimit, none, "GOMEMLIMIT is set"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			log := slog.New(slog.NewTextHandler(&buf, nil))
+			limit := tt.applied
+			var sets []int64
+			set := func(n int64) int64 {
+				previous := limit
+				if n >= 0 { // a negative limit only reads it, as debug.SetMemoryLimit
+					limit = n
+					sets = append(sets, n)
+				}
+				return previous
+			}
+			ready := limitStartupMemory(log, tt.env, tt.gomemlimit, set)
+			if limit != tt.startup {
+				t.Errorf("while compiling the limit is %d MiB, want %d MiB", limit/mib, tt.startup/mib)
+			}
+			if buf.Len() != 0 {
+				t.Errorf("logged before the validator is ready: %s", buf.String())
+			}
+			ready()
+			if limit != tt.running {
+				t.Errorf("once ready the limit is %d MiB, want %d MiB", limit/mib, tt.running/mib)
+			}
+			if len(sets) != 2 {
+				t.Errorf("the limit was set %d times, want once for each phase: %v", len(sets), sets)
+			}
+			out := buf.String()
+			if tt.log == "" && out != "" || !strings.Contains(out, tt.log) {
+				t.Errorf("log %q, want %q", out, tt.log)
+			}
+		})
+	}
+}
+
+// With the runtime's own setter: the limit it holds is the one set.
+func TestLimitStartupMemoryOfTheRuntime(t *testing.T) {
 	const mib = 1 << 20
 	before := debug.SetMemoryLimit(-1)
 	t.Cleanup(func() { debug.SetMemoryLimit(before) })
-	current := func() int64 { return debug.SetMemoryLimit(-1) }
 	quiet := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 
-	// Set explicitly: left alone.
-	t.Setenv("GOMEMLIMIT", "90MiB")
-	debug.SetMemoryLimit(90 * mib)
-	applyMemoryLimit(quiet, spoolEnv{MemoryLimit: 1024 * mib})
-	if got := current(); got != 90*mib {
-		t.Errorf("GOMEMLIMIT set: the limit became %d MiB", got/mib)
+	debug.SetMemoryLimit(math.MaxInt64)
+	ready := limitStartupMemory(quiet, spoolEnv{MemoryLimit: 1024 * mib}, "", debug.SetMemoryLimit)
+	if got := debug.SetMemoryLimit(-1); got != startupMemoryLimit {
+		t.Errorf("while compiling the limit is %d MiB", got/mib)
 	}
-	// Empty: derived from the container's limit.
-	t.Setenv("GOMEMLIMIT", "")
-	applyMemoryLimit(quiet, spoolEnv{MemoryLimit: 1024 * mib})
-	if got := current(); got != 1024*mib-gomemlimitHeadroom {
-		t.Errorf("derived limit %d MiB", got/mib)
-	}
-	applyMemoryLimit(quiet, spoolEnv{MemoryLimit: 40 * mib})
-	if got := current(); got != minGoMemLimit {
-		t.Errorf("derived limit in a tiny container: %d MiB", got/mib)
-	}
-	// No container limit: nothing to derive from.
-	debug.SetMemoryLimit(123 * mib)
-	applyMemoryLimit(quiet, spoolEnv{})
-	if got := current(); got != 123*mib {
-		t.Errorf("without a container limit the limit became %d MiB", got/mib)
+	ready()
+	if got := debug.SetMemoryLimit(-1); got != 1024*mib-gomemlimitHeadroom {
+		t.Errorf("once ready the limit is %d MiB", got/mib)
 	}
 }

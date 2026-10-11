@@ -14,15 +14,18 @@ RUN go mod download
 COPY . .
 
 # Download the QTI schemas pinned in internal/adapter/schemastore/schemas/schemas.lock,
-# and compile the Schematron rules embedded in them together with the
-# validator's own rules in rules/qti3-additional-checks.sch.
+# compile the Schematron rules embedded in them together with the
+# validator's own rules in rules/qti3-additional-checks.sch, and read the
+# names of the elements the QTI schemas declare, so the service does not
+# parse those schemas a second time when it starts.
 # The QTI version is fixed by the URLs in that file (spec/qti/v3p0, binding
 # v1p0) and every file is checked against its SHA-256, so a changed upstream
 # file fails the build instead of silently changing validation.
 RUN go run ./cmd/fetchschemas
 
 # Compile the schemas once at build time, so a schema the validator cannot
-# compile fails the build rather than the container start. This runs a binary
+# compile fails the build rather than the container start, and check that the
+# element names read above are those of these schemas. This runs a binary
 # for the builder's platform: the target's binary may not run here.
 RUN CGO_ENABLED=0 go run ./cmd/qti-validator -check
 
@@ -53,7 +56,9 @@ USER 65534:65534
 # No GOMEMLIMIT here: the service derives the soft memory limit of the Go
 # runtime at startup from the container's memory limit (the limit less
 # 32 MiB), so the garbage collector works harder only as the process nears
-# what the container has. Set GOMEMLIMIT with -e to choose it yourself.
+# what the container has. While the schemas compile at startup the limit is
+# 80 MiB, which holds the highest memory use of the start at about 88 MiB.
+# Set GOMEMLIMIT with -e to choose the limit of the running service yourself.
 EXPOSE 8080
 # The binary checks /health itself: the image has no shell or curl. It reads
 # ADDR like the service, so a changed port is followed.

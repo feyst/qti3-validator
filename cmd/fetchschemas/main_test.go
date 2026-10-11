@@ -13,10 +13,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"qti3-validator/internal/lib/xsdelements"
 )
 
 const (
@@ -598,7 +601,8 @@ func TestPrune(t *testing.T) {
 }
 
 // The whole command: the lock file's schemas are fetched, a schema the lock
-// file no longer lists is removed, and the rules are compiled.
+// file no longer lists is removed, the rules are compiled, and the element
+// names of the schema that needs them are read.
 func TestRun(t *testing.T) {
 	const second = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>`
 	up := newUpstream(t, map[string]string{schemaPath: schema, "/spec/y/second.xsd": second})
@@ -610,10 +614,10 @@ func TestRun(t *testing.T) {
 	writeFile(t, rulesPath, rules)
 	writeFile(t, lock, sum(schema)+" "+up.URL+schemaPath+"\n"+sum(second)+" "+up.URL+"/spec/y/second.xsd\n")
 
-	if err := run(up.fetcher(out), lock, rulesPath); err != nil {
+	if err := run(up.fetcher(out), lock, rulesPath, []string{up.URL + schemaPath}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{host + "/spec/x/schema.xsd.gz", host + "/spec/y/second.xsd.gz", "schemas.lock", rulesFile}
+	want := []string{host + "/spec/x/schema.xsd.gz", host + "/spec/y/second.xsd.gz", elementsFile, "schemas.lock", rulesFile}
 	if got := files(t, out); !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -621,15 +625,32 @@ func TestRun(t *testing.T) {
 	if err := json.Unmarshal([]byte(readGzip(t, filepath.Join(out, rulesFile))), &compiled); err != nil || len(compiled) == 0 {
 		t.Fatalf("compiled rules: %v, %v", compiled, err)
 	}
+	// The element names, of the one schema asked for, with its checksum.
+	f, err := os.Open(filepath.Join(out, elementsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	elements, err := xsdelements.Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantElements := map[string]xsdelements.Schema{up.URL + schemaPath: {
+		SHA256:   sum(schema),
+		Elements: xsdelements.Elements{Global: []string{"a"}, Local: []string{}, ManyTyped: []string{}},
+	}}
+	if !reflect.DeepEqual(elements.Schemas, wantElements) {
+		t.Fatalf("got the elements %+v, want %+v", elements.Schemas, wantElements)
+	}
 
 	// The second schema leaves the lock file: its file goes, without a
 	// request for the one that stays.
 	writeFile(t, lock, sum(schema)+" "+up.URL+schemaPath+"\n")
 	before := up.requests.Load()
-	if err := run(up.fetcher(out), lock, rulesPath); err != nil {
+	if err := run(up.fetcher(out), lock, rulesPath, []string{up.URL + schemaPath}); err != nil {
 		t.Fatal(err)
 	}
-	want = []string{host + "/spec/x/schema.xsd.gz", "schemas.lock", rulesFile}
+	want = []string{host + "/spec/x/schema.xsd.gz", elementsFile, "schemas.lock", rulesFile}
 	if got := files(t, out); !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -638,14 +659,25 @@ func TestRun(t *testing.T) {
 	}
 
 	// A failed checksum stops the run before anything is pruned or compiled.
-	if err := os.Remove(filepath.Join(out, rulesFile)); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{rulesFile, elementsFile} {
+		if err := os.Remove(filepath.Join(out, name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	writeFile(t, lock, sum(schema)+" "+up.URL+schemaPath+"\n"+sum("other")+" "+up.URL+"/spec/y/second.xsd\n")
-	err := run(up.fetcher(out), lock, rulesPath)
+	err = run(up.fetcher(out), lock, rulesPath, []string{up.URL + schemaPath})
 	wantError(t, err, "checksum mismatch")
 	wantError(t, err, "/spec/y/second.xsd")
 	want = []string{host + "/spec/x/schema.xsd.gz", "schemas.lock"}
+	if got := files(t, out); !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	// A schema whose elements are needed must be in the lock file, and be a
+	// schema.
+	writeFile(t, lock, sum(schema)+" "+up.URL+schemaPath+"\n")
+	err = run(up.fetcher(out), lock, rulesPath, []string{up.URL + "/spec/y/second.xsd"})
+	wantError(t, err, "does not list "+up.URL+"/spec/y/second.xsd")
 	if got := files(t, out); !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -662,7 +694,7 @@ func TestRun(t *testing.T) {
 			if tc.lock == "" {
 				tc.lock = lock
 			}
-			wantError(t, run(up.fetcher(out), tc.lock, tc.rules), tc.want)
+			wantError(t, run(up.fetcher(out), tc.lock, tc.rules, []string{up.URL + schemaPath}), tc.want)
 		})
 	}
 }

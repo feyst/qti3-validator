@@ -6,7 +6,7 @@ How to use the service is in the [README](README.md).
 The service checks QTI 3 documents in three steps: well-formedness, XSD
 validity against the official 1EdTech schemas, and the ISO Schematron rules
 that 1EdTech embeds in those schemas. It is written in Go, without CGo or
-libxml2, and ships as a `scratch` image of about 13 MB.
+libxml2, and ships as a `scratch` image of about 21 MB.
 
 ## Project layout
 
@@ -16,8 +16,8 @@ rules that keep it that way, are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 | Path | Contents |
 | --- | --- |
-| `cmd/qti-validator` | The service; `-check` compiles the schemas and rules and exits |
-| `cmd/fetchschemas` | Build step: downloads the pinned schemas, compiles the Schematron rules, including `rules/` |
+| `cmd/qti-validator` | The service; `-check` compiles the schemas and rules, verifies the element names and exits |
+| `cmd/fetchschemas` | Build step: downloads the pinned schemas, compiles the Schematron rules, including `rules/`, and reads the element names of the QTI schemas |
 | `rules/qti3-additional-checks.sch` | The validator's own Schematron rules; see [docs/additional-checks.md](docs/additional-checks.md) |
 | `internal/domain/qti` | Domain model: documents, QTI versions, findings, outcomes, limits, version choice |
 | `internal/app` | Use cases (validate a document, validate a package) and the ports they need |
@@ -25,7 +25,7 @@ rules that keep it that way, are in [ARCHITECTURE.md](ARCHITECTURE.md).
 | `internal/adapter/httpapi` | Inbound: the HTTP API |
 | `internal/adapter/xsdschema` | Outbound: XML Schema validation with `jacoelho/xsd` |
 | `internal/adapter/rules` | Outbound: Schematron rules with `internal/lib/schematron` |
-| `internal/adapter/schemastore` | Outbound: the embedded schemas and compiled rules; `schemas/schemas.lock` |
+| `internal/adapter/schemastore` | Outbound: the embedded schemas, compiled rules and element names; `schemas/schemas.lock` |
 | `internal/adapter/ziparchive` | Outbound: content packages with `archive/zip` |
 | `internal/adapter/validatorsdir` | Outbound: the mounted validators directory |
 | `internal/bootstrap` | Composition root: wires adapters to the application |
@@ -34,6 +34,7 @@ rules that keep it that way, are in [ARCHITECTURE.md](ARCHITECTURE.md).
 | `internal/lib/schematron` | Schematron extraction, build-time compilation and the runtime engine |
 | `internal/lib/xmldoc` | Root detection and well-formedness checks |
 | `internal/lib/xmlenc` | UTF-16 to UTF-8 for schema files |
+| `internal/lib/xsdelements` | The names of the elements an XSD declares, read at build time and loaded at startup |
 | `third_party/xsd` | Patched copy of `github.com/jacoelho/xsd`, see [Implementation notes](#implementation-notes) |
 | `testdata` | Fixtures; see [testdata/README.md](testdata/README.md) |
 
@@ -42,13 +43,15 @@ rules that keep it that way, are in [ARCHITECTURE.md](ARCHITECTURE.md).
 ```
 build time (Dockerfile, cmd/fetchschemas)        runtime (cmd/qti-validator)
 ─────────────────────────────────────────        ─────────────────────────────
-download the 22 XSDs pinned in schemas.lock      compile the XSDs        (0.35 s)
+download the 22 XSDs pinned in schemas.lock      compile the XSDs        (0.7 s)
 verify each SHA-256                              load compiled rules     (ms)
-remove files the lock no longer lists            per document:
-extract the Schematron rules from the XSDs         1. stream through XSD validation
-compile the rules → schematron.json.gz (49 KB)     2. DOM + Schematron rules
-embed XSDs (gzip) and compiled rules
-qti-validator -check: everything compiles
+remove files the lock no longer lists            load element names      (ms)
+extract the Schematron rules from the XSDs       per document:
+compile the rules → schematron.json.gz (95 KB)     1. stream through XSD validation
+read element names → elements.json.gz (2 KB)       2. DOM + Schematron rules
+embed XSDs (gzip), compiled rules, element names
+qti-validator -check: everything compiles, and
+  the element names are those of the XSDs
 ```
 
 The XSD validator is [`github.com/jacoelho/xsd`](https://github.com/jacoelho/xsd),
@@ -84,12 +87,27 @@ runtime.
   resolver maps those URLs to the embedded files.
 - **Stored unmodified:** the files are stored gzip-compressed, which keeps the
   binary and its resident memory small, and are otherwise unchanged.
-- **XSDs compiled at startup:** about 0.35 s. The XSD library cannot serialize
-  a compiled schema.
+- **XSDs compiled at startup:** about 0.7 s on two CPUs for the two QTI
+  versions, which compile at the same time; see
+  [Performance and memory](#performance-and-memory). The XSD library cannot
+  serialize a compiled schema.
 - **Schematron compiled at build time:** the rules are extracted and compiled
-  during the build; the image ships only the compiled result, 49 KB.
+  during the build; the image ships only the compiled result, 95 KB.
+- **Element names read at build time:** to check the fragments of a package,
+  the validator needs the names of the elements each QTI version's ASI schema
+  declares, and which of them it declares with more than one type. Reading
+  them takes a pass over the whole schema with `encoding/xml`, half as long
+  again as compiling it, so `fetchschemas` does it and stores the names, with
+  the checksum of the schema they were read from, in `elements.json.gz`
+  (2 KB). The service only loads that file. The build and the tests read the
+  names with the same function, `xsdelements.Read`;
+  `TestCompiledElementsAreThoseOfTheSchemas` fails when the file is not the
+  one of the pinned schemas and the QTI versions, and tells you to run
+  `fetchschemas` again.
 - **Build-time check:** the image build runs `qti-validator -check`, so a
   schema or rule that does not compile fails the build, not the deployment.
+  The check also reads the element names from the embedded schemas again and
+  fails when the stored ones differ.
 
 Accepted root elements. Both the namespace and the local name must match:
 
@@ -120,14 +138,16 @@ To add a version, for example 3.0.2:
    and every file they import that is not pinned yet. Find them by following
    the `xs:import` locations; files shared with older versions stay listed
    once.
-2. Run `go run ./cmd/fetchschemas`. It extracts and compiles the new rules
-   with the others.
-3. Add the version to `versions`.
+2. Add the version to `versions`.
+3. Run `go run ./cmd/fetchschemas`. It extracts and compiles the new rules
+   with the others, and reads the element names of the new ASI schema; the
+   service does not start for a version without them.
 4. Compare the fixtures under the old and the new version. Every difference
    must be explained by the release notes: 3.0 to 3.0.1 only added to the ASI
    schema and changed the manifest's `schemaversion` and LTI resource types.
 5. Measure memory (see [Performance and memory](#performance-and-memory)):
-   every version adds about 9 MiB of heap and raises the startup peak.
+   every version adds about 9 MiB of heap and raises the startup peak, as
+   the versions compile at the same time when there is a CPU for each.
 
 ## Schematron
 
@@ -253,7 +273,7 @@ How the engine is checked:
 ### Locally
 
 ```sh
-go run ./cmd/fetchschemas   # once, or after changing schemas.lock or rules/
+go run ./cmd/fetchschemas   # once, or after changing schemas.lock, rules/ or the QTI versions
 go run ./cmd/qti-validator
 ```
 
@@ -424,8 +444,12 @@ The tests are layered like the code:
   and XPath 1.0 conformance against libxml2.
 - **Build step:** `cmd/fetchschemas` against a local HTTPS server: the lock
   file's syntax, a changed upstream file, a stored file that was changed,
-  URLs that leave the output directory, redirects, the size limit and the
-  removal of files the lock file does not list.
+  URLs that leave the output directory, redirects, the size limit, the
+  removal of files the lock file does not list, and the element names.
+- **Embedded element names:** equal to what `xsdschema.DeclaredElements`
+  reads from the embedded schemas, with the checksums of `schemas.lock`
+  (`internal/adapter/xsdschema`); stale or missing names fail the check and
+  the start (`internal/bootstrap`).
 
 None of them need the internet once the schemas are fetched. A test that
 needs the fetched schemas fails without them; it does not skip. Only the
@@ -433,11 +457,13 @@ corpus test, and the slowest test under `-short` or `-race`, skip.
 
 Benchmarks on the machine below, `make bench`. A validation includes XSD,
 1EdTech's Schematron rules and the additional checks; both QTI versions are
-loaded:
+loaded. The startup row is from another machine (AMD Ryzen 9 3950X, Go
+1.27.2, `-cpu 2`), where v1.0.0 took 1.0–1.2 s: the two versions now compile
+at the same time. One after the other they take 1.0–1.1 s.
 
 | Benchmark | Time/op | Allocated/op | Allocs/op |
 | --- | ---: | ---: | ---: |
-| Startup: compile XSDs, load rules | 0.80 s | 983 MB (transient) | 1.6M |
+| Startup: compile XSDs, load rules | 0.67–0.76 s | 927 MB (transient) | 1.6M |
 | Validate `testdata/valid/assessment-item.xml` (1.3 KB) | 170–178 µs | 87 KB | 2020 |
 | Validate a 3-document package, references included | 416–423 µs | 190 KB | 3940 |
 | 1 concurrent validation | 175–182 µs | 87 KB | 2022 |
@@ -446,22 +472,72 @@ loaded:
 
 ## Performance and memory
 
-**Current numbers, QTI 3.0 and 3.0.1 both loaded:** 40 MiB RSS when idle, a
-startup peak of about 100 MiB while both schema sets compile, and a peak of
-about 100 MiB under the load below. The image sets `GOMEMLIMIT=90MiB`; without
-it the peak under the same load varied between 110 and 132 MiB over six runs. For comparison, the current validator uses more than
+**Current numbers, QTI 3.0 and 3.0.1 both loaded:** about 30 MiB when idle
+in the container, and a startup peak of about 88 MiB while both schema sets
+compile. For comparison, the validator this one replaces uses more than
 2 GB.
 
-**Validators directory** (local binary, not the image; startup peak as
-`VmHWM`, idle as `VmRSS` 1 s after `/health` answers, 8 runs each):
+**Soft memory limit.** The image sets no `GOMEMLIMIT`. The service derives
+the soft memory limit of the Go runtime from the container's memory limit,
+less 32 MiB (224 MiB in a container of 256 MiB), and an explicit `GOMEMLIMIT`
+is kept. While the schemas compile it is 80 MiB, or the limit of the service
+if that is lower: the compilation makes nearly a gigabyte of garbage around
+a live heap of some 30 MiB, and with a limit that is far away the collector
+lets it pile up to the highest memory use of the whole process. The load
+table further down dates from when the image set `GOMEMLIMIT=90MiB`; run the
+container with `-e GOMEMLIMIT=90MiB` to compare with it.
 
-| `VALIDATORS_DIR` | Startup peak | Idle |
+**Startup** (local binary, not the image, on an AMD Ryzen 9 3950X with
+`GOMAXPROCS=2` and `GOMEMLIMIT=224MiB`, as in a container of 256 MiB with
+two CPUs; time is `compile_ms` of the `validator ready` log line, peak is
+`VmHWM` when the service listens; medians of 11 runs, alternating):
+
+| Build | Time to ready | Startup peak |
 | --- | ---: | ---: |
-| unset | 99–101 MiB | 40–43 MiB |
-| one `.sch`, two small `.xsd` (one importing the other and LOM) | 100–103 MiB | 40–43 MiB |
-| one `.xsd` importing the QTI 3.0.1 ASI schema | 110–113 MiB | 46–51 MiB |
+| v1.0.0, with the `GOMEMLIMIT=90MiB` its image set | 1.05 s | 98 MiB |
+| Element names read from the XSDs at startup, one version after the other | 1.53 s | 115 MiB |
+| Element names from the build, versions compiled at the same time | 0.70 s | 87 MiB |
+| The same on one CPU (`GOMAXPROCS=1`), one version after the other | 1.27 s | 87 MiB |
 
-`qti-validator -check` peaks at the same values (`/usr/bin/time -f %M`).
+The image built from the last one, in a container of 256 MiB with two CPUs
+on the same machine, answers `/health` 1.2 s after `docker run` (v1.0.0:
+1.4 s; with the element names read at startup: 1.9 s), with a `compile_ms`
+of 710–753 and 31–34 MiB when idle (`docker stats`, five starts).
+
+The soft limit while the schemas compile trades time for memory. With the
+last build and two CPUs:
+
+| Soft limit while compiling | Time to ready | Startup peak |
+| --- | ---: | ---: |
+| none | 0.67 s | 124 MiB |
+| 90 MiB | 0.69 s | 98 MiB |
+| **80 MiB** | 0.72 s | 88 MiB |
+| 75 MiB | 0.72–0.75 s | 83 MiB |
+| 70 MiB | 0.77 s | 78 MiB |
+| 60 MiB, one version after the other | 1.03 s | 68 MiB |
+| 50 MiB, one version after the other | 1.12 s | 66 MiB |
+
+Below a soft limit of 64 MiB, and on one CPU, the versions compile one after
+the other (`roomToCompileTogether` in `internal/bootstrap`): two compilations
+in 50 MiB take longer than one after the other, 1.26 s, and more memory,
+71 MiB.
+
+**Validators directory** (the same binary and settings; idle as `VmRSS` when
+the service listens, 8 runs each):
+
+| `VALIDATORS_DIR` | Time to ready | Startup peak | Idle |
+| --- | ---: | ---: | ---: |
+| unset | 0.67–0.77 s | 86–89 MiB | 42–43 MiB |
+| one `.sch`, two small `.xsd` (one importing the other and LOM) | 0.65–0.72 s | 86–88 MiB | 41–43 MiB |
+| one `.xsd` importing the QTI 3.0.1 ASI schema | 1.15–1.49 s | 87–88 MiB | 47–49 MiB |
+
+A local binary takes more when idle than the container, 42 MiB against 30:
+it is not stripped, and its `VmRSS` counts the pages of the binary. The
+mounted validators compile before the QTI schemas, one after the other.
+
+`qti-validator -check` takes longer and peaks higher than a start, 1.2 s and
+90 MiB (`/usr/bin/time -f '%M %e'`): it also reads the element names from
+the schemas.
 
 Low memory use is the main requirement of this service; it replaces a
 validator that needs more than 2 GB. The budget is **128 MiB RSS** with the
@@ -471,7 +547,8 @@ is merged, and the numbers here updated.
 
 Environment:
 Docker 29.8.2 on WSL2 (kernel 6.18.33.2), Intel Core Ultra 7 268V, 8 CPUs,
-16 GB. Image `feyst/qti3-validator:dev` from this Dockerfile (13.5 MB), default
+16 GB. Image `feyst/qti3-validator:dev` from this Dockerfile (13.5 MB then; now
+20.7 MB as Docker reports it, with a binary of 14.3 MB), `GOMEMLIMIT=90MiB`, default
 configuration (`MAX_CONCURRENT` = 8). RSS is `VmRSS`/`VmHWM` from
 `/proc/<pid>/status` of the container process. Load was generated with
 `curl` through `xargs -P`. Every validation includes XSD, 1EdTech's
@@ -489,8 +566,8 @@ Every request in the run below returned 200 (5800 requests).
 
 | After | RSS | Time |
 | --- | ---: | ---: |
-| Startup (peak while the XSDs compile) | 96 MiB | |
-| Idle after startup | 43 MiB | |
+| Startup (peak while the XSDs compile; now 88 MiB, see above) | 96 MiB | |
+| Idle after startup (now about 30 MiB) | 43 MiB | |
 | 1000 sequential item validations | 59 MiB | 5.1 s |
 | 2000 items, 10 concurrent | 61 MiB | 2.7 s |
 | 2000 items, 50 concurrent | 61 MiB | 2.8 s |
@@ -560,8 +637,25 @@ The XML documents inside the packages count as documents of the corpus too.
   directory. Until then the copy is updated by hand; see
   [Updating the XSD library](#updating-the-xsd-library).
 - **XSDs compiled at startup:** the XSD library cannot serialize a compiled
-  schema, so the binary carries the compressed XSDs, about 1.5 MB, and
-  compiles them at startup. The Schematron rules are compiled at build time.
+  schema, so the binary carries the compressed XSDs, about 2.7 MB, and
+  compiles them at startup. The Schematron rules are compiled at build time,
+  and the element names of the QTI schemas are read then. The compilation is
+  nearly all of the startup time, and all of it is inside the XSD library:
+  building the content models takes two thirds of it, parsing the schemas a
+  quarter. The QTI versions share twelve of their schema files, but each
+  compilation parses them for itself, as the library compiles a schema set
+  as a whole. `bootstrap.compileVersions` therefore compiles the versions at
+  the same time when there is a CPU for each and the soft memory limit
+  leaves room for both, and `cmd/qti-validator` keeps that limit low while
+  it does (`limitStartupMemory`).
+- **Fragment contexts:** which of the contexts in `internal/app/fragment.go`
+  allow a root element is found by validating a probe document, on the first
+  fragment with that root and remembered per QTI version (`contextCache`).
+  Nothing of it runs at startup.
+- **Mounted XSDs need no element names:** the names serve the fragments of a
+  package, which are QTI. A document type that a mounted XSD adds has no
+  fragments, so nothing is read from those files beyond their global
+  elements.
 - **id():** without a DTD no attribute has type ID, so XPath `id()` selects
   nothing. The QTI rules do not use it.
 - **Report format:** `internal/app/report/report.go` turns the internal

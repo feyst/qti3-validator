@@ -48,12 +48,19 @@ func main() {
 }
 
 // runCheck compiles the schemas, rules and validators directory and exits.
+// It also reads the element names from the QTI schemas again, which the
+// service takes from the file the build made of them, and fails when that
+// file is not the one of these schemas.
 func runCheck(log *slog.Logger) error {
 	cfg, err := config.FromEnv()
 	if err != nil {
 		return err
 	}
-	if _, err := bootstrap.NewValidator(validatorOptions(log, cfg)); err != nil {
+	// As the service starts, so that the check also shows what a start takes.
+	limitStartupMemory(log, probeSpoolEnv(), os.Getenv("GOMEMLIMIT"), debug.SetMemoryLimit)
+	opts := validatorOptions(log, cfg)
+	opts.VerifyElements = true
+	if _, err := bootstrap.NewValidator(opts); err != nil {
 		return err
 	}
 	log.Info("schemas compile", "qti_versions", qti.SupportedVersions())
@@ -105,12 +112,10 @@ func httpOptions(cfg config.Config) httpapi.Options {
 	}
 }
 
-// sizeToContainer sizes the memory settings to the container, reusing the
-// cgroup and tmpfs probes: the Go soft memory limit, the upload spool budget
-// and the validation-memory budget. It logs what it chose.
-func sizeToContainer(log *slog.Logger, cfg config.Config, hopts *httpapi.Options) {
-	env := probeSpoolEnv()
-	applyMemoryLimit(log, env)
+// sizeToContainer sizes the memory settings to the container, from the same
+// cgroup and tmpfs probes as the Go soft memory limit: the upload spool
+// budget and the validation-memory budget. It logs what it chose.
+func sizeToContainer(log *slog.Logger, cfg config.Config, env spoolEnv, hopts *httpapi.Options) {
 	hopts.MaxSpoolSize = spoolBudget(log, cfg, env)
 	hopts.MaxValidationMemory = validationMemoryBudget(log, cfg, env, hopts.MaxSpoolSize)
 	small := httpapi.SmallMemoryShare(hopts.MaxValidationMemory, hopts.MaxConcurrent)
@@ -125,6 +130,8 @@ func run(log *slog.Logger) error {
 	}
 
 	start := time.Now()
+	env := probeSpoolEnv()
+	ready := limitStartupMemory(log, env, os.Getenv("GOMEMLIMIT"), debug.SetMemoryLimit)
 	opts := validatorOptions(log, cfg)
 	opts.OnSchemaLoaded = func(url string) { log.Info("loaded schema", "url", url) }
 	v, err := bootstrap.NewValidator(opts)
@@ -139,8 +146,9 @@ func run(log *slog.Logger) error {
 	log.Info("validator ready", "qti_versions", qti.SupportedVersions(),
 		"compile_ms", time.Since(start).Milliseconds(), "heap_mib", mem.HeapAlloc>>20)
 
+	ready()
 	hopts := httpOptions(cfg)
-	sizeToContainer(log, cfg, &hopts)
+	sizeToContainer(log, cfg, env, &hopts)
 	srv := httpapi.New(hopts, v, log).HTTPServer()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -14,14 +14,15 @@ CORPUS_DIR            := testdata/corpus/qti-examples
 
 # The code embeds the fetched schemas, so nothing compiles without them. The
 # compiled rules are the last file `fetchschemas` writes and stand for all of
-# them here: the targets that compile the code depend on this file, which is
-# made on a fresh clone and again when the lock file, the rules or the code
-# that compiles them change. Schemas already fetched are reused, so only the
+# them here, the element names in elements.json.gz included: the targets that
+# compile the code depend on this file, which is made on a fresh clone and
+# again when the lock file, the rules, the QTI versions or the code that
+# compiles the rules and reads the element names change. Schemas already fetched are reused, so only the
 # first time needs the network.
 SCHEMAS_DIR           := internal/adapter/schemastore/schemas
 SCHEMAS               := $(SCHEMAS_DIR)/schematron.json.gz
 SCHEMAS_DEPS          := $(SCHEMAS_DIR)/schemas.lock $(wildcard rules/*.sch) \
-                         $(filter-out %_test.go,$(wildcard cmd/fetchschemas/*.go internal/lib/schematron/*.go internal/lib/xpath/*.go internal/lib/xmlenc/*.go))
+                         $(filter-out %_test.go,$(wildcard cmd/fetchschemas/*.go internal/lib/schematron/*.go internal/lib/xpath/*.go internal/lib/xmlenc/*.go internal/lib/xsdelements/*.go internal/domain/qti/version.go))
 # The files the lock file pins, as `fetchschemas` stores them. When one is
 # missing, as after removing their directory, the compiled rules are made
 # again whatever their age, which fetches what is missing.
@@ -39,7 +40,7 @@ endif
 help: ## Show the targets
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
 
-schemas: ## Fetch the pinned schemas and compile the Schematron rules, also when they are up to date
+schemas: ## Fetch the pinned schemas, compile the Schematron rules and read the element names, also when they are up to date
 	go run ./cmd/fetchschemas
 
 $(SCHEMAS): $(SCHEMAS_DEPS)

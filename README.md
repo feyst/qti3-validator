@@ -15,8 +15,9 @@ wrong and where.
   [additional checks](docs/additional-checks.md) on how the parts of an item fit
   together.
 - **Precise errors:** line, column and element path for every problem.
-- **Small and fast:** a ~13 MB image that uses about 40 MB of memory and
-  validates a typical item in well under a millisecond.
+- **Small and fast:** a ~21 MB image that uses about 30 MB of memory when
+  idle, is ready in just over a second and validates a typical item
+  in well under a millisecond.
 - **Self-contained:** the schemas are built in. The service never contacts the
   internet and never stores or logs the documents you send.
 
