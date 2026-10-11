@@ -106,11 +106,11 @@ func TestIndexedCountsMatchXPath(t *testing.T) {
 	findings := 0
 	for i, src := range docs {
 		doc := parseDoc(t, src)
-		want, err := plain.Validate(doc, 0)
+		want, err := plain.Validate(nil, doc, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := indexed.Validate(doc, 0)
+		got, err := indexed.Validate(nil, doc, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -245,7 +245,7 @@ func TestIndexedCountsScale(t *testing.T) {
 		b.WriteString(tc.close)
 		doc := parseDoc(t, b.String())
 		start := time.Now()
-		failures, err := e.Validate(doc, 0)
+		failures, err := e.Validate(nil, doc, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

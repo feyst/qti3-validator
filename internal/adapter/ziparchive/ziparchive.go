@@ -11,8 +11,13 @@ import (
 
 var _ app.ArchiveOpener = Open
 
-// Open reads the central directory of a ZIP file.
-func Open(r io.ReaderAt, size int64) (app.Archive, error) {
+// Open reads the central directory of a ZIP file. It first counts the
+// directory's records, and refuses an archive with more than maxEntries
+// before archive/zip keeps a File for each of them.
+func Open(r io.ReaderAt, size int64, maxEntries int) (app.Archive, error) {
+	if tooManyEntries(r, size, maxEntries) {
+		return nil, app.ErrTooManyEntries
+	}
 	zr, err := zip.NewReader(r, size)
 	if err != nil {
 		return nil, err

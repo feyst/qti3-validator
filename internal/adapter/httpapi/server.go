@@ -30,11 +30,12 @@ type Validator interface {
 
 // Options configure the server.
 type Options struct {
-	Addr           string
-	MaxPackageSize int64 // request body of /api/validate, bytes
-	PackageLimits  qti.PackageLimits
-	MaxConcurrent  int // validations running at once
-	RequestTimeout time.Duration
+	Addr            string
+	MaxPackageSize  int64 // request body of /api/validate, bytes
+	MaxDocumentSize int64 // one XML document sent as such, bytes; 0 selects the default
+	PackageLimits   qti.PackageLimits
+	MaxConcurrent   int // validations running at once
+	RequestTimeout  time.Duration
 }
 
 // Server handles the HTTP API.
@@ -47,6 +48,7 @@ type Server struct {
 
 // New returns a server that validates with v.
 func New(opts Options, v Validator, log *slog.Logger) *Server {
+	opts.MaxDocumentSize = qti.Limits{MaxDocumentSize: opts.MaxDocumentSize}.WithDefaults().MaxDocumentSize
 	return &Server{opts: opts, validator: v, slots: make(chan struct{}, opts.MaxConcurrent), log: log}
 }
 
@@ -88,15 +90,13 @@ func (s *Server) version(w http.ResponseWriter, _ *http.Request) {
 }
 
 // acquire waits for a validation slot, bounding concurrent work and with it
-// peak memory. Requests that cannot get a slot before their timeout get 503.
-func (s *Server) acquire(w http.ResponseWriter, r *http.Request) (context.Context, func(), bool) {
-	ctx, cancel := context.WithTimeout(r.Context(), s.opts.RequestTimeout)
+// peak memory. Requests that cannot get a slot before ctx is done get 503.
+func (s *Server) acquire(ctx context.Context, w http.ResponseWriter) (func(), bool) {
 	select {
 	case s.slots <- struct{}{}:
-		return ctx, func() { <-s.slots; cancel() }, true
+		return func() { <-s.slots }, true
 	case <-ctx.Done():
-		cancel()
 		writeError(w, http.StatusServiceUnavailable, codeBusy, "no validation slot available in time")
-		return nil, nil, false
+		return nil, false
 	}
 }

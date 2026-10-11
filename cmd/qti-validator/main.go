@@ -90,8 +90,9 @@ func validatorOptions(log *slog.Logger, cfg config.Config) bootstrap.Options {
 
 func httpOptions(cfg config.Config) httpapi.Options {
 	return httpapi.Options{
-		Addr:           cfg.Addr,
-		MaxPackageSize: cfg.MaxPackageSize,
+		Addr:            cfg.Addr,
+		MaxPackageSize:  cfg.MaxPackageSize,
+		MaxDocumentSize: cfg.MaxRequestSize,
 		PackageLimits: qti.PackageLimits{
 			MaxFiles:            cfg.MaxFiles,
 			MaxFileSize:         cfg.MaxFileSize,

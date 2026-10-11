@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"os"
@@ -68,36 +69,44 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, uploadName := io.Reader(r.Body), ""
-	if shape == shapeMultipart {
+	// One deadline bounds the request: receiving the body, waiting for a
+	// slot and validating.
+	ctx, cancel := context.WithTimeout(r.Context(), s.opts.RequestTimeout)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	_ = http.NewResponseController(w).SetReadDeadline(deadline)
+
+	body, uploadName, limit := io.Reader(r.Body), "", s.opts.MaxPackageSize
+	switch shape {
+	case shapeMultipart:
 		part, ok := s.filePart(w, r)
 		if !ok {
 			return
 		}
 		body, uploadName = part, part.FileName()
-	}
-	ctx, release, ok := s.acquire(w, r)
-	if !ok {
-		return
-	}
-	defer release()
-
-	if shape == shapeDocument {
-		// A document is read into memory, bounded by the document limit; it
-		// needs no temporary file.
-		res := s.validator.ValidateDocument(ctx, app.ValidateDocument{Document: body, Version: version})
-		s.writeDocumentReport(w, res, newMeta(inputName(r, uploadName, defaultDocumentName)))
-		return
+	case shapeDocument:
+		// The validator reports a document over its limit; one byte more is
+		// enough for it to tell.
+		limit = s.opts.MaxDocumentSize + 1
+		body = io.LimitReader(body, limit)
 	}
 
-	f, size, ok := s.spool(w, body)
+	// The input is received in full before a slot is taken, so a slow upload
+	// holds none: slots bound the work of validation, not the network.
+	f, size, ok := s.spool(w, body, limit)
 	if !ok {
 		return
 	}
 	defer os.Remove(f.Name())
 	defer f.Close()
 
-	if shape == shapePackage || isZIPFile(f) {
+	release, ok := s.acquire(ctx, w)
+	if !ok {
+		return
+	}
+	defer release()
+
+	if shape == shapePackage || shape != shapeDocument && isZIPFile(f) {
 		res := s.validator.ValidatePackage(ctx, app.ValidatePackage{
 			Package: f, Size: size, Limits: s.opts.PackageLimits, Version: version,
 		})
@@ -153,9 +162,15 @@ func (s *Server) writePackageReport(w http.ResponseWriter, res qti.PackageResult
 	writeJSON(w, statusFor(res.Outcome), report.ForPackage(res, meta))
 }
 
-// isZIPFile reports whether f starts with a ZIP local file header.
+// isZIPFile reports whether f starts with a ZIP signature: a local file
+// header, the end of central directory record of an empty archive, or the
+// marker of a spanned archive.
 func isZIPFile(f *os.File) bool {
 	var magic [4]byte
 	n, _ := f.ReadAt(magic[:], 0)
-	return n == len(magic) && string(magic[:]) == "PK\x03\x04"
+	switch string(magic[:n]) {
+	case "PK\x03\x04", "PK\x05\x06", "PK\x07\x08":
+		return true
+	}
+	return false
 }

@@ -76,5 +76,11 @@ type ArchiveEntry interface {
 	Open() (io.ReadCloser, error)
 }
 
-// ArchiveOpener reads an archive's directory.
-type ArchiveOpener func(r io.ReaderAt, size int64) (Archive, error)
+// ArchiveOpener reads an archive's directory. An archive with more than
+// maxEntries entries is refused with ErrTooManyEntries, before its directory
+// is read into memory.
+type ArchiveOpener func(r io.ReaderAt, size int64, maxEntries int) (Archive, error)
+
+// ErrTooManyEntries is returned by an ArchiveOpener for an archive with more
+// entries than allowed.
+var ErrTooManyEntries = errors.New("archive has too many entries")

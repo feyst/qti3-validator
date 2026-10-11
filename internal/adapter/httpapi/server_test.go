@@ -73,6 +73,7 @@ func newTestServer(t *testing.T, o testOptions) *httptest.Server {
 	if o.RequestTimeout != 0 {
 		opts.RequestTimeout = o.RequestTimeout
 	}
+	opts.MaxDocumentSize = o.MaxRequestSize
 	srv := httptest.NewServer(New(opts, v, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
 	t.Cleanup(srv.Close)
 	return srv
