@@ -8,6 +8,7 @@
 package xpath
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -264,10 +265,23 @@ func position(n int) int32 {
 	return int32(min(n, math.MaxInt32)) //nolint:gosec // bounded
 }
 
-// Parse reads a document into the XPath data model. It accepts no DTD:
-// documents are expected to have passed the validator's checks, and a
+// Parse is ParseContext without a context that stops it.
+func Parse(r io.Reader) (*Document, error) {
+	return ParseContext(context.Background(), r)
+}
+
+// parseCheckInterval is the number of tokens between checks of the context
+// of ParseContext.
+const parseCheckInterval = 1 << 10
+
+// ParseContext reads a document into the XPath data model. It accepts no
+// DTD: documents are expected to have passed the validator's checks, and a
 // DOCTYPE is rejected here as well.
-func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming pass over the XML tokens
+//
+// The work is in proportion to the size of the document, however its text
+// is cut into CDATA sections and however deep it nests. When ctx is done,
+// it stops with the error of ctx.
+func ParseContext(ctx context.Context, r io.Reader) (*Document, error) { //nolint:gocognit,gocyclo // one streaming pass over the XML tokens
 	dec := xml.NewDecoder(r)
 	dec.Strict = true
 	var nodes arena
@@ -289,16 +303,36 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 		names[s] = s
 		return s
 	}
-	// One entry per open element; nil for an element that declares no
-	// namespace.
-	scopes := []map[string]string{{"xml": NamespaceXML}}
+	// bound maps each prefix in scope to its namespace. An element that
+	// declares a prefix records in undo what the prefix was bound to
+	// before, and marks holds, per open element, the length of undo when
+	// it started: its end tag restores what it changed. A lookup does not
+	// depend on how deep the element lies.
+	type binding struct {
+		prefix, uri string
+		bound       bool
+	}
+	bound := map[string]string{"xml": NamespaceXML}
+	var undo []binding
+	var marks []int
 	lookup := func(prefix string) (string, bool) {
-		for i := len(scopes) - 1; i >= 0; i-- {
-			if uri, ok := scopes[i][prefix]; ok {
-				return uri, true
-			}
+		uri, ok := bound[prefix]
+		return uri, ok || prefix == ""
+	}
+	// A text node is a run of character data and CDATA sections, which
+	// arrive as a token each. The first piece is the Data of the node; a
+	// second starts text, which collects the pieces until another token
+	// ends the run. Appending each piece to Data would copy the text so
+	// far for every section.
+	var run *Node   // the text node that the last token added to
+	var text []byte // its pieces, once there are more than one
+	collecting := false
+	endRun := func() {
+		if collecting {
+			run.Data = string(text)
+			text, collecting = text[:0], false
 		}
-		return "", prefix == ""
+		run = nil
 	}
 	newNode := func(kind NodeKind, line, col int) (*Node, error) {
 		if order > maxNodes {
@@ -317,7 +351,12 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 		parent.Children = append(parent.Children, c)
 	}
 
-	for {
+	for tokens := 0; ; tokens++ {
+		if tokens%parseCheckInterval == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		line, col := dec.InputPos()
 		tok, err := dec.RawToken()
 		if errors.Is(err, io.EOF) {
@@ -326,6 +365,9 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 		if err != nil {
 			return nil, err
 		}
+		if _, isText := tok.(xml.CharData); !isText {
+			endRun()
+		}
 		switch t := tok.(type) {
 		case xml.StartElement:
 			el, err := newNode(ElementNode, line, col)
@@ -333,7 +375,8 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 				return nil, err
 			}
 			el.Prefix, el.Local = intern(t.Name.Space), intern(t.Name.Local)
-			var bindings map[string]string
+			marks = append(marks, len(undo))
+			declares := false
 			for _, a := range t.Attr {
 				var prefix string
 				switch {
@@ -343,22 +386,21 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 				default:
 					continue
 				}
-				if bindings == nil {
-					bindings = map[string]string{}
-				}
+				declares = true
 				uri := intern(a.Value)
-				bindings[prefix] = uri
+				before, was := bound[prefix]
+				undo = append(undo, binding{prefix: prefix, uri: before, bound: was})
+				bound[prefix] = uri
 				x := el.more()
 				x.nsDecls = append(x.nsDecls, nsBinding{prefix, uri})
 			}
-			scopes = append(scopes, bindings)
 			uri, ok := lookup(el.Prefix)
 			if !ok {
 				return nil, fmt.Errorf("line %d: undeclared namespace prefix %q", line, el.Prefix)
 			}
 			el.Space = uri
 			appendChild(cur, el)
-			if bindings == nil && len(t.Attr) > 0 {
+			if !declares && len(t.Attr) > 0 {
 				// Sized at once: an element without namespace declarations
 				// has an attribute node for each attribute.
 				el.Attrs = make([]*Node, 0, len(t.Attr))
@@ -385,23 +427,35 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 			if cur.Kind != ElementNode || t.Name.Space != cur.Prefix || t.Name.Local != cur.Local {
 				return nil, fmt.Errorf("line %d: unexpected end element %s", line, t.Name.Local)
 			}
-			scopes = scopes[:len(scopes)-1]
+			mark := marks[len(marks)-1]
+			for i := len(undo) - 1; i >= mark; i-- {
+				if b := undo[i]; b.bound {
+					bound[b.prefix] = b.uri
+				} else {
+					delete(bound, b.prefix)
+				}
+			}
+			undo, marks = undo[:mark], marks[:len(marks)-1]
 			cur.end = order
 			cur = cur.Parent
 		case xml.CharData:
 			if cur.Kind == RootNode {
 				continue // whitespace outside the document element is not a node
 			}
-			if n := len(cur.Children); n > 0 && cur.Children[n-1].Kind == TextNode {
-				cur.Children[n-1].Data += string(t)
+			if run != nil {
+				if !collecting {
+					text, collecting = append(text[:0], run.Data...), true
+				}
+				text = append(text, t...)
 				continue
 			}
-			text, err := newNode(TextNode, line, col)
+			node, err := newNode(TextNode, line, col)
 			if err != nil {
 				return nil, err
 			}
-			text.Data = string(t)
-			appendChild(cur, text)
+			node.Data = string(t)
+			appendChild(cur, node)
+			run = node
 		case xml.Comment:
 			c, err := newNode(CommentNode, line, col)
 			if err != nil {

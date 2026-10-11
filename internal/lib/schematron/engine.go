@@ -303,7 +303,9 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 					}
 					errorCount++
 					if limits.Errors > 0 && errorCount >= limits.Errors {
-						return res, contextErr
+						// The limit ends the validation whether or not the
+						// context of a later rule failed.
+						return res, nil
 					}
 				}
 			}

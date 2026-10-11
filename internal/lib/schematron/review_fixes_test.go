@@ -222,10 +222,16 @@ func TestContextErrorKeepsEarlierRules(t *testing.T) {
 			t.Fatalf("got %q", f.Message)
 		}
 	}
-	// The limit on errors still holds, and the error is still returned.
+	// A limit on errors that is reached ends the validation as it would
+	// have without the failed context: there is no error to report.
 	failures, err = e.Validate(xpath.NewSession(context.Background(), 400), doc, Limits{Errors: 7})
-	if !errors.Is(err, xpath.ErrTooComplex) || len(failures) != 7 {
-		t.Errorf("with a limit of 7: got %d failures, %v", len(failures), err)
+	if err != nil || len(failures) != 7 {
+		t.Errorf("with a limit of 7: got %d failures, %v; want 7 and no error", len(failures), err)
+	}
+	// A limit that is not reached leaves the error.
+	failures, err = e.Validate(xpath.NewSession(context.Background(), 400), doc, Limits{Errors: 51})
+	if !errors.Is(err, xpath.ErrTooComplex) || len(failures) != 50 {
+		t.Errorf("with a limit of 51: got %d failures, %v", len(failures), err)
 	}
 	failures, err = e.Validate(nil, doc, Limits{})
 	if err != nil || len(failures) != 100 || failures[0].Message != "a fails" || failures[1].Message != "b fails" {

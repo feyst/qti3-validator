@@ -142,8 +142,11 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 	if c == nil {
 		return nil, nil
 	}
-	tree, err := xpath.Parse(bytes.NewReader(data))
+	tree, err := xpath.ParseContext(ctx, bytes.NewReader(data))
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err() // stopped, not a document that does not parse
+		}
 		return nil, errors.New("parse for Schematron: " + err.Error())
 	}
 	b := c.budget
