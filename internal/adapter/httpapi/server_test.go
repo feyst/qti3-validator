@@ -36,6 +36,8 @@ type testOptions struct {
 	RequestTimeout time.Duration
 	// SlowRules adds testutil.SlowRules to the built-in rules.
 	SlowRules bool
+	// MaxValidationMemory bounds the memory of the validations; 0 does not.
+	MaxValidationMemory int64
 }
 
 func newTestServer(t *testing.T, o testOptions) *httptest.Server {
@@ -74,6 +76,7 @@ func newTestServer(t *testing.T, o testOptions) *httptest.Server {
 		opts.RequestTimeout = o.RequestTimeout
 	}
 	opts.MaxDocumentSize = o.MaxRequestSize
+	opts.MaxValidationMemory = o.MaxValidationMemory
 	srv := httptest.NewServer(New(opts, v, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
 	t.Cleanup(srv.Close)
 	return srv

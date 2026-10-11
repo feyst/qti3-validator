@@ -105,17 +105,18 @@ func countByAttribute(c *evalCtx, a []Value) (Value, error) {
 // session s on first use and kept on the root of the document.
 func documentIndex(s *Session, n *Node, key attrIndexKey) (*attrIndex, error) {
 	root := n.documentRoot()
-	if idx, ok := root.attrIndexes[key]; ok {
+	x := root.more()
+	if idx, ok := x.attrIndexes[key]; ok {
 		return idx, nil
 	}
 	idx, err := buildIndex(s, root, key)
 	if err != nil {
 		return nil, err // nothing is kept, the session is stopped
 	}
-	if root.attrIndexes == nil {
-		root.attrIndexes = map[attrIndexKey]*attrIndex{}
+	if x.attrIndexes == nil {
+		x.attrIndexes = map[attrIndexKey]*attrIndex{}
 	}
-	root.attrIndexes[key] = idx
+	x.attrIndexes[key] = idx
 	return idx, nil
 }
 
@@ -146,7 +147,7 @@ func buildIndex(s *Session, root *Node, key attrIndexKey) (*attrIndex, error) {
 			if key.axis == "child" {
 				pos = n.Parent.order
 			}
-			idx.positions[value] = append(idx.positions[value], pos)
+			idx.positions[value] = append(idx.positions[value], int(pos))
 		}
 	}
 	if key.axis == "child" {
@@ -199,7 +200,7 @@ func ownSpans(nodes NodeSet) []span {
 	spans := make([]span, 0, len(nodes))
 	for _, n := range nodes {
 		if n.Kind == RootNode || n.Kind == ElementNode {
-			spans = append(spans, span{n.order, n.order + 1})
+			spans = append(spans, span{int(n.order), int(n.order) + 1})
 		}
 	}
 	sortSpans(spans)
@@ -222,7 +223,7 @@ func descendantSpans(nodes NodeSet) []span {
 	spans := make([]span, 0, len(nodes))
 	for _, n := range nodes {
 		if (n.Kind == RootNode || n.Kind == ElementNode) && n.end > n.order+1 {
-			spans = append(spans, span{n.order + 1, n.end})
+			spans = append(spans, span{int(n.order) + 1, int(n.end)})
 		}
 	}
 	sortSpans(spans)
