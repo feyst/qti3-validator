@@ -237,13 +237,26 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 	// The declared size above is only a hint; the limit on the bytes actually
 	// inflated is what stops a ZIP bomb.
 	readLimit := min(maxSize, *budget)
+	// The memory an entry takes is reserved for that entry alone: entries
+	// are validated one after the other.
+	defer releaseMemory(ctx)
+	if f, outcome, ok := reserveToRead(ctx, int64(min(e.DeclaredSize(), uint64(max(readLimit, 0))))); !ok { //nolint:gosec // at most readLimit
+		f.File = name
+		out.Errors = []qti.Finding{f}
+		if outcome == qti.OutcomeTooLarge {
+			outcome = qti.OutcomeInvalid // too large for this service: an error of the file, the package carries on
+		}
+		return out, outcome, nil
+	}
 	counted := &countingReader{r: rc}
 	limits := v.limits
 	limits.MaxDocumentSize = readLimit
 	data, failure := readDocument(ctx, counted, limits)
 	var res qti.DocumentResult
+	budgetRanOut := false
 	if failure != nil {
 		res = *failure
+		budgetRanOut = res.Outcome == qti.OutcomeTooLarge && readLimit < maxSize
 	} else {
 		res = v.validate(ctx, data, req, limits)
 		switch {
@@ -271,7 +284,7 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 	case res.Outcome == qti.OutcomeValid:
 		out.Valid = true
 		return out, qti.OutcomeValid, doc
-	case res.Outcome == qti.OutcomeTooLarge && readLimit < maxSize:
+	case budgetRanOut:
 		return out, qti.OutcomeTooLarge, nil
 	case unsupportedDocument(res) && kind == qti.ResourceOther && name != qti.ManifestName:
 		out.Valid, out.Skipped = true, true

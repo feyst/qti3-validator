@@ -24,83 +24,123 @@ The service uses about 30 MB of memory when idle. Measured with the defaults
 on 8 CPUs, the peak was about 100 MB, with 50 clients sending 1 MB packages
 (74 files each) at the same time.
 
+### What a document takes
+
+To check a document against the rules, the service builds a tree of it in
+memory: one node for every element, attribute, piece of text, comment and
+processing instruction. A node takes some 170 bytes, and the indexes the
+rules use up to 80 more per element. So it is the number of nodes that
+decides what a document takes, not its size: a megabyte of prose is some
+60,000 nodes and takes 13 MB, a megabyte of nothing but `<b/>x` is 420,000
+nodes and takes 84 MB.
+
+Measured for documents of one kind of content each, per MiB of document:
+
+| Content | Nodes per MiB | Memory per MiB | Largest document in 256 MiB | in 512 MiB | in 1 GiB |
+| --- | --- | --- | --- | --- | --- |
+| One long text, or attributes with long values | few | 6 MiB | 10 MiB¹ | 10 MiB¹ | 10 MiB¹ |
+| Response declarations and response processing | 44,000 | 11 MiB | 10 MiB¹ | 10 MiB¹ | 10 MiB¹ |
+| Choices of an interaction | 53,000 | 12 MiB | 10 MiB¹ | 10 MiB¹ | 10 MiB¹ |
+| Prose: paragraphs of a sentence each | 62,000 | 15 MiB | 10 MiB¹ | 10 MiB¹ | 10 MiB¹ |
+| MathML: short formulas | 85,000 | 21 MiB | 8.9 MiB | 10 MiB¹ | 10 MiB¹ |
+| Deeply nested `<div>` | 95,000 | 25 MiB | 7.7 MiB | 10 MiB¹ | 10 MiB¹ |
+| Empty comments, `<!---->` | 150,000 | 29 MiB | 6.6 MiB | 10 MiB¹ | 10 MiB¹ |
+| Empty MathML elements, `<mi/>` | 210,000 | 53 MiB | 3.6 MiB | 8.5 MiB | 10 MiB¹ |
+| Empty paragraphs, `<p/>` | 262,000 | 65 MiB | 2.9 MiB | 6.8 MiB | 10 MiB¹ |
+| An element and a character, `<b/>x` | 419,000 | 91 MiB | 2.1 MiB | 4.9 MiB | 10 MiB¹ |
+
+¹ `MAX_REQUEST_SIZE`; memory would allow more.
+
+"Memory per MiB" is what the service reserves, which is 1.1 to 1.4 times
+what the validation really takes. The last four kinds are not what QTI
+content looks like; they are what a document made to take as much memory as
+possible looks like.
+
 ### How the service sizes itself
 
-Validating a document means building an in-memory tree of it: one node per
-element, attribute and piece of text, about 250 bytes each. The memory a
-validation needs therefore grows with the number of nodes in the document,
-which for dense markup can be one node per a few bytes. Measured peak heap
-for a 10 MiB document ranges from about 13× its size for typical QTI content
-to about 110× for pathological single-character markup. A single 10 MiB
-document of the densest kind needs close to a gigabyte and cannot be
-validated in a 256 MiB container at all; two ordinary large documents at
-once already fill one.
-
-So the service bounds the memory of the validations in flight, not only their
+The service bounds the memory of the validations in progress, not only their
 number:
 
 - **`MAX_CONCURRENT`** (default: the number of CPUs) bounds how many
-  validations run at once — the CPU bound.
-- **`MAX_VALIDATION_MEMORY`** bounds the heap they may hold at once — the
-  memory bound. Each validation reserves an estimate of its peak heap before
-  it starts (the document size, or for a package the largest entry it may
-  hold, times a worst-case bytes-per-byte factor). A validation that does not
-  fit waits for memory to free up, exactly as it waits for a free slot: in
-  about the order requests came, at most `MAX_QUEUE` waiting, then 503 with
-  `Retry-After`, and 503 again if none frees within `REQUEST_TIMEOUT`. So two
-  large documents never validate at the same time when together they would
-  exceed the budget, while small documents still run `MAX_CONCURRENT` at a
-  time.
+  validations run at once: the CPU bound.
+- **`MAX_VALIDATION_MEMORY`** bounds what they hold in memory together: the
+  memory bound.
+
+Requests beyond `MAX_CONCURRENT` wait for a slot in about the order they
+came, at most `MAX_QUEUE` of them (by default 4 × `MAX_CONCURRENT`); beyond
+that a request gets 503 at once, with `Retry-After`. A waiting request that
+gets no slot within `REQUEST_TIMEOUT` gets 503 too.
+
+A validation reserves its memory in two steps. To read a document and check
+it against the XML Schema, it reserves 1 MiB plus six times the size of the
+document; the schema check reads the document as a stream and keeps little.
+Before it builds the tree for the rules, it counts the nodes of the document
+in one quick pass (some 10 ms per MiB) and reserves what they take. In a
+package every file does so for itself, one after the other.
+
+A validation that finds no room waits for others to finish, as a request
+waits for a free slot: at most `MAX_QUEUE` requests wait in all, and one that
+gets no memory within `REQUEST_TIMEOUT` gets 503 with `Retry-After`. While it
+waits it gives up its slot, so small documents are validated beside a large
+one that runs, instead of behind a large one that waits. Two large documents
+that do not fit together are validated one after the other; neither is slowed
+down by the other, as they were when both were let in and the garbage
+collector had to fight for the last bytes.
+
+Only a document that could never fit, with nothing else running, is refused.
+The answer is 413 with code `too_large` and the numbers:
+
+```json
+{
+  "code": "too_large",
+  "message": "the document has 2.6 million nodes and needs about 654 MiB of memory to check; this service allows 192 MiB for one document (MAX_VALIDATION_MEMORY)"
+}
+```
+
+It is refused as soon as it is read, before the schema check. In a package
+this is an error of that file, with the same code and message; the other
+files are validated as usual.
 
 `MAX_VALIDATION_MEMORY` is derived at startup from the container's memory
-limit (cgroup v2 or v1): the limit, less headroom for the process, less the
-upload spool when `/tmp` is a tmpfs (see [Temporary files](#temporary-files)).
-In a 256 MiB container with a disk volume on `/tmp` the budget is about
-208 MiB, which the service logs at startup. When no memory limit can be read
-the budget falls back to a constant and the service says so; set
-`MAX_VALIDATION_MEMORY` explicitly on a memory-constrained host without a
-readable limit.
+limit (cgroup v2 or v1): the limit, less 64 MiB for the process itself, less
+the upload spool when `/tmp` is a tmpfs (see
+[Temporary files](#temporary-files)). In a 256 MiB container with a volume on
+`/tmp` it is 192 MiB, which the service logs at startup. When no memory limit
+can be read it is 1 GiB, and the service logs a warning: set
+`MAX_VALIDATION_MEMORY`, or a memory limit, on a host with less to spare.
 
-A single document whose estimate exceeds the whole budget can never be
-validated safely, so it is refused at once with **413** rather than run and
-risk an out-of-memory kill. The largest document a container can validate is
-roughly `MAX_VALIDATION_MEMORY` ÷ the worst-case factor: about 1.5 MiB in a
-256 MiB container, about 4 MiB in 512 MiB, about 8 MiB in 1 GiB. A package is
-never refused for this reason; instead its per-entry size is capped to what
-fits, so an entry over that size is reported as too large and the rest of the
-package is still validated.
+### Sizing the container
 
-### Tuning for larger documents and larger containers
+With 256 MiB the service validates any QTI content up to `MAX_REQUEST_SIZE`
+(10 MiB) that is made of text, interactions and declarations, and refuses
+documents of more than some 750,000 nodes. To take every document up to
+`MAX_REQUEST_SIZE` whatever it is made of, give the container 1 GiB. The
+levers:
 
-The budget, and with it the largest document that validates and how many run
-at once, scales with the container's memory, so the usual lever is to give
-the container more memory. To validate documents up to `MAX_REQUEST_SIZE`
-(10 MiB by default) of any shape, allow roughly 1.3 GiB; for typical content,
-far less. The other levers:
-
-- **`MAX_REQUEST_SIZE` / `MAX_FILE_SIZE`** cap the size of a single document
-  or package entry. Lowering them to the largest input you actually expect
-  both hardens the service and lets more validations share the budget.
-- **`MAX_VALIDATION_MEMORY`** can be set explicitly to override the derived
-  default — higher if you have measured that your content is less dense than
-  the worst case and want larger documents admitted, lower to leave more of a
-  shared host to other work.
-- **`MAX_CONCURRENT`** stays the CPU bound. Raising it no longer risks memory:
+- **More memory:** the budget follows the container's limit, and with it both
+  the largest document and how many validations run beside each other.
+- **`MAX_REQUEST_SIZE` and `MAX_FILE_SIZE`:** the largest document and the
+  largest file of a package. Lower them to what you expect to receive: a
+  smaller document reserves less to be read.
+- **`MAX_VALIDATION_MEMORY`:** set it to give the validations less than the
+  derived budget, on a host shared with other work, or more, at the risk of
+  running out of memory.
+- **`MAX_CONCURRENT`** stays the CPU bound. Raising it does not risk memory:
   the memory bound holds whatever it is.
 
 The image sets `GOMEMLIMIT=90MiB`, a soft limit for the Go runtime: the
-garbage collector works harder as memory nears it. That keeps the peak at
-about 100 MB instead of 110–130 MB, at no measurable cost in speed. When
-`GOMEMLIMIT` is **not** set, the service derives a soft limit from the
-container's memory limit at startup (the limit less headroom), so a larger
-container collects less often; run the image with `-e GOMEMLIMIT=` (empty) to
-opt into that instead of the image's 90 MiB. Setting `GOMEMLIMIT` to a value
-keeps that value; it never makes the service fail, only collect sooner.
+garbage collector works harder as memory nears it, which keeps the memory
+of a service that validates typical content at about 100 MB instead of
+110–130 MB. It never makes the service fail. When `GOMEMLIMIT` is empty, the
+service derives the soft limit from the container's memory limit at startup
+(the limit less 64 MiB) and logs it: run the image with `-e GOMEMLIMIT=` in
+a larger container that validates large documents, so the collector does not
+work against a limit the documents exceed anyway. A value you set is kept.
 
-That memory excludes uploads, which are kept in `/tmp` (see
+These figures exclude uploads, which are kept in `/tmp` (see
 [Temporary files](#temporary-files)). If `/tmp` is a tmpfs, its files count
-against the container's memory limit too, and against the validation-memory
-budget.
+against the container's memory limit too, and the service takes them off the
+budget of the validations.
 
 Startup takes under a second, while the schemas of both QTI versions are
 compiled; memory briefly peaks at about 100 MB.

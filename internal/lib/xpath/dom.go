@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 )
 
@@ -38,7 +39,6 @@ const (
 // written and its namespace URI. A namespace node has the prefix in Local and
 // the URI in Data; a processing instruction has its target in Local.
 type Node struct {
-	Kind   NodeKind
 	Prefix string
 	Local  string
 	Space  string
@@ -47,19 +47,55 @@ type Node struct {
 	// Children of the root or an element, attributes of an element.
 	Children []*Node
 	Attrs    []*Node
+
+	root *Node // the root of the document, set by Parse
+	// extra holds what few nodes have, so the others do not pay for it; see
+	// nodeExtra.
+	extra *nodeExtra
+
 	// Line and Column of the start of the node in the source (1-based).
 	// Attributes report the position of their element.
-	Line, Column int
+	Line, Column int32
 
-	root    *Node // the root of the document, set by Parse
-	index   int   // position in the parent's Children or Attrs
-	order   int   // document order; attributes follow their element
-	end     int   // roots and elements: the order after their last descendant
-	nsOrder int   // namespace nodes: 1-based position among the owner's
+	// The positions are 32 bits wide, which halves them: Parse refuses a
+	// document with more nodes than that holds.
+	index int32 // position in the parent's Children or Attrs, or among the owner's namespace nodes
+	order int32 // document order; attributes follow their element
+	end   int32 // roots and elements: the order after their last descendant
+
+	Kind NodeKind
+}
+
+// A Node is 160 bytes, and a document has one for every element, attribute
+// and piece of text, so its size decides what a document costs in memory:
+// internal/adapter/rules estimates that from it (see Measure). Keep it
+// small: a field that only some nodes use belongs in nodeExtra.
+
+// nodeExtra is the part of a Node that only some nodes have: the namespace
+// declarations of an element, its namespace nodes once the namespace axis
+// was used, and the indexes kept on the root.
+type nodeExtra struct {
 	nsDecls []nsBinding
 	nsNodes []*Node // built on first use of the namespace axis
 	// The root only: indexes of count-by-attribute, built on first use.
 	attrIndexes map[attrIndexKey]*attrIndex
+}
+
+// more returns the extra part of n, allocating it the first time.
+func (n *Node) more() *nodeExtra {
+	if n.extra == nil {
+		n.extra = &nodeExtra{}
+	}
+	return n.extra
+}
+
+// nsOrder is the 1-based position of a namespace node among those of its
+// element, and 0 for any other node.
+func (n *Node) nsOrder() int32 {
+	if n.Kind == NamespaceNode {
+		return n.index + 1
+	}
+	return 0
 }
 
 type nsBinding struct{ prefix, uri string }
@@ -151,7 +187,7 @@ func before(a, b *Node) bool {
 	if a.order != b.order {
 		return a.order < b.order
 	}
-	return a.nsOrder < b.nsOrder
+	return a.nsOrder() < b.nsOrder()
 }
 
 // namespaces returns the namespace nodes of an element: one per in-scope
@@ -160,13 +196,16 @@ func (n *Node) namespaces() []*Node {
 	if n.Kind != ElementNode {
 		return nil
 	}
-	if n.nsNodes != nil {
-		return n.nsNodes
+	if n.extra != nil && n.extra.nsNodes != nil {
+		return n.extra.nsNodes
 	}
 	scope := map[string]string{}
 	var prefixes []string
 	for e := n; e != nil && e.Kind == ElementNode; e = e.Parent {
-		for _, d := range e.nsDecls {
+		if e.extra == nil {
+			continue
+		}
+		for _, d := range e.extra.nsDecls {
 			if _, seen := scope[d.prefix]; !seen {
 				scope[d.prefix] = d.uri
 				prefixes = append(prefixes, d.prefix)
@@ -188,10 +227,41 @@ func (n *Node) namespaces() []*Node {
 		})
 	}
 	for i, ns := range nodes {
-		ns.index, ns.nsOrder = i, i+1
+		ns.index = int32(i)
 	}
-	n.nsNodes = nodes
+	n.more().nsNodes = nodes
 	return nodes
+}
+
+// arena hands out the nodes of one document from chunks, so a node costs its
+// own size and no more: allocated one by one, each would be rounded up to a
+// size class and tracked on its own. The chunks live as long as any node of
+// the document does, which is as long as the document.
+type arena struct {
+	free []Node
+	next int // size of the next chunk
+}
+
+const maxArenaChunk = 1024
+
+func (a *arena) node() *Node {
+	if len(a.free) == 0 {
+		a.next = min(max(2*a.next, 16), maxArenaChunk)
+		a.free = make([]Node, a.next)
+	}
+	n := &a.free[0]
+	a.free = a.free[1:]
+	return n
+}
+
+// maxNodes is the most nodes a document may have: their positions are 32
+// bits wide.
+const maxNodes = math.MaxInt32 - 1
+
+// position narrows a line or column of the source, which stops counting at
+// the largest value a Node holds.
+func position(n int) int32 {
+	return int32(min(n, math.MaxInt32)) //nolint:gosec // bounded
 }
 
 // Parse reads a document into the XPath data model. It accepts no DTD:
@@ -200,10 +270,27 @@ func (n *Node) namespaces() []*Node {
 func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming pass over the XML tokens
 	dec := xml.NewDecoder(r)
 	dec.Strict = true
-	root := &Node{Kind: RootNode, Line: 1, Column: 1}
+	var nodes arena
+	root := nodes.node()
+	root.Kind, root.Line, root.Column = RootNode, 1, 1
 	root.root = root
-	order := 1
+	order := int32(1)
 	cur := root
+	// The names of elements and attributes repeat throughout a document:
+	// every node shares one copy of each.
+	names := map[string]string{}
+	intern := func(s string) string {
+		if s == "" {
+			return ""
+		}
+		if v, ok := names[s]; ok {
+			return v
+		}
+		names[s] = s
+		return s
+	}
+	// One entry per open element; nil for an element that declares no
+	// namespace.
 	scopes := []map[string]string{{"xml": NamespaceXML}}
 	lookup := func(prefix string) (string, bool) {
 		for i := len(scopes) - 1; i >= 0; i-- {
@@ -213,12 +300,20 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 		}
 		return "", prefix == ""
 	}
+	newNode := func(kind NodeKind, line, col int) (*Node, error) {
+		if order > maxNodes {
+			return nil, errors.New("the document has too many nodes")
+		}
+		n := nodes.node()
+		n.Kind, n.Line, n.Column = kind, position(line), position(col)
+		n.root = root
+		n.order = order
+		order++
+		return n, nil
+	}
 	appendChild := func(parent, c *Node) {
 		c.Parent = parent
-		c.root = root
-		c.index = len(parent.Children)
-		c.order = order
-		order++
+		c.index = int32(len(parent.Children)) //nolint:gosec // fewer than maxNodes
 		parent.Children = append(parent.Children, c)
 	}
 
@@ -233,17 +328,28 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
-			el := &Node{Kind: ElementNode, Prefix: t.Name.Space, Local: t.Name.Local, Line: line, Column: col}
-			bindings := map[string]string{}
+			el, err := newNode(ElementNode, line, col)
+			if err != nil {
+				return nil, err
+			}
+			el.Prefix, el.Local = intern(t.Name.Space), intern(t.Name.Local)
+			var bindings map[string]string
 			for _, a := range t.Attr {
+				var prefix string
 				switch {
 				case a.Name.Space == "" && a.Name.Local == "xmlns":
-					bindings[""] = a.Value
-					el.nsDecls = append(el.nsDecls, nsBinding{"", a.Value})
 				case a.Name.Space == "xmlns":
-					bindings[a.Name.Local] = a.Value
-					el.nsDecls = append(el.nsDecls, nsBinding{a.Name.Local, a.Value})
+					prefix = intern(a.Name.Local)
+				default:
+					continue
 				}
+				if bindings == nil {
+					bindings = map[string]string{}
+				}
+				uri := intern(a.Value)
+				bindings[prefix] = uri
+				x := el.more()
+				x.nsDecls = append(x.nsDecls, nsBinding{prefix, uri})
 			}
 			scopes = append(scopes, bindings)
 			uri, ok := lookup(el.Prefix)
@@ -252,15 +358,21 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 			}
 			el.Space = uri
 			appendChild(cur, el)
+			if bindings == nil && len(t.Attr) > 0 {
+				// Sized at once: an element without namespace declarations
+				// has an attribute node for each attribute.
+				el.Attrs = make([]*Node, 0, len(t.Attr))
+			}
 			for _, a := range t.Attr {
 				if a.Name.Space == "" && a.Name.Local == "xmlns" || a.Name.Space == "xmlns" {
 					continue
 				}
-				at := &Node{
-					Kind: AttributeNode, Prefix: a.Name.Space, Local: a.Name.Local, Data: a.Value,
-					Parent: el, root: root, index: len(el.Attrs), order: order, Line: line, Column: col,
+				at, err := newNode(AttributeNode, line, col)
+				if err != nil {
+					return nil, err
 				}
-				order++
+				at.Prefix, at.Local, at.Data = intern(a.Name.Space), intern(a.Name.Local), a.Value
+				at.Parent, at.index = el, int32(len(el.Attrs)) //nolint:gosec // fewer than maxNodes
 				if at.Prefix != "" {
 					if at.Space, ok = lookup(at.Prefix); !ok {
 						return nil, fmt.Errorf("line %d: undeclared namespace prefix %q", line, at.Prefix)
@@ -284,17 +396,29 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 				cur.Children[n-1].Data += string(t)
 				continue
 			}
-			appendChild(cur, &Node{Kind: TextNode, Data: string(t), Line: line, Column: col})
+			text, err := newNode(TextNode, line, col)
+			if err != nil {
+				return nil, err
+			}
+			text.Data = string(t)
+			appendChild(cur, text)
 		case xml.Comment:
-			appendChild(cur, &Node{Kind: CommentNode, Data: string(t), Line: line, Column: col})
+			c, err := newNode(CommentNode, line, col)
+			if err != nil {
+				return nil, err
+			}
+			c.Data = string(t)
+			appendChild(cur, c)
 		case xml.ProcInst:
 			if t.Target == "xml" {
 				continue
 			}
-			appendChild(cur, &Node{
-				Kind: ProcessingInstructionNode, Local: t.Target,
-				Data: strings.TrimLeft(string(t.Inst), " \t\r\n"), Line: line, Column: col,
-			})
+			pi, err := newNode(ProcessingInstructionNode, line, col)
+			if err != nil {
+				return nil, err
+			}
+			pi.Local, pi.Data = t.Target, strings.TrimLeft(string(t.Inst), " \t\r\n")
+			appendChild(cur, pi)
 		case xml.Directive:
 			return nil, errors.New("DOCTYPE declarations are not supported")
 		}
@@ -303,5 +427,5 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 		return nil, errors.New("unexpected end of document")
 	}
 	root.end = order
-	return &Document{Root: root, Nodes: order - 1}, nil
+	return &Document{Root: root, Nodes: int(order) - 1}, nil
 }

@@ -70,6 +70,8 @@ this package owns:
 | `SchemaChecker` | Validate a document against an XML Schema | `adapter/xsdschema` |
 | `RuleChecker` | Run Schematron rules on a document | `adapter/rules` |
 | `Archive`, `ArchiveOpener` | Read a package's entries | `adapter/ziparchive` |
+| `Memory` | Reserve the memory a validation is about to take, out of what the service allows them all | `adapter/httpapi` |
+| `MemoryEstimator` | Tell what the rules take in memory for a document, from its nodes | `adapter/rules` |
 
 A `Profile` pairs a schema with its rules: one per QTI version, and one per
 document type a mounted XSD adds. The application does not know where they

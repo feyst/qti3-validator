@@ -1,223 +1,272 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
-	"math"
+	"errors"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"qti3-validator/internal/app"
 	"qti3-validator/internal/domain/qti"
 )
 
-func TestEstimateMemory(t *testing.T) {
-	const mib = 1 << 20
-	// A document is estimated by its own size.
-	if got := estimateMemory(mib, 10*mib, false); got != validationMemoryBase+mib*validationBytesPerByte {
-		t.Errorf("document estimate %d", got)
-	}
-	// A package is estimated by the largest entry it may hold, not its body
-	// size, because entries are validated one at a time.
-	small := estimateMemory(1, 2*mib, true)
-	big := estimateMemory(1, 8*mib, true)
-	if small >= big {
-		t.Errorf("a larger MaxFileSize must raise the package estimate: %d vs %d", small, big)
-	}
-	if big != validationMemoryBase+8*mib*validationBytesPerByte {
-		t.Errorf("package estimate %d", big)
-	}
-	// It never overflows.
-	if got := estimateMemory(math.MaxInt64, math.MaxInt64, false); got != math.MaxInt64 {
-		t.Errorf("overflow estimate %d", got)
-	}
-}
-
-// The weighted semaphore admits reservations that fit, makes the rest wait,
-// and always lets a reservation larger than the whole budget in alone.
 func TestMemSem(t *testing.T) {
-	m := newMemSem(100)
-	if ok, _ := m.tryReserve(60); !ok {
-		t.Fatal("60 should fit in 100")
-	}
-	if ok, _ := m.tryReserve(60); ok {
-		t.Fatal("a second 60 must not fit beside the first")
-	}
-	if ok, _ := m.tryReserve(40); !ok {
-		t.Fatal("40 fills the rest of 100")
-	}
-	m.release(60)
-	m.release(40)
-	// Nothing is used now, so an oversized reservation gets in alone.
-	if ok, _ := m.tryReserve(1000); !ok {
-		t.Fatal("an oversized reservation must be admitted when nothing is used")
-	}
-	if ok, _ := m.tryReserve(1); ok {
-		t.Fatal("nothing more fits beside the oversized reservation")
-	}
-	m.release(1000)
 	if newMemSem(0) != nil {
-		t.Fatal("a zero budget disables the semaphore")
+		t.Fatal("no budget, no semaphore")
 	}
-}
-
-// A release wakes a goroutine waiting for memory.
-func TestMemSemWaitAndWake(t *testing.T) {
 	m := newMemSem(100)
-	m.tryReserve(100)
-	admitted := make(chan struct{})
-	go func() {
-		for {
-			ok, released := m.tryReserve(100)
-			if ok {
-				close(admitted)
-				return
-			}
-			<-released
-		}
-	}()
-	select {
-	case <-admitted:
-		t.Fatal("admitted while the budget was full")
-	case <-time.After(50 * time.Millisecond):
+	if !m.resize(0, 60) {
+		t.Fatal("60 fits in 100")
 	}
-	m.release(100)
-	select {
-	case <-admitted:
-	case <-time.After(time.Second):
-		t.Fatal("not woken after a release")
+	if m.resize(0, 60) {
+		t.Fatal("a second 60 does not fit beside the first")
+	}
+	if !m.resize(0, 40) || !m.resize(40, 10) || !m.resize(10, 40) {
+		t.Fatal("40 fills the rest; less is always granted, and growing back fits")
+	}
+	if m.resize(60, 70) {
+		t.Fatal("growing past the budget beside another running validation must wait")
+	}
+	// The one that holds 40 parks to wait: the other is then the only one
+	// running, and nobody would release if it could not go on.
+	m.park(40)
+	if !m.resize(60, 70) {
+		t.Fatal("the only running validation is granted what it asks")
+	}
+	if ok, _ := m.admit(40, 50, false); ok {
+		t.Fatal("a parked validation waits while another runs and there is no room")
+	}
+	m.resize(70, 0)
+	if ok, _ := m.admit(40, 50, false); !ok {
+		t.Fatal("room came free")
+	}
+	if m.used != 50 || m.parked != 0 {
+		t.Fatalf("used %d, parked %d", m.used, m.parked)
 	}
 }
 
-// Two documents that each fill the memory budget never validate at the same
-// time, whatever MaxConcurrent is: the second waits for the first's memory.
+// When everybody waits, one goes on: validations that each hold their
+// document and want more than is left cannot wait for each other.
+func TestMemSemNoDeadlock(t *testing.T) {
+	m := newMemSem(100)
+	m.resize(0, 30)
+	m.resize(0, 30)
+	m.park(30)
+	m.park(30)
+	if ok, _ := m.admit(30, 90, false); !ok {
+		t.Fatal("with nobody running, a waiter must be granted its reservation")
+	}
+	if ok, _ := m.admit(30, 90, false); ok {
+		t.Fatal("the other waits for the one that runs now")
+	}
+	m.resize(90, 0)
+	if ok, _ := m.admit(30, 90, false); !ok {
+		t.Fatal("its turn")
+	}
+}
+
+// A waiter that became urgent goes before the reservations that came later,
+// so small documents cannot keep a large one out for ever.
+func TestMemSemUrgent(t *testing.T) {
+	m := newMemSem(100)
+	m.resize(0, 50) // a running validation
+	m.park(0)
+	if ok, _ := m.admit(0, 90, false); ok {
+		t.Fatal("90 does not fit beside 50")
+	}
+	m.setUrgent()
+	if m.resize(0, 10) {
+		t.Fatal("a newcomer waits for the urgent waiter, though it fits")
+	}
+	if ok, _ := m.admit(0, 10, false); ok {
+		t.Fatal("a later waiter waits for the urgent one too")
+	}
+	m.resize(50, 0)
+	if ok, _ := m.admit(0, 90, true); !ok {
+		t.Fatal("the urgent waiter gets in once there is room")
+	}
+	if !m.resize(0, 10) {
+		t.Fatal("the others go on after it")
+	}
+}
+
+// reserving is a validator whose validations reserve need bytes, as the
+// application does through its Memory, and then wait for release.
+type reserving struct {
+	need    int64
+	release chan struct{}
+	running atomic.Int64
+	peak    atomic.Int64
+}
+
+func (r *reserving) run(ctx context.Context, size int64) qti.Outcome {
+	need := r.need
+	if size < 100 {
+		need = 1 // a small document
+	}
+	if err := app.MemoryFrom(ctx).Reserve(ctx, need); err != nil {
+		if errors.Is(err, app.ErrMemoryExceeded) {
+			return qti.OutcomeTooLarge
+		}
+		return qti.OutcomeTooComplex
+	}
+	n := r.running.Add(1)
+	for p := r.peak.Load(); n > p && !r.peak.CompareAndSwap(p, n); p = r.peak.Load() {
+	}
+	if size >= 100 {
+		<-r.release
+	}
+	r.running.Add(-1)
+	return qti.OutcomeValid
+}
+
+func (r *reserving) ValidateDocument(ctx context.Context, q app.ValidateDocument) qti.DocumentResult {
+	o := r.run(ctx, q.Size)
+	res := qti.DocumentResult{Valid: o == qti.OutcomeValid, Schema: "qti-assessment-item", Outcome: o}
+	if o != qti.OutcomeValid {
+		res.Errors = []qti.Finding{{Code: qti.CodeTooLarge, Message: "the document has 3.9 million nodes"}}
+	}
+	return res
+}
+
+func (r *reserving) ValidatePackage(ctx context.Context, q app.ValidatePackage) qti.PackageResult {
+	o := r.run(ctx, q.Size)
+	return qti.PackageResult{Valid: o == qti.OutcomeValid, Outcome: o}
+}
+
+var largeDoc = []byte("<x>" + strings.Repeat(" ", 200) + "</x>")
+
+func postAsync(t *testing.T, url string, body []byte, n int) chan int {
+	t.Helper()
+	done := make(chan int, n)
+	for range n {
+		go func() { done <- postStatus(t, url, "application/xml", body) }()
+	}
+	return done
+}
+
+// Documents that together take more memory than the budget are validated
+// one after the other, however many slots there are; the one that waits
+// gives up its slot, so small documents are validated beside the one that
+// runs.
 func TestMemoryBoundSerialisesLargeDocuments(t *testing.T) {
-	var running atomic.Int64
-	var peak atomic.Int64
-	release := make(chan struct{})
-	v := fakeValidator{wait: func(context.Context) {
-		n := running.Add(1)
-		for {
-			if p := peak.Load(); n > p {
-				if peak.CompareAndSwap(p, n) {
-					break
-				}
-			} else {
-				break
-			}
-		}
-		<-release
-		running.Add(-1)
-	}}
-	// Budget holds one document of ~5 KiB (estimate = base + size*ratio), and
-	// MaxConcurrent is 2 so only the memory bound can serialise them.
-	const size = 5 << 10
-	budget := estimateMemory(size, 0, false)
+	v := &reserving{need: 60, release: make(chan struct{})}
 	srv, s := newFakeServer(t, Options{
-		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 2,
-		MaxValidationMemory: budget, RequestTimeout: 5 * time.Second,
+		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 2, MaxValidationMemory: 100,
 	}, v)
-	if s.mem == nil {
-		t.Fatal("the memory bound should be enabled")
-	}
 	url := srv.URL + "/api/validate"
-	doc := bytes.Repeat([]byte("<x/>              "), size/18)
-
-	done := make(chan int, 2)
-	for range 2 {
-		go func() { done <- postStatus(t, url, "application/xml", doc) }()
+	done := postAsync(t, url, largeDoc, 3)
+	waitFor(t, "one running, two waiting for memory", func() bool { return v.running.Load() == 1 && s.waiting.Load() == 2 })
+	if len(s.slots) != 1 {
+		t.Fatalf("%d slots taken: the waiting requests should hold none", len(s.slots))
 	}
-	waitFor(t, "one document running", func() bool { return running.Load() == 1 })
-	time.Sleep(100 * time.Millisecond)
-	if running.Load() != 1 {
-		t.Fatalf("two large documents run at once: %d", running.Load())
-	}
-	close(release)
-	for range 2 {
-		if st := <-done; st != http.StatusOK {
-			t.Fatalf("status %d", st)
+	for range 5 {
+		if status := postStatus(t, url, "application/xml", []byte("<x/>")); status != http.StatusOK {
+			t.Fatalf("a small document beside a large one and two waiting: %d", status)
 		}
 	}
-	if peak.Load() != 1 {
-		t.Fatalf("peak concurrency %d, want 1", peak.Load())
+	for range 3 {
+		v.release <- struct{}{}
+		if status := <-done; status != http.StatusOK {
+			t.Fatalf("large document: %d", status)
+		}
+	}
+	if v.peak.Load() > 2 {
+		t.Fatalf("%d validations at once", v.peak.Load())
+	}
+	waitFor(t, "everything released", func() bool { return len(s.slots) == 0 && s.waiting.Load() == 0 })
+	if s.mem.used != 0 || s.mem.parked != 0 {
+		t.Fatalf("used %d, parked %d after the requests", s.mem.used, s.mem.parked)
 	}
 }
 
-// Many small documents run concurrently up to MaxConcurrent when the memory
-// budget has room for them: the memory bound does not throttle small work.
-func TestMemoryBoundAllowsSmallDocumentsConcurrently(t *testing.T) {
-	var running, peak atomic.Int64
-	release := make(chan struct{})
-	v := fakeValidator{wait: func(context.Context) {
-		n := running.Add(1)
-		for p := peak.Load(); n > p && !peak.CompareAndSwap(p, n); p = peak.Load() {
-		}
-		<-release
-		running.Add(-1)
-	}}
+// Documents that fit together are validated together.
+func TestMemoryBoundAllowsWhatFits(t *testing.T) {
+	v := &reserving{need: 30, release: make(chan struct{})}
 	srv, _ := newFakeServer(t, Options{
-		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 3,
-		MaxValidationMemory: 1 << 30, RequestTimeout: 5 * time.Second,
+		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 3, MaxValidationMemory: 100,
 	}, v)
-	url := srv.URL + "/api/validate"
-	doc := []byte("<x/>")
-	done := make(chan int, 3)
+	done := postAsync(t, srv.URL+"/api/validate", largeDoc, 3)
+	waitFor(t, "three running", func() bool { return v.running.Load() == 3 })
+	close(v.release)
 	for range 3 {
-		go func() { done <- postStatus(t, url, "application/xml", doc) }()
-	}
-	waitFor(t, "three documents running", func() bool { return running.Load() == 3 })
-	close(release)
-	for range 3 {
-		<-done
-	}
-	if peak.Load() != 3 {
-		t.Fatalf("peak concurrency %d, want 3", peak.Load())
+		if status := <-done; status != http.StatusOK {
+			t.Fatalf("status %d", status)
+		}
 	}
 }
 
-// A single document whose estimate exceeds the whole budget is refused with
-// 413 before any validation slot is taken: it can never fit, so retrying
-// cannot help.
-func TestDocumentTooLargeForMemoryBudget(t *testing.T) {
-	v := fakeValidator{}
-	// A tiny budget: maxItem is well below the document size.
+// A request that finds no memory before its deadline, or that would be one
+// too many waiting, gets 503 with Retry-After, like one that finds no slot.
+func TestMemoryBoundBusy(t *testing.T) {
+	v := &reserving{need: 60, release: make(chan struct{})}
 	srv, s := newFakeServer(t, Options{
-		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 2,
-		MaxValidationMemory: validationMemoryBase + 1024, RequestTimeout: 2 * time.Second,
+		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 2, MaxQueue: 1,
+		MaxValidationMemory: 100, RequestTimeout: time.Second,
 	}, v)
-	if s.maxItem <= 0 || s.maxItem >= 1<<20 {
-		t.Fatalf("maxItem %d", s.maxItem)
-	}
 	url := srv.URL + "/api/validate"
-	doc := bytes.Repeat([]byte(" "), int(s.maxItem)+1<<10)
-	status, body := post(t, url, "application/xml", doc)
-	if status != http.StatusRequestEntityTooLarge || firstCode(body) != string(qti.CodeTooLarge) {
-		t.Fatalf("got %d %v, want 413 too_large", status, body)
+	first := postAsync(t, url, largeDoc, 1)
+	waitFor(t, "one running", func() bool { return v.running.Load() == 1 })
+	second := make(chan response, 1)
+	go func() { second <- postChunked(t, url, "application/xml", largeDoc) }()
+	waitFor(t, "one waiting for memory", func() bool { return s.waiting.Load() == 1 })
+	// The queue is full: at once.
+	postBusy(t, url, "application/xml", largeDoc)
+	// The one that waits runs out of time.
+	got := <-second
+	if got.status != http.StatusServiceUnavailable || firstCode(got.body) != codeBusy || got.header.Get("Retry-After") == "" {
+		t.Fatalf("waited for memory until the deadline: %d %v", got.status, got.body)
 	}
-	if msg, _ := body["message"].(string); !strings.Contains(msg, "MAX_VALIDATION_MEMORY") {
-		t.Fatalf("message should name the setting: %v", body)
+	close(v.release)
+	<-first
+	waitFor(t, "everything released", func() bool { return len(s.slots) == 0 && s.mem.used == 0 && s.mem.parked == 0 })
+}
+
+// A document that needs more than the whole budget can never be validated:
+// 413 with what the validator says of it, not 503.
+func TestMemoryBoundExceeded(t *testing.T) {
+	v := &reserving{need: 101, release: make(chan struct{})}
+	srv, _ := newFakeServer(t, Options{MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxValidationMemory: 100}, v)
+	status, body := post(t, srv.URL+"/api/validate", "application/xml", largeDoc)
+	msg, _ := body["message"].(string)
+	if status != http.StatusRequestEntityTooLarge || firstCode(body) != string(qti.CodeTooLarge) || !strings.Contains(msg, "3.9 million nodes") {
+		t.Fatalf("got %d %v", status, body)
 	}
 }
 
-// A package caps its per-entry size to what fits the budget, so it is
-// validated rather than refused even when MaxFileSize is larger than the
-// budget allows.
-func TestPackageCapsEntrySizeToBudget(t *testing.T) {
-	_, s := newFakeServer(t, Options{
-		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 2,
-		PackageLimits:       qti.PackageLimits{MaxFiles: 10, MaxFileSize: 10 << 20, MaxUncompressedSize: 20 << 20},
-		MaxValidationMemory: validationMemoryBase + 1<<20, RequestTimeout: 2 * time.Second,
-	}, fakeValidator{})
-	est, lim, ok := s.reserveSize(nil, 500, true)
-	if !ok {
-		t.Fatal("a package must not be refused")
+// Without a budget the validation has no Memory, and reserves nothing.
+func TestMemoryBoundDisabled(t *testing.T) {
+	var had atomic.Bool
+	v := fakeValidator{wait: func(ctx context.Context) { had.Store(app.MemoryFrom(ctx) != nil) }}
+	srv, _ := newFakeServer(t, Options{MaxPackageSize: 1 << 20}, v)
+	if status := postStatus(t, srv.URL+"/api/validate", "application/xml", []byte("<x/>")); status != http.StatusOK || had.Load() {
+		t.Fatalf("status %d, memory in the context: %v", status, had.Load())
 	}
-	if lim.MaxFileSize != s.maxItem {
-		t.Fatalf("per-entry size %d not capped to maxItem %d", lim.MaxFileSize, s.maxItem)
+}
+
+// The service refuses a document by its nodes, not its bytes: with the real
+// validator and a budget of 16 MiB, half a megabyte of prose is validated
+// and half a megabyte of empty elements is refused with the numbers.
+func TestMemoryBoundByNodes(t *testing.T) {
+	srv := newTestServer(t, testOptions{MaxValidationMemory: 16 << 20})
+	const open = `<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="i" title="t" adaptive="false" time-dependent="false"><qti-item-body>`
+	const closing = `</qti-item-body></qti-assessment-item>`
+	prose := open + strings.Repeat(`<p>The quick brown fox jumps over the lazy dog, and then rests a while.</p>`, 7000) + closing
+	dense := open + strings.Repeat(`<p/>`, len(prose)/4) + closing
+	if status, body := post(t, srv.URL+"/api/validate", "application/xml", []byte(prose)); status != http.StatusOK || outcome(body) != "VALID" {
+		t.Fatalf("prose of %d bytes: %d %v", len(prose), status, body)
 	}
-	if est > s.opts.MaxValidationMemory {
-		t.Fatalf("package estimate %d exceeds the budget %d", est, s.opts.MaxValidationMemory)
+	status, body := post(t, srv.URL+"/api/validate", "application/xml", []byte(dense))
+	msg, _ := body["message"].(string)
+	if status != http.StatusRequestEntityTooLarge || firstCode(body) != string(qti.CodeTooLarge) {
+		t.Fatalf("dense document of %d bytes: %d %v", len(dense), status, body)
+	}
+	for _, want := range []string{"thousand nodes", "allows 16 MiB", "MAX_VALIDATION_MEMORY"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message %q does not say %q", msg, want)
+		}
 	}
 }

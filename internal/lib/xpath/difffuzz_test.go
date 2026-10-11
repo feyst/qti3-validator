@@ -291,7 +291,7 @@ func valString(v Value) string {
 	if ns, ok := v.(NodeSet); ok {
 		var b []string
 		for _, n := range ns {
-			b = append(b, n.Path()+"#"+strconv.Itoa(n.order))
+			b = append(b, n.Path()+"#"+strconv.Itoa(int(n.order)))
 		}
 		return fmt.Sprintf("nodes%v", b)
 	}

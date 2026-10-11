@@ -23,14 +23,22 @@ import (
 // the forced one or the latest.
 func (v *Validator) ValidateDocument(ctx context.Context, q ValidateDocument) qti.DocumentResult {
 	req := qti.VersionRequest{Forced: q.Version}
-	res := v.validateReader(ctx, q.Document, req, v.limits)
+	res := v.validateReader(ctx, q.Document, q.Size, req, v.limits)
 	if res.Version == "" && res.Schema == "" {
 		res.Version = qti.ChooseVersion(req, qti.DeclaredVersion{}).Version.Name
 	}
 	return res
 }
 
-func (v *Validator) validateReader(ctx context.Context, r io.Reader, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
+// size is the size of the document when it is known, else 0: the memory to
+// read it is then reserved for the largest document allowed.
+func (v *Validator) validateReader(ctx context.Context, r io.Reader, size int64, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
+	if size <= 0 || size > limits.MaxDocumentSize {
+		size = limits.MaxDocumentSize
+	}
+	if f, outcome, ok := reserveToRead(ctx, size); !ok {
+		return qti.DocumentResult{Errors: []qti.Finding{f}, Outcome: outcome}
+	}
 	data, failure := readDocument(ctx, r, limits)
 	if failure != nil {
 		return *failure
@@ -89,6 +97,9 @@ func (v *Validator) validate(ctx context.Context, data []byte, req qti.VersionRe
 	choice := qti.ChooseVersion(req, declared)
 	profile := v.versions[choice.Version.Name]
 
+	if f, refused := exceedsMemory(ctx, profile.Rules, data); refused {
+		return qti.DocumentResult{Schema: docType.Schema, Version: choice.Version.Name, Errors: []qti.Finding{f}, Outcome: qti.OutcomeTooLarge}
+	}
 	res, verdict := checkSchema(ctx, profile.Schema, docType, data, limits)
 	if choice.ReplacesSchemaVerdict {
 		res.DropSchemaVersionVerdict()
@@ -105,6 +116,9 @@ func (v *Validator) validate(ctx context.Context, data []byte, req qti.VersionRe
 }
 
 func (v *Validator) validateCustom(ctx context.Context, docType qti.DocumentType, p Profile, data []byte, limits qti.Limits) qti.DocumentResult {
+	if f, refused := exceedsMemory(ctx, p.Rules, data); refused {
+		return qti.DocumentResult{Schema: docType.Schema, Errors: []qti.Finding{f}, Outcome: qti.OutcomeTooLarge}
+	}
 	res, verdict := checkSchema(ctx, p.Schema, docType, data, limits)
 	if !assessable(res, verdict) {
 		return res
@@ -141,7 +155,10 @@ func assessable(res qti.DocumentResult, verdict SchemaVerdict) bool {
 }
 
 // checkRules runs the rules on a well-formed document and adds their
-// findings to res, as long as fewer than MaxErrors errors were found. The
+// findings to res, as long as fewer than MaxErrors errors were found. It
+// first reserves the memory they take for this document (see Memory); a
+// document that needs more than a validation may take gets a too_large
+// finding that says so, and its rules do not run. The
 // rules may add errors up to MaxErrors in all, and MaxErrors warnings of
 // their own; warnings do not take the room of errors. Rules that stop before
 // the end add the findings so far and a too_complex finding; rules that fail
@@ -153,6 +170,12 @@ func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.Doc
 	}
 	remaining := limits.MaxErrors - len(res.Errors)
 	if remaining <= 0 {
+		return res
+	}
+	if f, outcome, ok := reserveForRules(ctx, rules, data); !ok {
+		// The rules did not run: the document has no room in memory, now
+		// or ever.
+		res.AddError(f, outcome)
 		return res
 	}
 	res.Ran.Rules = true
@@ -183,6 +206,8 @@ func stopFinding(err error) (qti.Finding, bool) {
 	switch {
 	case errors.Is(err, ErrTooComplex):
 		msg = "validation stopped: the document is too complex to validate"
+	case errors.Is(err, ErrMemoryBusy):
+		msg = "validation stopped: the service had no memory free to check the document in time"
 	case errors.Is(err, context.DeadlineExceeded):
 		msg = "validation stopped: the document took longer to validate than REQUEST_TIMEOUT allows"
 	case errors.Is(err, context.Canceled):

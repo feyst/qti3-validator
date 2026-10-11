@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"qti3-validator/internal/adapter/schemastore"
-	"qti3-validator/internal/adapter/xsdschema"
 	"qti3-validator/internal/app"
 	"qti3-validator/internal/domain/qti"
 	"qti3-validator/internal/lib/xpath"
@@ -125,16 +123,42 @@ var memoryShapes = []struct {
 	}},
 }
 
-// peakHeap runs f and returns the most live heap (objects) seen while it
-// ran, above the heap before it, sampled with the collector kept busy.
-func peakHeap(f func()) (peak int64, elapsed time.Duration) {
+// phases samples the live heap while a validation runs, apart for the time
+// before and after the rules start: the first reservation that grows after
+// one that shrank is the one for the rules (app.Memory).
+type phases struct {
+	phase    atomic.Int32
+	peak     [2]atomic.Int64
+	reserved [2]int64 // the most reserved in each phase
+	held     int64
+	shrank   bool
+}
+
+func (p *phases) Limit() int64 { return 1 << 60 }
+
+func (p *phases) Reserve(_ context.Context, n int64) error {
+	if n < p.held {
+		p.shrank = true
+	} else if n > p.held && p.shrank {
+		p.phase.Store(1)
+	}
+	p.held = n
+	i := p.phase.Load()
+	p.reserved[i] = max(p.reserved[i], n)
+	return nil
+}
+
+// measure validates doc and returns what it reserved and what it really
+// held, above the heap before it, with the collector kept busy so that the
+// heap is little more than what is live.
+func measure(v *app.Validator, doc []byte) (p *phases, res qti.DocumentResult, elapsed time.Duration) {
 	old := debug.SetGCPercent(5)
 	defer debug.SetGCPercent(old)
 	runtime.GC()
 	sample := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
 	read := func() int64 { metrics.Read(sample); return int64(sample[0].Value.Uint64()) }
 	base := read()
-	var top atomic.Int64
+	p = &phases{}
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
@@ -144,72 +168,118 @@ func peakHeap(f func()) (peak int64, elapsed time.Duration) {
 				return
 			default:
 			}
-			if v := read(); v > top.Load() {
-				top.Store(v)
+			top := &p.peak[p.phase.Load()]
+			if h := read() - base; h > top.Load() {
+				top.Store(h)
 			}
-			time.Sleep(200 * time.Microsecond)
+			time.Sleep(100 * time.Microsecond)
 		}
 	}()
 	start := time.Now()
-	f()
+	res = v.ValidateDocument(app.WithMemory(context.Background(), p), app.ValidateDocument{Document: bytes.NewReader(doc), Size: int64(len(doc))})
 	elapsed = time.Since(start)
 	close(stop)
 	<-done
-	return top.Load() - base, elapsed
+	return p, res, elapsed
 }
 
-// TestMeasureMemory prints what validating a document of each shape takes
-// in memory. It is a measurement, not a test: QTI_MEASURE_MEMORY=<bytes>
-// selects the document size and runs it.
-func TestMeasureMemory(t *testing.T) {
-	var size int
-	if _, err := fmt.Sscan(os.Getenv("QTI_MEASURE_MEMORY"), &size); err != nil || size <= 0 {
-		t.Skip("set QTI_MEASURE_MEMORY to a document size in bytes")
+// What a validation reserves in memory (app.Memory) is held to what it
+// really takes, for documents of every shape: never less, or the documents
+// in progress would not fit in the memory the service was given, and for
+// the rules, which take most, not more than half as much again, or
+// documents that fit would be refused. The estimate follows the layout of
+// xpath.Node and the indexes of the rules, so a change there that makes
+// documents larger or smaller in memory fails here, and the constants
+// (xpath.Size.DOMBytes, rules.Checker.EstimateMemory, app's memoryToRead)
+// are then measured again.
+//
+// QTI_MEASURE_MEMORY=<bytes> sets the size of the documents, 1 MiB
+// otherwise; with -v the test prints the table of docs/deployment.md.
+func TestMemoryEstimate(t *testing.T) {
+	if raceEnabled || testing.Short() {
+		t.Skip("measures the heap: not with the race detector, which changes it, nor in short mode")
 	}
-	only := os.Getenv("QTI_MEASURE_SHAPE")
-	v, err := NewValidator(Options{Limits: qti.Limits{MaxDocumentSize: int64(size)*2 + 1024}})
-	if err != nil {
-		t.Fatal(err)
+	size := 1 << 20
+	if env := os.Getenv("QTI_MEASURE_MEMORY"); env != "" {
+		if _, err := fmt.Sscan(env, &size); err != nil || size <= 0 {
+			t.Fatalf("QTI_MEASURE_MEMORY=%q: want a size in bytes", env)
+		}
 	}
-	schema, err := xsdschema.CompileVersion(xsdschema.Resolver{Store: schemastore.Embedded()}, qti.LatestVersion())
+	v, err := NewValidator(Options{Limits: qti.Limits{MaxDocumentSize: int64(size) * 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	const mib = 1 << 20
-	t.Logf("%-22s %7s %8s %9s | %8s %6s | %8s %6s | %8s %6s | %6s %s", "shape", "MiB", "nodes", "B/node",
-		"xsd MiB", "x", "dom MiB", "x", "all MiB", "x", "s", "outcome")
+	inMiB := func(n int64) float64 { return float64(n) / mib }
+	t.Logf("%-22s %6s %8s | %8s %8s | %8s %8s %6s %7s | %7s %6s %s", "shape", "MiB", "nodes",
+		"read", "reserved", "rules", "reserved", "ratio", "x size", "scan ms", "s", "outcome/errors")
 	for _, shape := range memoryShapes {
-		if only != "" && only != shape.name {
+		doc := shape.doc(size)
+		start := time.Now()
+		nodes := xpath.Measure(doc).Nodes()
+		scan := time.Since(start)
+		p, res, elapsed := measure(v, doc)
+		read, rules := p.peak[0].Load(), p.peak[1].Load()
+		ratio := 0.0
+		if rules > 0 {
+			ratio = float64(p.reserved[1]) / float64(rules)
+		}
+		t.Logf("%-22s %6.2f %8d | %8.1f %8.1f | %8.1f %8.1f %6.2f %7.1f | %7.2f %6.2f %v/%d", shape.name, inMiB(int64(len(doc))), nodes,
+			inMiB(read), inMiB(p.reserved[0]), inMiB(rules), inMiB(p.reserved[1]), ratio, float64(rules)/float64(len(doc)),
+			float64(scan.Microseconds())/1000, elapsed.Seconds(), res.Outcome, len(res.Errors))
+		if read > p.reserved[0] {
+			t.Errorf("%s: reading and checking the schema took %.1f MiB, more than the %.1f MiB reserved",
+				shape.name, inMiB(read), inMiB(p.reserved[0]))
+		}
+		if !res.Ran.Rules {
 			continue
 		}
-		doc := shape.doc(size)
-		xsdPeak, _ := peakHeap(func() { schema.CheckSchema(doc, v.Limits()) })
-		tree, _ := xpath.Parse(bytes.NewReader(doc))
-		nodes := 0
-		if tree != nil {
-			nodes = tree.Nodes
+		if rules > p.reserved[1] {
+			t.Errorf("%s: the rules took %.1f MiB, more than the %.1f MiB reserved", shape.name, inMiB(rules), inMiB(p.reserved[1]))
 		}
-		runtime.GC()
-		var before, after runtime.MemStats
-		runtime.ReadMemStats(&after)
-		runtime.KeepAlive(tree)
-		tree = nil
-		runtime.GC()
-		runtime.ReadMemStats(&before)
-		dom := int64(after.HeapAlloc) - int64(before.HeapAlloc)
-		var res qti.DocumentResult
-		all, elapsed := peakHeap(func() {
-			res = v.ValidateDocument(context.Background(), app.ValidateDocument{Document: bytes.NewReader(doc)})
-		})
-		f := func(n int64) float64 { return float64(n) / float64(len(doc)) }
-		perNode := 0.0
-		if nodes > 0 {
-			perNode = float64(dom) / float64(nodes)
+		// A small tree is all base: the bound is for documents that matter.
+		if rules > 8*mib && p.reserved[1] > rules*3/2 {
+			t.Errorf("%s: %.1f MiB reserved for the rules, more than 1.5 times the %.1f MiB they took",
+				shape.name, inMiB(p.reserved[1]), inMiB(rules))
 		}
-		t.Logf("%-22s %7.2f %8d %9.0f | %8.1f %6.1f | %8.1f %6.1f | %8.1f %6.1f | %6.2f %v/%d", shape.name, float64(len(doc))/mib, nodes, perNode,
-			float64(xsdPeak)/mib, f(xsdPeak), float64(dom)/mib, f(dom), float64(all)/mib, f(all), elapsed.Seconds(), res.Outcome, len(res.Errors))
-		if len(res.Errors) > 0 {
-			t.Logf("    first error: %s", res.Errors[0].Message)
+		if scan > elapsed/10 {
+			t.Errorf("%s: counting the nodes took %v of the %v of the validation", shape.name, scan, elapsed)
 		}
+	}
+}
+
+// TestMemoryLargestDocuments prints, for the table of docs/deployment.md,
+// the largest document of each shape that fits a budget:
+// QTI_MEASURE_BUDGETS=208,464,976 lists the budgets in MiB. What a document
+// reserves grows in a straight line with its size, so two sizes tell.
+func TestMemoryLargestDocuments(t *testing.T) {
+	env := os.Getenv("QTI_MEASURE_BUDGETS")
+	if env == "" {
+		t.Skip("set QTI_MEASURE_BUDGETS to budgets in MiB, separated by commas")
+	}
+	v, err := NewValidator(Options{Limits: qti.Limits{MaxDocumentSize: 8 << 20}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const mib = 1 << 20
+	reserved := func(doc []byte) float64 {
+		p, _, _ := measure(v, doc)
+		return float64(max(p.reserved[0], p.reserved[1]))
+	}
+	for _, shape := range memoryShapes {
+		small, large := shape.doc(mib), shape.doc(2*mib)
+		a, b := reserved(small), reserved(large)
+		slope := (b - a) / float64(len(large)-len(small))
+		base := a - slope*float64(len(small))
+		var line strings.Builder
+		fmt.Fprintf(&line, "%-22s %6.1f bytes a byte |", shape.name, slope)
+		for field := range strings.SplitSeq(env, ",") {
+			var budget float64
+			if _, err := fmt.Sscan(field, &budget); err != nil {
+				t.Fatalf("QTI_MEASURE_BUDGETS: %v", err)
+			}
+			fmt.Fprintf(&line, " %4.0f MiB: %6.1f MiB |", budget, (budget*mib-base)/slope/mib)
+		}
+		t.Log(line.String())
 	}
 }

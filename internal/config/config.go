@@ -23,7 +23,7 @@ type Config struct {
 	MaxConcurrent       int           // MAX_CONCURRENT: validations running at once
 	MaxQueue            int           // MAX_QUEUE: requests waiting for a validation slot
 	MaxSpoolSize        int64         // MAX_SPOOL_SIZE: all request bodies being received or validated, bytes
-	MaxValidationMemory int64         // MAX_VALIDATION_MEMORY: heap the running validations may reserve, bytes; 0 derives it at startup from the memory limit
+	MaxValidationMemory int64         // MAX_VALIDATION_MEMORY: memory the validations in progress may reserve together, bytes; 0 derives it at startup from the memory limit
 	RequestTimeout      time.Duration // REQUEST_TIMEOUT
 	ValidatorsDir       string        // VALIDATORS_DIR: extra .xsd and .sch files
 	// ValidatorsDirSet reports that VALIDATORS_DIR was set explicitly. Then

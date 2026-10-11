@@ -226,8 +226,8 @@ func finding(f schematron.Failure, mounted bool) app.RuleFinding {
 	e := qti.Finding{
 		Code:    qti.CodeSchematron,
 		Rule:    f.Pattern,
-		Line:    f.Node.Line,
-		Column:  f.Node.Column,
+		Line:    int(f.Node.Line),
+		Column:  int(f.Node.Column),
 		Path:    f.Node.Path(),
 		Message: f.Message,
 	}
@@ -243,4 +243,35 @@ func finding(f schematron.Failure, mounted bool) app.RuleFinding {
 		e.Rule = AdditionalChecks + "#" + e.Rule
 	}
 	return app.RuleFinding{Finding: e, Warning: f.Warning}
+}
+
+// What CheckRules takes in memory for a document, beside the document
+// itself and its tree (xpath.Size.DOMBytes): the indexes and remembered
+// node-sets of the session and of the engine, which hold a few pointers for
+// every element. Measured with the built-in rules, the most is some 75
+// bytes an element, for documents of nothing but empty HTML elements;
+// bootstrap's TestMemoryEstimate holds the estimate to what validation
+// really takes.
+const (
+	memoryBase       = 2 << 20
+	memoryPerElement = 80
+)
+
+var _ app.MemoryEstimator = (*Checker)(nil)
+
+// EstimateMemory implements app.MemoryEstimator: what CheckRules takes for
+// data, counted from its markup in one pass without building anything. The
+// nodes of the document decide it, not its size: a megabyte of prose is some
+// 30,000 nodes, a megabyte of empty elements 260,000.
+func (c *Checker) EstimateMemory(data []byte) app.MemoryEstimate {
+	if c == nil {
+		return app.MemoryEstimate{}
+	}
+	size := xpath.Measure(data)
+	return app.MemoryEstimate{
+		// The document as read, its tree, the buffer of the parser for the
+		// largest piece of content, and the indexes.
+		Bytes: memoryBase + int64(len(data))*5/4 + size.DOMBytes() + size.Largest*3/2 + int64(size.Elements)*memoryPerElement,
+		Nodes: size.Nodes(),
+	}
 }

@@ -13,18 +13,19 @@ import (
 // container. The spool budget (spool.go) and these share the same cgroup and
 // tmpfs probes.
 const (
-	// validationHeadroom is the memory the process needs beside the
-	// validations themselves: the idle heap, goroutine stacks and the Go
-	// runtime. The idle service measures about 30 MiB; this leaves room to
-	// spare so the budget never counts memory the validations cannot use.
-	validationHeadroom = 48 << 20
-	// defaultValidationMemory is the budget when no memory limit can be read,
-	// so the container cannot be sized against. It is generous, to avoid
-	// refusing documents on a large unconstrained host; a memory-constrained
-	// host without a readable limit should set MAX_VALIDATION_MEMORY.
+	// validationHeadroom is the memory the process takes beside what the
+	// validations reserve: some 35 MiB when idle, and what the garbage
+	// collector leaves between two rounds. Measured in a 256 MiB container
+	// with documents made to fill the budget, the process peaked 24 MiB
+	// above budget plus idle; this leaves as much again.
+	validationHeadroom = 64 << 20
+	// defaultValidationMemory is the budget when no memory limit can be
+	// read: enough for any document up to the default MAX_REQUEST_SIZE,
+	// whatever it is made of. A host with less to spare sets
+	// MAX_VALIDATION_MEMORY.
 	defaultValidationMemory = 1 << 30
-	// minValidationMemory keeps a tiny or miscomputed budget usable: at least
-	// one small document validates at a time.
+	// minValidationMemory keeps the budget of a container that is too small
+	// usable: typical items, of a few thousand nodes, still validate.
 	minValidationMemory = 32 << 20
 	// gomemlimitHeadroom is left to the runtime below the memory limit when
 	// the soft limit is derived, for non-heap memory the GC cannot reclaim.
