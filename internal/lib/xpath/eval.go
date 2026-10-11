@@ -2,6 +2,7 @@ package xpath
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -313,10 +314,7 @@ func (e *pathExpr) eval(c *evalCtx) (Value, error) {
 			return nil, err
 		}
 	case e.absolute:
-		root := c.node
-		for root.Parent != nil {
-			root = root.Parent
-		}
+		root := c.node.documentRoot()
 		if e.independent {
 			return c.s.remember(e, root, func() (NodeSet, error) { return e.walk(NodeSet{root}, c) })
 		}
@@ -514,7 +512,9 @@ func (s step) apply(n *Node, c *evalCtx) (NodeSet, error) {
 // applyFirst applies a step marked first. The predicates before the [1]
 // filter without regard to position, so the node at position 1 after them
 // is the first node in axis order that passes them all; it evaluates them
-// on each node in turn and stops there. It charges what apply would for the
+// on each node in turn and stops there. They cannot raise a type error
+// (selectsFirst), so the nodes it does not visit could not have failed the
+// step. It charges what apply would for the
 // nodes it visits, plus a step for the [1].
 func (s step) applyFirst(n *Node, c *evalCtx) (NodeSet, error) {
 	preds := s.preds[:len(s.preds)-1]
@@ -800,8 +800,11 @@ func stringToNumber(s string) float64 {
 			return math.NaN()
 		}
 	}
+	// The number is the IEEE 754 double nearest to the digits (round to
+	// nearest): beyond the largest double that is an infinity, which
+	// ParseFloat returns together with ErrRange.
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil && !errors.Is(err, strconv.ErrRange) {
 		return math.NaN()
 	}
 	return f

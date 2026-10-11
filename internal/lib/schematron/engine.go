@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"qti3-validator/internal/lib/xpath"
@@ -213,7 +214,8 @@ type Limits struct {
 // Result is what Check found.
 type Result struct {
 	// Failures are the failures within the limits, in pattern order and
-	// then document order.
+	// then document order of their nodes; those of one node are in the
+	// order of the assertions of its rule.
 	Failures []Failure
 	// OmittedWarnings is the number of warnings that fired after
 	// Limits.Warnings were kept, until the validation ended. They are
@@ -240,7 +242,7 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 	if s == nil {
 		s = xpath.NewSession(context.Background(), 0)
 	}
-	var index map[expandedName][]*xpath.Node
+	index := &elementIndex{root: doc.Root}
 	var res Result
 	errorCount, warningCount := 0, 0
 	for _, es := range e.sets {
@@ -257,72 +259,108 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 				}
 				constant(s, pvars)
 			}
-			// First-match bookkeeping is only needed with several rules.
-			var seen map[*xpath.Node]bool
-			if len(p.rules) > 1 {
-				seen = map[*xpath.Node]bool{}
+			matches, err := p.matches(s, doc, pvars, index)
+			if err != nil {
+				return res, err
 			}
-			for _, r := range p.rules {
-				var nodes []*xpath.Node
-				if r.byName != nil {
-					if index == nil {
-						index = indexElements(doc.Root)
+			for _, m := range matches {
+				n, r := m.node, m.rule
+				rvars := pvars
+				if len(r.lets) > 0 {
+					if rvars, err = bindLets(s, r.lets, n, maps.Clone(pvars)); err != nil {
+						return res, err
 					}
-					nodes = index[*r.byName]
-				} else if nodes, err = r.context.Select(xpath.Context{Node: doc.Root, Variables: pvars, Session: s}); err != nil {
-					return res, err
 				}
-				for _, n := range nodes {
-					if seen != nil {
-						if seen[n] {
-							continue // within a pattern only the first matching rule applies
-						}
-						seen[n] = true
+				for _, a := range r.assertions {
+					fired, err := a.fires(s, n, rvars)
+					if err != nil {
+						return res, err
 					}
-					rvars := pvars
-					if len(r.lets) > 0 {
-						if rvars, err = bindLets(s, r.lets, n, maps.Clone(pvars)); err != nil {
-							return res, err
-						}
+					if !fired {
+						continue
 					}
-					for _, a := range r.assertions {
-						fired, err := a.fires(s, n, rvars)
-						if err != nil {
-							return res, err
-						}
-						if !fired {
-							continue
-						}
-						warning := warningRoles[strings.ToLower(a.role)]
-						if warning && (limits.Warnings < 0 || limits.Warnings > 0 && warningCount >= limits.Warnings) {
-							res.OmittedWarnings++
-							continue // no room for more warnings; errors are still looked for
-						}
-						msg, err := a.render(s, n, rvars)
-						if err != nil {
-							return res, err
-						}
-						if warning {
-							warningCount++
-						}
-						res.Failures = append(res.Failures, Failure{
-							Source: es.source, Pattern: p.id, Assertion: a.id, Report: a.report,
-							Role: a.role, Flag: a.flag, Warning: warning,
-							Message: msg, Node: n,
-						})
-						if warning {
-							continue
-						}
-						errorCount++
-						if limits.Errors > 0 && errorCount >= limits.Errors {
-							return res, nil
-						}
+					warning := warningRoles[strings.ToLower(a.role)]
+					if warning && (limits.Warnings < 0 || limits.Warnings > 0 && warningCount >= limits.Warnings) {
+						res.OmittedWarnings++
+						continue // no room for more warnings; errors are still looked for
+					}
+					msg, err := a.render(s, n, rvars)
+					if err != nil {
+						return res, err
+					}
+					if warning {
+						warningCount++
+					}
+					res.Failures = append(res.Failures, Failure{
+						Source: es.source, Pattern: p.id, Assertion: a.id, Report: a.report,
+						Role: a.role, Flag: a.flag, Warning: warning,
+						Message: msg, Node: n,
+					})
+					if warning {
+						continue
+					}
+					errorCount++
+					if limits.Errors > 0 && errorCount >= limits.Errors {
+						return res, nil
 					}
 				}
 			}
 		}
 	}
 	return res, nil
+}
+
+// match is a node and the rule of a pattern that applies to it.
+type match struct {
+	node *xpath.Node
+	rule *engineRule
+}
+
+// matches returns the nodes that the rules of the pattern apply to, in
+// document order, each with the first rule whose context matches it: within
+// a pattern a node is checked by one rule only (ISO Schematron, 6.5). The
+// contexts are evaluated in rule order, all of them before the first node
+// is checked.
+func (p *enginePattern) matches(s *xpath.Session, doc *xpath.Document, vars map[string]xpath.Value, index *elementIndex) ([]match, error) {
+	var out []match
+	// First-match bookkeeping is only needed with several rules.
+	var seen map[*xpath.Node]bool
+	if len(p.rules) > 1 {
+		seen = map[*xpath.Node]bool{}
+	}
+	for i := range p.rules {
+		r := &p.rules[i]
+		var nodes []*xpath.Node
+		if r.byName != nil {
+			nodes = index.named(*r.byName)
+		} else {
+			var err error
+			if nodes, err = r.context.Select(xpath.Context{Node: doc.Root, Variables: vars, Session: s}); err != nil {
+				return nil, err
+			}
+		}
+		for _, n := range nodes {
+			if seen != nil {
+				if seen[n] {
+					continue
+				}
+				seen[n] = true
+			}
+			out = append(out, match{node: n, rule: r})
+		}
+	}
+	// The nodes of each rule are in document order; those of several rules
+	// are merged into it. A node occurs once, so the order is total.
+	byDocumentOrder := func(a, b match) int {
+		if a.node.Before(b.node) {
+			return -1
+		}
+		return 1
+	}
+	if !slices.IsSortedFunc(out, byDocumentOrder) {
+		slices.SortFunc(out, byDocumentOrder)
+	}
+	return out, nil
 }
 
 func (a engineAssertion) fires(sess *xpath.Session, n *xpath.Node, vars map[string]xpath.Value) (bool, error) {
@@ -371,6 +409,21 @@ func constant(s *xpath.Session, vars map[string]xpath.Value) {
 	for _, v := range vars {
 		s.Constant(v)
 	}
+}
+
+// elementIndex is the index of the elements of a document, built on first
+// use.
+type elementIndex struct {
+	root   *xpath.Node
+	byName map[expandedName][]*xpath.Node
+}
+
+// named returns the elements with the name, in document order.
+func (x *elementIndex) named(name expandedName) []*xpath.Node {
+	if x.byName == nil {
+		x.byName = indexElements(x.root)
+	}
+	return x.byName[name]
 }
 
 // indexElements lists the elements of a document by expanded name, in
