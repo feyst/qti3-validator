@@ -138,22 +138,28 @@ var memoryShapes = []struct {
 }
 
 // phases samples the live heap while a validation runs, apart for the time
-// before and after the rules start: the reservation for the rules is the
-// one the validation tries without waiting (app.Memory).
+// before and after the rules start. A validation reserves for its whole
+// check once the document is read, and sets that to what the rules take
+// when the schema check is over (app.Memory): the second reservation it
+// makes without waiting.
 type phases struct {
 	phase    atomic.Int32
 	peak     [2]atomic.Int64
 	reserved [2]int64 // the most reserved in each phase
+	tried    int
 }
 
 func (p *phases) Limit() int64 { return 1 << 60 }
 
 func (p *phases) TryReserve(n int64) bool {
 	if n > 0 {
-		// What the schema check left behind is garbage by now: it is not
-		// what the rules take.
-		runtime.GC()
-		p.phase.Store(1)
+		p.tried++
+		if p.tried == 2 {
+			// What the schema check left behind is garbage by now: it is
+			// not what the rules take.
+			runtime.GC()
+			p.phase.Store(1)
+		}
 	}
 	_ = p.Reserve(context.Background(), n)
 	return true

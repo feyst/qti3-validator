@@ -113,6 +113,9 @@ func sizeToContainer(log *slog.Logger, cfg config.Config, hopts *httpapi.Options
 	applyMemoryLimit(log, env)
 	hopts.MaxSpoolSize = spoolBudget(log, cfg, env)
 	hopts.MaxValidationMemory = validationMemoryBudget(log, cfg, env, hopts.MaxSpoolSize)
+	small := httpapi.SmallMemoryShare(hopts.MaxValidationMemory, hopts.MaxConcurrent)
+	log.Info("memory of the validations", "max_validation_memory", hopts.MaxValidationMemory,
+		"for_small_documents", small, "most_for_one_document", hopts.MaxValidationMemory-small)
 }
 
 func run(log *slog.Logger) error {

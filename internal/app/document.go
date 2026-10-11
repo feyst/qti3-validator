@@ -117,8 +117,8 @@ func (v *Validator) validate(ctx context.Context, src *source, req qti.VersionRe
 	choice := qti.ChooseVersion(req, declared)
 	profile := v.versions[choice.Version.Name]
 
-	if f, refused := exceedsMemory(ctx, profile.Rules, src.data); refused {
-		return qti.DocumentResult{Schema: docType.Schema, Version: choice.Version.Name, Errors: []qti.Finding{f}, Outcome: qti.OutcomeTooLarge}
+	if f, outcome, ok := reserveToCheck(ctx, profile.Rules, src); !ok {
+		return qti.DocumentResult{Schema: docType.Schema, Version: choice.Version.Name, Errors: []qti.Finding{f}, Outcome: outcome}
 	}
 	res, verdict := checkSchema(ctx, profile.Schema, docType, src.data, limits)
 	if choice.ReplacesSchemaVerdict {
@@ -136,8 +136,8 @@ func (v *Validator) validate(ctx context.Context, src *source, req qti.VersionRe
 }
 
 func (v *Validator) validateCustom(ctx context.Context, docType qti.DocumentType, p Profile, src *source, limits qti.Limits) qti.DocumentResult {
-	if f, refused := exceedsMemory(ctx, p.Rules, src.data); refused {
-		return qti.DocumentResult{Schema: docType.Schema, Errors: []qti.Finding{f}, Outcome: qti.OutcomeTooLarge}
+	if f, outcome, ok := reserveToCheck(ctx, p.Rules, src); !ok {
+		return qti.DocumentResult{Schema: docType.Schema, Errors: []qti.Finding{f}, Outcome: outcome}
 	}
 	res, verdict := checkSchema(ctx, p.Schema, docType, src.data, limits)
 	if !assessable(res, verdict) {

@@ -52,7 +52,7 @@ COPY --from=build /out/qti-validator /qti-validator
 USER 65534:65534
 # No GOMEMLIMIT here: the service derives the soft memory limit of the Go
 # runtime at startup from the container's memory limit (the limit less
-# 40 MiB), so the garbage collector works harder only as the process nears
+# 32 MiB), so the garbage collector works harder only as the process nears
 # what the container has. Set GOMEMLIMIT with -e to choose it yourself.
 EXPOSE 8080
 # The binary checks /health itself: the image has no shell or curl. It reads

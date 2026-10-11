@@ -14,11 +14,12 @@ import (
 // tmpfs probes.
 const (
 	// validationHeadroom is the memory the process takes beside what the
-	// validations reserve: some 35 MiB when idle, and what the garbage
-	// collector leaves between two rounds. Measured in a 256 MiB container
-	// with documents made to fill the budget, the process peaked 24 MiB
-	// above budget plus idle; this leaves as much again.
-	validationHeadroom = 64 << 20
+	// validations reserve: some 35 MiB when idle, a few for the connections
+	// and the stacks, and gomemlimitHeadroom. The budget, of which the
+	// reservations are never less than what the validations take, and the
+	// idle process then stay within the soft limit of the runtime: in a
+	// container of 256 MiB, 184 + 35 + 5 = 224 MiB.
+	validationHeadroom = 72 << 20
 	// defaultValidationMemory is the budget when no memory limit can be
 	// read: enough for any document up to the default MAX_REQUEST_SIZE,
 	// whatever it is made of. A host with less to spare sets
@@ -30,11 +31,10 @@ const (
 	// gomemlimitHeadroom is what the soft limit of the Go runtime stays
 	// below the memory limit: the runtime counts what it manages, the heap
 	// and the stacks, and the limit of the container counts the rest too,
-	// the binary and the buffers of the kernel. It is less than
-	// validationHeadroom on purpose: the budget of the validations and the
-	// idle process together stay below the soft limit, so the collector
-	// does not run without end when the budget is in full use.
-	gomemlimitHeadroom = 40 << 20
+	// the binary and the buffers of the kernel. Measured with documents made
+	// to fill the budget, the process peaked some 10 MiB above its soft
+	// limit; this leaves twice as much again.
+	gomemlimitHeadroom = 32 << 20
 	// minGoMemLimit floors a derived soft limit so a very small container
 	// does not set an unusable one.
 	minGoMemLimit = 32 << 20

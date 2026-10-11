@@ -72,10 +72,12 @@ func TestMemoryReservedInTwoSteps(t *testing.T) {
 	if res := validateWith(t, m, doc); !res.Valid || !res.Ran.Rules {
 		t.Fatalf("got %+v", res)
 	}
-	if len(m.calls) != 2 || len(m.waits) != 0 {
-		t.Fatalf("reservations %v, waits %v: want one to read and one for the rules", m.calls, m.waits)
+	// To read; for the whole check, as soon as the nodes are counted; and
+	// what the rules take, once the schema check is over.
+	if len(m.calls) != 3 || len(m.waits) != 0 || m.calls[1] < m.calls[2] {
+		t.Fatalf("reservations %v, waits %v: want one to read, one for the check and one for the rules", m.calls, m.waits)
 	}
-	read, rules := m.calls[0], m.calls[1]
+	read, rules := m.calls[0], m.calls[2]
 	size := int64(len(doc))
 	if read < 2*size || read > 2<<20 {
 		t.Errorf("reserved %d bytes to read %d bytes", read, size)
@@ -99,7 +101,7 @@ func TestMemoryReservedInTwoSteps(t *testing.T) {
 // onceReader hides that a reader can be read again.
 type onceReader struct{ io.Reader }
 
-// A validation that finds no room for the rules waits for it with nothing:
+// A validation that finds no room for its check waits for it with nothing:
 // it gives up what it reserved, lets go of the document, and reads it again
 // once it has its room. One that cannot read its document again stops.
 func TestMemoryWaitsWithoutTheDocument(t *testing.T) {
@@ -110,8 +112,12 @@ func TestMemoryWaitsWithoutTheDocument(t *testing.T) {
 	if !res.Valid || !res.Ran.Rules || len(res.Errors) != len(want.Errors) {
 		t.Fatalf("got %+v", res)
 	}
-	if len(m.waits) != 1 || len(m.calls) != 2 {
-		t.Fatalf("reservations %v, waits %v: want one wait, for the rules", m.calls, m.waits)
+	if len(m.waits) != 1 || len(m.calls) != 3 {
+		t.Fatalf("reservations %v, waits %v: want one wait, for the check", m.calls, m.waits)
+	}
+	// It waited before the schema check, not after it.
+	if res.Ran.Schema != want.Ran.Schema {
+		t.Fatalf("got %+v", res)
 	}
 
 	m = &fakeMemory{limit: 1 << 40, noRoom: true}

@@ -38,55 +38,40 @@ func reserveToRead(ctx context.Context, size int64) (qti.Finding, qti.Outcome, b
 	return f, outcome, false
 }
 
-// exceedsMemory reports whether the rules would take more memory for the
-// document than a validation may reserve, with the finding that says so. It
-// is asked before the schema check, which for a document of millions of
-// nodes takes seconds: such a document is refused at once, for what it
-// would take if it were checked, also when it would not pass its schema.
-func exceedsMemory(ctx context.Context, rules RuleChecker, data []byte) (qti.Finding, bool) {
-	m := MemoryFrom(ctx)
-	estimator, ok := rules.(MemoryEstimator)
-	if m == nil || !ok {
-		return qti.Finding{}, false
-	}
-	estimate := estimator.EstimateMemory(data)
-	if estimate.Bytes <= m.Limit() {
-		return qti.Finding{}, false
-	}
-	return qti.Finding{Code: qti.CodeTooLarge, Message: exceededMessage(estimate, m.Limit())}, true
-}
-
-func exceededMessage(estimate MemoryEstimate, limit int64) string {
-	return fmt.Sprintf(
-		"the document has %s and needs about %s of memory to check; this service allows %s for one document (MAX_VALIDATION_MEMORY)",
-		nodeCount(estimate.Nodes), mebibytes(estimate.Bytes), mebibytes(limit))
-}
-
-// reserveForRules reserves what the rules take for a document that passed
-// its schema check. When there is room it is reserved at once. When there
-// is none, the validation waits for it without the document: it lets go of
-// the bytes it read and of what it reserved, and reads the document again
-// once it has its room, from the upload or the package, which are on disk.
-// So a validation that waits holds no memory, and those that run stay
-// within what the service allows however many wait.
+// reserveToCheck reserves what checking a document takes from here on, as
+// soon as it is read and before the schema check: the most of what the
+// schema check takes and of what the rules take, which the nodes of the
+// document decide and one pass over its markup tells. So a validation waits
+// for memory once, with little done, and never after a schema check of
+// seconds; and a document whose rules would take more than a validation may
+// reserve is refused at once, for what it would take if it were checked,
+// also when it would not pass its schema.
+//
+// When there is no room now, the validation waits for it without the
+// document: it lets go of the bytes it read and of what it reserved, and
+// reads the document again once it has its room, from the upload or the
+// package, which are on disk. So a validation that waits holds no memory,
+// and those that run stay within what the service allows however many
+// wait. A document that cannot be read again cannot wait, and stops.
 //
 // On failure it returns the finding to report, with the outcome it implies.
-func reserveForRules(ctx context.Context, rules RuleChecker, src *source) (qti.Finding, qti.Outcome, bool) {
+func reserveToCheck(ctx context.Context, rules RuleChecker, src *source) (qti.Finding, qti.Outcome, bool) {
 	m := MemoryFrom(ctx)
 	estimator, ok := rules.(MemoryEstimator)
 	if m == nil || !ok {
 		return qti.Finding{}, qti.OutcomeValid, true
 	}
 	estimate := estimator.EstimateMemory(src.data)
-	if estimate.Bytes <= 0 || m.TryReserve(estimate.Bytes) {
+	need := max(estimate.Bytes, memoryToRead(int64(len(src.data))))
+	if estimate.Bytes <= 0 || m.TryReserve(need) {
 		return qti.Finding{}, qti.OutcomeValid, true
 	}
-	err := ErrMemoryBusy // a document that cannot be read again cannot wait
+	err := ErrMemoryBusy
 	if estimate.Bytes > m.Limit() {
 		err = ErrMemoryExceeded
 	} else if src.reread != nil {
 		src.data = nil
-		err = m.Reserve(ctx, estimate.Bytes)
+		err = m.Reserve(ctx, need)
 	}
 	if err != nil {
 		f, outcome := memoryFinding(err, exceededMessage(estimate, m.Limit()))
@@ -98,6 +83,29 @@ func reserveForRules(ctx context.Context, rules RuleChecker, src *source) (qti.F
 	}
 	src.data = data
 	return qti.Finding{}, qti.OutcomeValid, true
+}
+
+func exceededMessage(estimate MemoryEstimate, limit int64) string {
+	return fmt.Sprintf(
+		"the document has %s and needs about %s of memory to check; this service allows %s for one document (MAX_VALIDATION_MEMORY)",
+		nodeCount(estimate.Nodes), mebibytes(estimate.Bytes), mebibytes(limit))
+}
+
+// reserveForRules sets what the validation reserves to what the rules take,
+// now that the schema check is over. That is no more than reserveToCheck
+// reserved, so it does not wait.
+func reserveForRules(ctx context.Context, rules RuleChecker, src *source) (qti.Finding, qti.Outcome, bool) {
+	m := MemoryFrom(ctx)
+	estimator, ok := rules.(MemoryEstimator)
+	if m == nil || !ok {
+		return qti.Finding{}, qti.OutcomeValid, true
+	}
+	estimate := estimator.EstimateMemory(src.data)
+	if estimate.Bytes <= 0 || m.TryReserve(estimate.Bytes) {
+		return qti.Finding{}, qti.OutcomeValid, true
+	}
+	f, outcome := memoryFinding(ErrMemoryBusy, "")
+	return f, outcome, false
 }
 
 // releaseMemory gives back what the validation reserved.

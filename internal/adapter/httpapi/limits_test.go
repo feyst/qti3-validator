@@ -157,7 +157,7 @@ func TestQueueCap(t *testing.T) {
 			results <- resp.StatusCode
 		}()
 	}
-	waitFor(t, "one running and one waiting", func() bool { return len(s.slots) == 1 && s.waiting.Load() == 1 })
+	waitFor(t, "one running and one waiting", func() bool { return len(s.slots) == 1 && s.waitingSmall.Load() == 1 })
 
 	postBusy(t, url, "application/xml", doc)
 
@@ -167,8 +167,8 @@ func TestQueueCap(t *testing.T) {
 			t.Fatalf("running or waiting request: %d", status)
 		}
 	}
-	if s.waiting.Load() != 0 {
-		t.Fatalf("waiting: %d", s.waiting.Load())
+	if s.waitingSmall.Load() != 0 {
+		t.Fatalf("waiting: %d", s.waitingSmall.Load())
 	}
 }
 

@@ -19,72 +19,136 @@ import (
 )
 
 func TestMemSem(t *testing.T) {
-	if newMemSem(0) != nil {
+	if newMemSem(0, 2) != nil {
 		t.Fatal("no budget, no semaphore")
 	}
-	m := newMemSem(100)
-	if !m.resize(0, 60) {
+	m := newMemSem(108*mib, 2) // 8 MiB for small reservations, 100 MiB for the rest
+	if m.small != 8*mib || m.large != 100*mib {
+		t.Fatalf("small %d MiB, large %d MiB", m.small/mib, m.large/mib)
+	}
+	var a, b, c reservation
+	if !m.resize(&a, 60*mib) {
 		t.Fatal("60 fits in 100")
 	}
-	if m.resize(0, 60) {
+	if m.resize(&c, 60*mib) {
 		t.Fatal("a second 60 does not fit beside the first")
 	}
-	if !m.resize(0, 40) || !m.resize(40, 10) || !m.resize(10, 40) {
+	if !m.resize(&b, 40*mib) || !m.resize(&b, 10*mib) || !m.resize(&b, 40*mib) {
 		t.Fatal("40 fills the rest; less is always granted, and growing back fits")
 	}
-	if m.resize(60, 70) {
+	if m.resize(&a, 70*mib) || a.n != 60*mib {
 		t.Fatal("growing past the budget is never granted, to whoever asks")
 	}
 	// The one that holds 60 gives it up to wait for 70.
-	m.resize(60, 0)
+	m.resize(&a, 0)
 	id := m.enqueue()
-	if ok, _ := m.admit(id, 70); ok {
+	if ok, _ := m.admit(id, &a, 70*mib); ok {
 		t.Fatal("70 does not fit beside 40")
 	}
-	m.resize(40, 0)
-	if ok, _ := m.admit(id, 70); !ok {
+	m.resize(&b, 0)
+	if ok, _ := m.admit(id, &a, 70*mib); !ok {
 		t.Fatal("room came free")
 	}
-	if m.used != 70 || len(m.urgent) != 0 {
-		t.Fatalf("used %d, urgent %v", m.used, m.urgent)
+	if m.usedLarge != 70*mib || m.usedSmall != 0 || len(m.urgent) != 0 || a.n != 70*mib || a.small {
+		t.Fatalf("large %d, small %d, urgent %v, reservation %+v", m.usedLarge, m.usedSmall, m.urgent, a)
 	}
 }
 
-// A waiter that became urgent goes before the reservations that came later,
-// and the urgent ones go in the order they became so: small documents
-// cannot keep a large one out for ever, nor can large ones each other.
+// A waiter that became urgent goes before the large reservations that came
+// later, and the urgent ones go in the order they first waited in:
+// documents that fit cannot keep one that needs most of the budget out for
+// ever, nor can those each other.
 func TestMemSemUrgent(t *testing.T) {
-	m := newMemSem(100)
-	m.resize(0, 50) // a running validation
+	m := newMemSem(108*mib, 2)
+	var running, a, b, c, newcomer reservation
+	m.resize(&running, 50*mib)
 	first, second, late := m.enqueue(), m.enqueue(), m.enqueue()
-	if ok, _ := m.admit(first, 90); ok {
+	if ok, _ := m.admit(first, &a, 90*mib); ok {
 		t.Fatal("90 does not fit beside 50")
 	}
-	m.setUrgent(first)
 	m.setUrgent(second)
-	if m.resize(0, 10) || m.resize(50, 60) {
-		t.Fatal("nothing more is granted to those that run while a waiter is urgent, though it fits")
+	m.setUrgent(first) // later urgent, but it came first
+	if m.resize(&newcomer, 10*mib) || m.resize(&running, 60*mib) {
+		t.Fatal("nothing large is granted to those that run while a waiter is urgent, though it fits")
 	}
-	if ok, _ := m.admit(late, 10); ok {
+	if ok, _ := m.admit(late, &c, 10*mib); ok {
 		t.Fatal("a later waiter waits for the urgent ones")
 	}
-	if ok, _ := m.admit(second, 10); ok {
+	if ok, _ := m.admit(second, &b, 10*mib); ok {
 		t.Fatal("the second urgent waiter waits for the first, though it fits")
 	}
-	m.resize(50, 0)
-	if ok, _ := m.admit(first, 90); !ok {
+	m.resize(&running, 0)
+	if ok, _ := m.admit(first, &a, 90*mib); !ok {
 		t.Fatal("the first urgent waiter gets in once there is room")
 	}
-	if ok, _ := m.admit(late, 10); ok {
+	if ok, _ := m.admit(late, &c, 10*mib); ok {
 		t.Fatal("the later waiter still waits for the second urgent one")
 	}
-	if ok, _ := m.admit(second, 10); !ok {
+	if ok, _ := m.admit(second, &b, 10*mib); !ok {
 		t.Fatal("the second urgent waiter is next")
 	}
 	m.setUrgent(late)
 	m.leave(late)
-	if !m.resize(0, 0) || len(m.urgent) != 0 || m.used != 100 {
-		t.Fatalf("urgent %v, used %d", m.urgent, m.used)
+	if len(m.urgent) != 0 || m.usedLarge != 100*mib {
+		t.Fatalf("urgent %v, used %d", m.urgent, m.usedLarge)
+	}
+}
+
+// Small reservations have a share of their own. They are granted whenever
+// they fit in it, whatever waits for the rest: a large document that waits,
+// urgent or not, does not keep typical items out. And they take nothing of
+// the rest: however many there are, the large one that waits gets its room.
+func TestMemSemSmallShare(t *testing.T) {
+	m := newMemSem(108*mib, 2)
+	var running, big reservation
+	m.resize(&running, 50*mib)
+	id := m.enqueue()
+	m.setUrgent(id)
+	// Small ones come and go beside the urgent waiter.
+	small := make([]reservation, 4)
+	for i := range small {
+		if !m.resize(&small[i], 2*mib) {
+			t.Fatalf("small reservation %d: 2 MiB fits in the share of 8", i)
+		}
+	}
+	var more reservation
+	if m.resize(&more, 2*mib) {
+		t.Fatal("the share is full: a small one more must wait, and takes nothing of the rest")
+	}
+	if ok, _ := m.admit(m.enqueue(), &more, 2*mib); ok {
+		t.Fatal("nor is it admitted as a waiter")
+	}
+	if !m.resize(&small[0], 3*mib/2) || !m.resize(&small[1], 0) || !m.resize(&more, 2*mib) {
+		t.Fatal("room in the share comes free as small ones shrink and finish")
+	}
+	// The large one gets all of the rest, with the share still in use.
+	m.resize(&running, 0)
+	if ok, _ := m.admit(id, &big, 100*mib); !ok {
+		t.Fatal("the urgent waiter gets the whole large part, small ones or not")
+	}
+	if m.usedLarge+m.usedSmall > 108*mib || m.usedSmall != 15*mib/2 {
+		t.Fatalf("large %d, small %d", m.usedLarge, m.usedSmall)
+	}
+	// A small reservation that grows beyond small moves to the large part,
+	// when there is room; one that shrinks stays where it is.
+	m.resize(&big, 80*mib)
+	if !m.resize(&small[2], 20*mib) || small[2].small || m.usedLarge != 100*mib || m.usedSmall != 11*mib/2 {
+		t.Fatalf("grown: %+v, large %d, small %d", small[2], m.usedLarge, m.usedSmall)
+	}
+	if !m.resize(&small[2], mib) || small[2].small || m.usedLarge != 81*mib {
+		t.Fatalf("shrunk: %+v, large %d", small[2], m.usedLarge)
+	}
+	if m.resize(&small[3], 30*mib) || !small[3].small || small[3].n != 2*mib {
+		t.Fatalf("no room to grow: %+v", small[3])
+	}
+	for _, share := range []struct {
+		budget     int64
+		concurrent int
+		want       int64
+	}{{184 * mib, 2, 8 * mib}, {440 * mib, 2, 8 * mib}, {952 * mib, 8, 32 * mib}, {32 * mib, 8, 4 * mib}, {100 * mib, 1, 4 * mib}, {100 * mib, 0, 4 * mib}} {
+		if got := SmallMemoryShare(share.budget, share.concurrent); got != share.want {
+			t.Errorf("share of %d MiB with %d slots: %d MiB, want %d", share.budget/mib, share.concurrent, got/mib, share.want/mib)
+		}
 	}
 }
 
@@ -132,6 +196,8 @@ func (r *reserving) ValidatePackage(ctx context.Context, q app.ValidatePackage) 
 	return qti.PackageResult{Valid: o == qti.OutcomeValid, Outcome: o}
 }
 
+const mib = 1 << 20
+
 var largeDoc = []byte("<x>" + strings.Repeat(" ", 200) + "</x>")
 
 func postAsync(t *testing.T, url string, body []byte, n int) chan int {
@@ -143,17 +209,20 @@ func postAsync(t *testing.T, url string, body []byte, n int) chan int {
 	return done
 }
 
+// queued is the number of requests that wait, for a slot or for memory.
+func queued(s *Server) int64 { return s.waiting.Load() + s.waitingSmall.Load() }
+
 // idle reports whether the server holds nothing: no slot, no memory, nobody
 // waiting.
 func idle(s *Server) bool {
 	if s.mem != nil {
 		s.mem.mu.Lock()
 		defer s.mem.mu.Unlock()
-		if s.mem.used != 0 || len(s.mem.urgent) != 0 {
+		if s.mem.usedLarge != 0 || s.mem.usedSmall != 0 || len(s.mem.urgent) != 0 {
 			return false
 		}
 	}
-	return len(s.slots) == 0 && len(s.largeSlots) == 0 && s.waiting.Load() == 0
+	return len(s.slots) == 0 && len(s.largeSlots) == 0 && queued(s) == 0
 }
 
 // Documents that together take more memory than the budget are validated
@@ -161,13 +230,13 @@ func idle(s *Server) bool {
 // gives up its slot, so small documents are validated beside the one that
 // runs.
 func TestMemoryBoundSerialisesLargeDocuments(t *testing.T) {
-	v := &reserving{need: 60, release: make(chan struct{})}
+	v := &reserving{need: 60 * mib, release: make(chan struct{})}
 	srv, s := newFakeServer(t, Options{
-		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 2, MaxValidationMemory: 100,
+		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 2, MaxValidationMemory: 108 * mib,
 	}, v)
 	url := srv.URL + "/api/validate"
 	done := postAsync(t, url, largeDoc, 3)
-	waitFor(t, "one running, two waiting for memory", func() bool { return v.running.Load() == 1 && s.waiting.Load() == 2 })
+	waitFor(t, "one running, two waiting for memory", func() bool { return v.running.Load() == 1 && queued(s) == 2 })
 	if len(s.slots) != 1 {
 		t.Fatalf("%d slots taken: the waiting requests should hold none", len(s.slots))
 	}
@@ -190,9 +259,9 @@ func TestMemoryBoundSerialisesLargeDocuments(t *testing.T) {
 
 // Documents that fit together are validated together.
 func TestMemoryBoundAllowsWhatFits(t *testing.T) {
-	v := &reserving{need: 30, release: make(chan struct{})}
+	v := &reserving{need: 30 * mib, release: make(chan struct{})}
 	srv, _ := newFakeServer(t, Options{
-		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 3, MaxValidationMemory: 100,
+		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 4, MaxValidationMemory: 108 * mib,
 	}, v)
 	done := postAsync(t, srv.URL+"/api/validate", largeDoc, 3)
 	waitFor(t, "three running", func() bool { return v.running.Load() == 3 })
@@ -207,17 +276,17 @@ func TestMemoryBoundAllowsWhatFits(t *testing.T) {
 // A request that finds no memory before its deadline, or that would be one
 // too many waiting, gets 503 with Retry-After, like one that finds no slot.
 func TestMemoryBoundBusy(t *testing.T) {
-	v := &reserving{need: 60, release: make(chan struct{})}
+	v := &reserving{need: 60 * mib, release: make(chan struct{})}
 	srv, s := newFakeServer(t, Options{
 		MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxConcurrent: 2, MaxQueue: 1,
-		MaxValidationMemory: 100, RequestTimeout: time.Second,
+		MaxValidationMemory: 108 * mib, RequestTimeout: time.Second,
 	}, v)
 	url := srv.URL + "/api/validate"
 	first := postAsync(t, url, largeDoc, 1)
 	waitFor(t, "one running", func() bool { return v.running.Load() == 1 })
 	second := make(chan response, 1)
 	go func() { second <- postChunked(t, url, "application/xml", largeDoc) }()
-	waitFor(t, "one waiting for memory", func() bool { return s.waiting.Load() == 1 })
+	waitFor(t, "one waiting for memory", func() bool { return queued(s) == 1 })
 	// The queue is full: at once.
 	postBusy(t, url, "application/xml", largeDoc)
 	// The one that waits runs out of time.
@@ -233,8 +302,8 @@ func TestMemoryBoundBusy(t *testing.T) {
 // A document that needs more than the whole budget can never be validated:
 // 413 with what the validator says of it, not 503.
 func TestMemoryBoundExceeded(t *testing.T) {
-	v := &reserving{need: 101, release: make(chan struct{})}
-	srv, _ := newFakeServer(t, Options{MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxValidationMemory: 100}, v)
+	v := &reserving{need: 105 * mib, release: make(chan struct{})}
+	srv, _ := newFakeServer(t, Options{MaxPackageSize: 1 << 20, MaxDocumentSize: 1 << 20, MaxValidationMemory: 108 * mib}, v)
 	status, body := post(t, srv.URL+"/api/validate", "application/xml", largeDoc)
 	msg, _ := body["message"].(string)
 	if status != http.StatusRequestEntityTooLarge || firstCode(body) != string(qti.CodeTooLarge) || !strings.Contains(msg, "3.9 million nodes") {
@@ -269,7 +338,7 @@ func TestMemoryBoundByNodes(t *testing.T) {
 	if status != http.StatusRequestEntityTooLarge || firstCode(body) != string(qti.CodeTooLarge) {
 		t.Fatalf("dense document of %d bytes: %d %v", len(dense), status, body)
 	}
-	for _, want := range []string{"thousand nodes", "allows 16 MiB", "MAX_VALIDATION_MEMORY"} {
+	for _, want := range []string{"thousand nodes", "allows 14 MiB", "MAX_VALIDATION_MEMORY"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q does not say %q", msg, want)
 		}
@@ -310,8 +379,6 @@ func TestSlotKeptForSmallRequests(t *testing.T) {
 	}
 }
 
-const mib = 1 << 20
-
 func memServer(budget int64, concurrent, queue int) *Server {
 	return New(Options{MaxPackageSize: 100 * mib, MaxConcurrent: concurrent, MaxQueue: queue, MaxValidationMemory: budget, RequestTimeout: time.Minute},
 		nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -328,29 +395,34 @@ func (p *peakOf) see(v int64) {
 func usedOf(m *memSem) int64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.used
+	return m.usedLarge + m.usedSmall
 }
 
 // validateLike reserves through h as the application does for a document:
-// to read it, then for its rules without waiting if there is room, and else
-// with nothing while it waits. held is told what the validation really
-// holds in memory: the document from when it is read until it is let go.
+// to read it; then for its whole check, without waiting if there is room
+// and else with nothing while it waits; then what the rules take. held is
+// told what the validation really holds in memory: the document from when
+// it is read until it is let go, and the tree while the rules run.
 func validateLike(ctx context.Context, h *memoryHold, size, estimate int64, held func(int64), work func(time.Duration)) bool {
 	defer h.TryReserve(0)
-	if h.Reserve(ctx, mib+6*size) != nil {
+	read := mib + 6*size
+	if h.Reserve(ctx, read) != nil {
 		return false
 	}
 	held(size)
-	work(1)
-	if !h.TryReserve(estimate) {
+	if need := max(read, estimate); !h.TryReserve(need) {
 		held(-size)
-		if h.Reserve(ctx, estimate) != nil {
+		if h.Reserve(ctx, need) != nil {
 			return false
 		}
 		held(size)
 	}
+	work(1) // the schema check
+	if !h.TryReserve(estimate) {
+		panic("what the rules take is no more than what the check reserved")
+	}
 	held(estimate - size)
-	work(2)
+	work(2) // the rules
 	held(-estimate)
 	return true
 }
@@ -387,15 +459,15 @@ func TestMemoryBoundStress(t *testing.T) {
 			defer h.release()
 			for range 1 + r.Intn(3) {
 				size := int64(1+r.Intn(10)) * mib
-				estimate := min(size*int64(1+r.Intn(18)), budget)
+				estimate := min(size*int64(1+r.Intn(18)), s.mem.large)
 				validateLike(ctx, h, size, estimate, func(int64) {}, func(time.Duration) {
 					used := usedOf(s.mem)
 					peak.see(used)
 					if used > budget {
 						t.Errorf("%d MiB reserved of %d", used/mib, budget/mib)
 					}
-					if h.held > 0 && !h.slot {
-						t.Errorf("%d bytes reserved without a slot", h.held)
+					if h.held.n > 0 && !h.slot {
+						t.Errorf("%d bytes reserved without a slot", h.held.n)
 					}
 					time.Sleep(time.Duration(r.Intn(15)) * time.Millisecond)
 				})
@@ -412,7 +484,7 @@ func TestMemoryBoundStress(t *testing.T) {
 		ok.Load(), busy.Load(), noSlot.Load(), peak.Load()/mib, budget/mib)
 	if !idle(s) || ok.Load() == 0 {
 		t.Errorf("in the end: used %d, urgent %v, waiting %d, slots %d, large %d; %d validated",
-			usedOf(s.mem), s.mem.urgent, s.waiting.Load(), len(s.slots), len(s.largeSlots), ok.Load())
+			usedOf(s.mem), s.mem.urgent, queued(s), len(s.slots), len(s.largeSlots), ok.Load())
 	}
 }
 
@@ -425,7 +497,7 @@ func TestMemoryBoundStress(t *testing.T) {
 // MiB of 192 for these three settings.)
 func TestMemoryBoundHoldsWithManyWaiting(t *testing.T) {
 	const budget = 192 * mib
-	const size, estimate = 10 * mib, 180 * mib
+	const size, estimate = 10 * mib, 150 * mib
 	run := time.Second
 	if testing.Short() {
 		run = 300 * time.Millisecond

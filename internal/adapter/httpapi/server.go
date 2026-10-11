@@ -42,8 +42,9 @@ type Options struct {
 	MaxSpoolSize    int64 // request bodies in temporary files at once, bytes; 0 selects 4 × MaxPackageSize
 	// MaxValidationMemory is the memory the validations in progress may
 	// reserve together, in bytes: each reserves what its document takes
-	// (app.Memory), and waits for room when there is none. 0 sets no bound:
-	// only MaxConcurrent then limits them.
+	// (app.Memory), and waits for room when there is none. A share of it is
+	// kept for small validations (SmallMemoryShare). 0 sets no bound: only
+	// MaxConcurrent then limits them.
 	MaxValidationMemory int64
 	RequestTimeout      time.Duration
 }
@@ -65,8 +66,12 @@ type Server struct {
 	// largeSlots bounds the large requests among the slots; nil with one
 	// slot, which every request may take. See tryTakeSlot.
 	largeSlots chan struct{}
-	waiting    atomic.Int64 // requests waiting for a slot
-	log        *slog.Logger
+	// The requests that wait, for a slot or for memory: the large ones and
+	// the small ones apart, each at most MaxQueue, so that large documents
+	// that queue up do not turn typical items away. See queue.
+	waiting      atomic.Int64
+	waitingSmall atomic.Int64
+	log          *slog.Logger
 
 	spoolMu   sync.Mutex
 	spoolUsed int64 // bytes reserved by requests for their temporary files
@@ -91,7 +96,7 @@ func New(opts Options, v Validator, log *slog.Logger) *Server {
 	}
 	return &Server{
 		opts: opts, validator: v, slots: make(chan struct{}, opts.MaxConcurrent), largeSlots: largeSlots, log: log,
-		mem:        newMemSem(opts.MaxValidationMemory),
+		mem:        newMemSem(opts.MaxValidationMemory, opts.MaxConcurrent),
 		writeGrace: writeGrace,
 	}
 }
@@ -146,12 +151,13 @@ func (s *Server) acquire(ctx context.Context, w http.ResponseWriter, large bool)
 	if s.tryTakeSlot(large) {
 		return true
 	}
-	if s.waiting.Add(1) > int64(s.opts.MaxQueue) {
-		s.waiting.Add(-1)
+	waiting := s.queue(large)
+	if waiting.Add(1) > int64(s.opts.MaxQueue) {
+		waiting.Add(-1)
 		writeBusy(w, "too many requests are waiting for a validation slot")
 		return false
 	}
-	defer s.waiting.Add(-1)
+	defer waiting.Add(-1)
 	if !s.takeSlot(ctx, large) {
 		writeBusy(w, "no validation slot available in time")
 		return false
@@ -164,6 +170,34 @@ func (s *Server) acquire(ctx context.Context, w http.ResponseWriter, large bool)
 // place among the large ones as well, of which there is one less than there
 // are slots. So a typical item is not kept waiting for seconds by large
 // documents that take every slot.
+
+// queue is the count of the requests of a kind that wait.
+func (s *Server) queue(large bool) *atomic.Int64 {
+	if large {
+		return &s.waiting
+	}
+	return &s.waitingSmall
+}
+
+// tryTakeLargePlace makes a request that holds a slot as a small one a
+// large one, if there is a place among those; freeLargePlace undoes it.
+func (s *Server) tryTakeLargePlace() bool {
+	if s.largeSlots == nil {
+		return true
+	}
+	select {
+	case s.largeSlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) freeLargePlace() {
+	if s.largeSlots != nil {
+		<-s.largeSlots
+	}
+}
 
 // tryTakeSlot takes a slot if one is free.
 func (s *Server) tryTakeSlot(large bool) bool {
