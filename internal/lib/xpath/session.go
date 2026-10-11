@@ -20,7 +20,8 @@ const checkInterval = 1 << 12
 // It is not safe for concurrent use.
 //
 // A step is a node visited on an axis, a predicate evaluated, a pair of
-// values compared, or a reuse of a remembered node-set. The budget counts
+// values compared, a reuse of a remembered node-set, or 256 bytes of the
+// string-value of an element joined from the text below it. The budget counts
 // work rather than time, so a document that is too expensive is stopped at
 // the same point on every machine.
 type Session struct {
@@ -79,9 +80,56 @@ const minSetSize = 16
 // builds the same strings but keeps none.
 const maxSetBytes = 4 << 20
 
-// setBytesPerStep is the number of bytes of string-values built for a set
-// that cost a step, on top of the step per node.
-const setBytesPerStep = 256
+// stringBytesPerStep is the number of bytes of a string-value built from
+// the text below an element that cost a step.
+const stringBytesPerStep = 256
+
+// stringValue returns the string-value of n for an evaluation, and charges
+// the session when it had to be built: a step per stringBytesPerStep bytes.
+// A string-value that is memory of the document (see Node.stringValue)
+// costs nothing beyond the step of whatever asked for it.
+//
+// Every string-value an evaluation takes of a node goes through here:
+// comparisons, conversions to a string or a number, the arguments of the
+// string functions, sum(), the keys of lookups and the result of
+// EvaluateString. Without the charge, comparing elements that nest would
+// copy their text once for each at a step each: the work of an evaluation
+// would not show in its steps.
+//
+// The values are not kept. In the documents of the test data and the
+// 1EdTech corpus the built-in rules never build one: every string-value
+// they take is an attribute or the text of an element with one text node.
+// A cache would hold nothing there, and rules that do build them are
+// stopped by the charge.
+func (s *Session) stringValue(n *Node) (string, error) {
+	v, built := n.stringValue()
+	if !built {
+		return v, nil
+	}
+	return v, s.charge(len(v) / stringBytesPerStep)
+}
+
+// stringOf converts a value as string() does, through stringValue for a
+// node-set.
+func (s *Session) stringOf(v Value) (string, error) {
+	if ns, ok := v.(NodeSet); ok {
+		if len(ns) == 0 {
+			return "", nil
+		}
+		return s.stringValue(ns[0])
+	}
+	return toString(v), nil
+}
+
+// numberOf converts a value as number() does, through stringValue for a
+// node-set.
+func (s *Session) numberOf(v Value) (float64, error) {
+	if ns, ok := v.(NodeSet); ok {
+		str, err := s.stringOf(ns)
+		return stringToNumber(str), err
+	}
+	return toNumber(v), nil
+}
 
 // Constant tells s that v, the value of a variable, stays the same for
 // every evaluation in it. Comparing a large node-set with = then looks the
@@ -110,7 +158,7 @@ func (s *Session) keep(ns NodeSet) {
 
 // stringSet returns the string-values of the nodes of a kept node-set,
 // collecting them the first time at a step per node and per
-// setBytesPerStep bytes built. It returns false when ns was not kept, or
+// stringBytesPerStep bytes built. It returns false when ns was not kept, or
 // when its string-values do not fit in maxSetBytes.
 func (s *Session) stringSet(ns NodeSet) (map[string]bool, bool, error) {
 	if len(ns) < minSetSize || !optimise {
@@ -129,11 +177,11 @@ func (s *Session) stringSet(ns NodeSet) (map[string]bool, bool, error) {
 	values := make(map[string]bool, len(ns))
 	built := 0
 	for _, n := range ns {
-		v := n.StringValue()
-		if n.Kind == ElementNode || n.Kind == RootNode {
+		v, wasBuilt := n.stringValue()
+		if wasBuilt {
 			// Built for this node; other string-values are the document's.
 			built += len(v)
-			if err := s.charge(len(v) / setBytesPerStep); err != nil {
+			if err := s.charge(len(v) / stringBytesPerStep); err != nil {
 				return nil, true, err
 			}
 			if s.setBytes+built > maxSetBytes {
@@ -167,7 +215,11 @@ func (s *Session) anyInSet(a, b NodeSet) (found, ok bool, err error) {
 		return false, true, err
 	}
 	for _, n := range a {
-		if set[n.StringValue()] {
+		v, err := s.stringValue(n)
+		if err != nil {
+			return false, true, err
+		}
+		if set[v] {
 			return true, true, nil
 		}
 	}

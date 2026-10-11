@@ -126,13 +126,39 @@ func (n *Node) Name() string {
 
 // StringValue returns the XPath string-value of the node.
 func (n *Node) StringValue() string {
-	switch n.Kind {
-	case RootNode, ElementNode:
-		var b strings.Builder
-		n.appendText(&b)
-		return b.String()
+	v, _ := n.stringValue()
+	return v
+}
+
+// stringValue returns the string-value of the node, and whether it was
+// built for this call. The string-value of an attribute, a text node, a
+// comment, a processing instruction or a namespace node is its Data, and
+// that of an element whose only text is one text node, as in <a>text</a>
+// or <a><b>text</b></a>, is the Data of that node: memory of the document.
+// Only an element or a root with several text nodes below it has its text
+// joined, which takes time and memory in proportion to that text on every
+// call; a session charges for it (Session.stringValue).
+func (n *Node) stringValue() (v string, built bool) {
+	if n.Kind != RootNode && n.Kind != ElementNode {
+		return n.Data, false
 	}
-	return n.Data
+	// Follow a chain of only children down to its text.
+	only := n
+	for len(only.Children) == 1 && only.Children[0].Kind == ElementNode {
+		only = only.Children[0]
+	}
+	switch len(only.Children) {
+	case 0:
+		return "", false
+	case 1:
+		if c := only.Children[0]; c.Kind == TextNode {
+			return c.Data, false
+		}
+		return "", false // a comment or a processing instruction
+	}
+	var b strings.Builder
+	only.appendText(&b)
+	return b.String(), true
 }
 
 func (n *Node) appendText(b *strings.Builder) {

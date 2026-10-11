@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 type function struct {
@@ -12,10 +13,22 @@ type function struct {
 	call             func(c *evalCtx, args []Value) (Value, error)
 }
 
+// stringFunctions are the functions that use their arguments only as
+// strings or numbers: a node-set among them is replaced by its
+// string-value, the same for either conversion, before the call. That is
+// where the session is charged for a string-value that has to be built.
+var stringFunctions = map[string]bool{
+	"string": true, "concat": true, "starts-with": true, "contains": true, "substring-before": true,
+	"substring-after": true, "substring": true, "string-length": true, "normalize-space": true,
+	"translate": true, "lang": true, "number": true, "floor": true, "ceiling": true, "round": true,
+}
+
 type callExpr struct {
 	name string
 	fn   function
 	args []expr
+	// strings: the function is one of stringFunctions.
+	strings bool
 }
 
 func (e *callExpr) eval(c *evalCtx) (Value, error) {
@@ -24,6 +37,11 @@ func (e *callExpr) eval(c *evalCtx) (Value, error) {
 		v, err := a.eval(c)
 		if err != nil {
 			return nil, err
+		}
+		if _, isSet := v.(NodeSet); isSet && e.strings {
+			if v, err = c.s.stringOf(v); err != nil {
+				return nil, err
+			}
 		}
 		args[i] = v
 	}
@@ -86,7 +104,10 @@ func init() { //nolint:gocognit // the table of the XPath 1.0 core functions
 		}},
 
 		// String functions, section 4.2.
-		"string": {0, 1, func(c *evalCtx, a []Value) (Value, error) { return toString(contextArg(c, a)), nil }},
+		"string": {0, 1, func(c *evalCtx, a []Value) (Value, error) {
+			v, err := contextArg(c, a)
+			return toString(v), err
+		}},
 		"concat": {2, -1, func(_ *evalCtx, a []Value) (Value, error) {
 			var b strings.Builder
 			for _, v := range a {
@@ -127,12 +148,14 @@ func init() { //nolint:gocognit // the table of the XPath 1.0 core functions
 			return b.String(), nil
 		}},
 		"string-length": {0, 1, func(c *evalCtx, a []Value) (Value, error) {
-			return float64(len([]rune(toString(contextArg(c, a))))), nil
+			v, err := contextArg(c, a)
+			return float64(utf8.RuneCountInString(toString(v))), err
 		}},
 		"normalize-space": {0, 1, func(c *evalCtx, a []Value) (Value, error) {
-			return strings.Join(strings.FieldsFunc(toString(contextArg(c, a)), func(r rune) bool {
+			v, err := contextArg(c, a)
+			return strings.Join(strings.FieldsFunc(toString(v), func(r rune) bool {
 				return r == ' ' || r == '\t' || r == '\n' || r == '\r'
-			}), " "), nil
+			}), " "), err
 		}},
 		"translate": {3, 3, func(_ *evalCtx, a []Value) (Value, error) {
 			from, to := []rune(toString(a[1])), []rune(toString(a[2]))
@@ -179,14 +202,24 @@ func init() { //nolint:gocognit // the table of the XPath 1.0 core functions
 		}},
 
 		// Number functions, section 4.4.
-		"number": {0, 1, func(c *evalCtx, a []Value) (Value, error) { return toNumber(contextArg(c, a)), nil }},
-		"sum": {1, 1, func(_ *evalCtx, a []Value) (Value, error) {
+		"number": {0, 1, func(c *evalCtx, a []Value) (Value, error) {
+			v, err := contextArg(c, a)
+			return toNumber(v), err
+		}},
+		"sum": {1, 1, func(c *evalCtx, a []Value) (Value, error) {
 			ns, err := nodeSetArg(a[0])
+			if err != nil {
+				return nil, err
+			}
 			sum := 0.0
 			for _, n := range ns {
-				sum += stringToNumber(n.StringValue())
+				v, err := c.s.stringValue(n)
+				if err != nil {
+					return nil, err
+				}
+				sum += stringToNumber(v)
 			}
-			return sum, err
+			return sum, nil
 		}},
 		"floor":   {1, 1, func(_ *evalCtx, a []Value) (Value, error) { return math.Floor(toNumber(a[0])), nil }},
 		"ceiling": {1, 1, func(_ *evalCtx, a []Value) (Value, error) { return math.Ceil(toNumber(a[0])), nil }},
@@ -246,10 +279,11 @@ func optionalNode(c *evalCtx, a []Value) (*Node, error) {
 	return ns[0], nil
 }
 
-// contextArg returns the argument, or a node-set with the context node.
-func contextArg(c *evalCtx, a []Value) Value {
+// contextArg returns the argument of a function marked strings, or the
+// string-value of the context node when there is none.
+func contextArg(c *evalCtx, a []Value) (Value, error) {
 	if len(a) == 0 {
-		return NodeSet{c.node}
+		return c.s.stringValue(c.node)
 	}
-	return a[0]
+	return a[0], nil
 }

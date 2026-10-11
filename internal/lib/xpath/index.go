@@ -79,7 +79,11 @@ func countByAttribute(c *evalCtx, a []Value) (Value, error) {
 	distinct := make([]string, 0, len(values))
 	seen := make(map[string]bool, len(values))
 	for _, v := range values {
-		if s := v.StringValue(); !seen[s] {
+		s, err := c.s.stringValue(v)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[s] {
 			seen[s] = true
 			distinct = append(distinct, s)
 		}

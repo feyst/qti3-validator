@@ -511,5 +511,5 @@ func (p *parser) parseCall(t token) (expr, error) {
 	if len(args) < fn.minArgs || fn.maxArgs >= 0 && len(args) > fn.maxArgs {
 		return nil, fmt.Errorf("%s() called with %d arguments", t.text, len(args))
 	}
-	return &callExpr{name: t.text, fn: fn, args: args}, nil
+	return &callExpr{name: t.text, fn: fn, args: args, strings: stringFunctions[t.text]}, nil
 }
