@@ -102,11 +102,7 @@ func Measure(data []byte) Size { //nolint:gocognit // one pass over the markup
 			if end < 0 {
 				return s
 			}
-			// A CDATA section is a text node even when it is empty.
-			if depth > 0 && !afterText {
-				s.Texts++
-				afterText = true
-			}
+			// An empty CDATA section adds nothing: no text node is empty.
 			text(end - len("<![CDATA["))
 			data = data[end+3:]
 		case bytes.HasPrefix(data, []byte("<!--")):

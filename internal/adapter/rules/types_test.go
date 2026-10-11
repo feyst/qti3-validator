@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"qti3-validator/internal/app"
 	"qti3-validator/internal/domain/qti"
 	"qti3-validator/internal/lib/xpath"
 )
@@ -25,7 +26,7 @@ func typeFindings(t *testing.T, body string) []string {
 		t.Fatal(err)
 	}
 	var out []string
-	for _, f := range checkTypes(doc) {
+	for _, f := range typesOf(t, doc) {
 		out = append(out, f.Rule+": "+f.Message)
 	}
 	slices.Sort(out)
@@ -93,10 +94,20 @@ func TestValueChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got []string
-	for _, f := range checkTypes(doc) {
+	for _, f := range typesOf(t, doc) {
 		got = append(got, f.Message)
 	}
 	if len(got) != 2 || !strings.Contains(got[0], `"A" is not a valid directedPair`) || !strings.Contains(got[1], `map-key "A 1"`) {
 		t.Fatalf("got %q", got)
 	}
+}
+
+// typesOf runs the type checks without a limit or a budget.
+func typesOf(t *testing.T, doc *xpath.Document) []app.RuleFinding {
+	t.Helper()
+	found, err := checkTypes(xpath.NewSession(t.Context(), 0), doc, 0, &xpath.Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
 }

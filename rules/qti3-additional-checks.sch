@@ -204,6 +204,13 @@
     test-parts, the target must refer to another test-part." The EXIT_
     values are the special targets. A test part that includes sections from
     other files is not checked.
+
+    "Not yet presented" is the following axis of the item or section the
+    rule belongs to. The test looks the target up by its identifier and
+    then checks that it follows: it comes after that item or section in
+    document order, (.. | target)[1] being the first of the two, and is not
+    inside it. Walking the following axis for every rule would take the
+    square of the number of items.
   -->
   <sch:pattern id="branch-target-exists">
     <sch:rule context="qti:qti-test-part/qti:qti-branch-rule">
@@ -215,9 +222,10 @@
     <sch:rule context="qti:qti-assessment-section/qti:qti-branch-rule | qti:qti-assessment-item-ref/qti:qti-branch-rule">
       <sch:assert test="@target = 'EXIT_SECTION' or @target = 'EXIT_TESTPART' or @target = 'EXIT_TEST'
                         or ancestor::qti:qti-test-part[1]//qti:qti-assessment-section-ref
-                        or ../following::qti:*[self::qti:qti-assessment-section or self::qti:qti-assessment-item-ref]
-                           [@identifier = current()/@target]
-                           [generate-id(ancestor::qti:qti-test-part[1]) = generate-id(current()/ancestor::qti:qti-test-part[1])]">
+                        or (//qti:*[self::qti:qti-assessment-section or self::qti:qti-assessment-item-ref][@identifier = current()/@target])
+                           [generate-id(ancestor::qti:qti-test-part[1]) = generate-id(current()/ancestor::qti:qti-test-part[1])]
+                           [generate-id((current()/.. | .)[1]) = generate-id(current()/..)]
+                           [not(ancestor-or-self::qti:*[generate-id() = generate-id(current()/..)])]">
         Branch rule target '<sch:value-of select="@target"/>' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.
       </sch:assert>
     </sch:rule>
@@ -462,17 +470,19 @@
     processing. The item works without, so this is a warning. A standard
     response processing template references SCORE. An item without response
     processing, such as one that is scored by hand, is not checked: having
-    no scoring is allowed.
+    no scoring is allowed. The processing is that of the item, the only one
+    of the document, written from the root so that the validator looks the
+    identifier up instead of walking the processing for every declaration.
   -->
   <sch:pattern id="variable-used">
     <sch:rule context="qti:qti-assessment-item[qti:qti-response-processing/@template or qti:qti-response-processing/*]/qti:qti-outcome-declaration">
-      <sch:assert role="warning" test="../qti:qti-response-processing//qti:*[@identifier = current()/@identifier]
+      <sch:assert role="warning" test="//qti:qti-response-processing//qti:*[@identifier = current()/@identifier]
                                        or (@identifier = 'SCORE' and ../qti:qti-response-processing/@template)">
         Outcome variable '<sch:value-of select="@identifier"/>' is declared but not used in response processing.
       </sch:assert>
     </sch:rule>
     <sch:rule context="qti:qti-assessment-item[qti:qti-template-processing/*]/qti:qti-template-declaration">
-      <sch:assert role="warning" test="../qti:qti-template-processing//qti:*[@identifier = current()/@identifier]">
+      <sch:assert role="warning" test="//qti:qti-template-processing//qti:*[@identifier = current()/@identifier]">
         Template variable '<sch:value-of select="@identifier"/>' is declared but not used in template processing.
       </sch:assert>
     </sch:rule>

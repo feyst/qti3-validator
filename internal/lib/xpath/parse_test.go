@@ -33,8 +33,11 @@ func TestParseJoinsTextRuns(t *testing.T) {
 	for src, want := range map[string][]string{
 		`<r>a<![CDATA[b]]>&amp;<![CDATA[]]>c&#65;<![CDATA[<d>]]></r>`: {text + ":ab&cA<d>"},
 		`<r><![CDATA[a]]><![CDATA[b]]><![CDATA[c]]></r>`:              {text + ":abc"},
-		`<r><![CDATA[]]></r>`:                         {text + ":"},
-		`<r><![CDATA[]]><![CDATA[]]></r>`:             {text + ":"},
+		// There are no empty text nodes: an empty section adds nothing.
+		`<r><![CDATA[]]></r>`:                         nil,
+		`<r><![CDATA[]]><![CDATA[]]></r>`:             nil,
+		`<r><![CDATA[]]>a<![CDATA[]]></r>`:            {text + ":a"},
+		`<r><![CDATA[]]><!--x--><![CDATA[]]>b</r>`:    {comment + ":x", text + ":b"},
 		`<r>a<!--x-->b<![CDATA[c]]></r>`:              {text + ":a", comment + ":x", text + ":bc"},
 		`<r><![CDATA[a]]><?p i?><![CDATA[b]]>c</r>`:   {text + ":a", strconv.Itoa(int(ProcessingInstructionNode)) + ":i", text + ":bc"},
 		`<r>a<e>b<![CDATA[c]]></e><![CDATA[d]]>e</r>`: {text + ":a", strconv.Itoa(int(ElementNode)) + ":", text + ":de"},

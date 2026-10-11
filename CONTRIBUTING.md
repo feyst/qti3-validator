@@ -217,13 +217,23 @@ How the engine is checked:
   `//a[@id = current()/@ref]` looks the value up in an index of
   `//a` by attribute; descendant steps by name use an index of the document,
   and skip context nodes nested in others; `//a[@x]` is one descendant step;
-  `=` against a remembered path or a schema or pattern variable uses a hash
-  set, as long as the string-values a session keeps for such sets fit in
-  4 MiB. `TestOptimisedEvaluationMatchesPlain` in `internal/lib/xpath`
+  `=` between a node-set or a string and a remembered path or a variable of
+  a schema, a pattern or a rule uses a hash set, as long as the
+  string-values a session keeps for such sets fit in 4 MiB.
+  `TestOptimisedEvaluationMatchesPlain` in `internal/lib/xpath`
   compares each with plain evaluation, values and errors, and
   `TestOptimisedMatchesPlainOnGeneratedExpressions` does so for generated
   expressions and documents (`FZ_SEEDS=40 go test -run GeneratedExpressions
   ./internal/lib/xpath` for a longer run).
+- **Scaling suite:** `TestValidationScalesLinearly` in `internal/bootstrap`
+  runs the whole validator on generated documents and packages of size n
+  and 4n, and fails when the larger takes more than seven times as long: a
+  table of generators with many of one thing each — elements, attributes,
+  values of every base type, operands of every operator, violations and
+  non-violations of every one of the own rules, files and references of a
+  package. A new check, or a new kind of finding, gets a generator there.
+  `SCALING='^rules/' go test -v -run ValidationScalesLinearly
+  ./internal/bootstrap` runs a part of it and prints the table.
 - **Own rules:** `rules/qti3-additional-checks.sch` is compiled with the
   embedded rules. On the 4528 well-formed documents of the public corpora the
   engine gives the same 2339 messages as the reference implementation. The

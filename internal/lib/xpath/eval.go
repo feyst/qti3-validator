@@ -232,10 +232,16 @@ func compare(c *evalCtx, op string, l, r Value) (bool, error) {
 		if b, ok := r.(bool); ok {
 			return compareAtoms(op, len(ln) > 0, b), nil
 		}
+		if found, ok, err := c.s.stringInSet(op, ln, r); ok {
+			return found, err
+		}
 		return anyNode(c, ln, func(s string) bool { return compareAtoms(op, atomFor(s, r), r) })
 	case rIsSet:
 		if b, ok := l.(bool); ok {
 			return compareAtoms(op, b, len(rn) > 0), nil
+		}
+		if found, ok, err := c.s.stringInSet(op, rn, l); ok {
+			return found, err
 		}
 		return anyNode(c, rn, func(s string) bool { return compareAtoms(op, l, atomFor(s, l)) })
 	}

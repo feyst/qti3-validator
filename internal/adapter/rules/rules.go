@@ -29,8 +29,9 @@ const AdditionalChecks = "qti3-additional-checks.sch"
 // too, and only work that grows faster than the document runs out of it.
 //
 // Measured with the built-in rules of QTI 3.0.1: the QTI documents of
-// testdata, examples and the 1EdTech corpus take at most 32,000 steps and
-// at most 208 steps a node; plain content at the 10 MiB of
+// testdata, examples and the 1EdTech corpus take at most 18,000 steps and
+// at most 209 steps a node, the type checks included, which take a step
+// for every element they look at; plain content at the 10 MiB of
 // MAX_REQUEST_SIZE — 2.6 million nodes of empty paragraphs, 1.3 million of
 // p, div and span, 1.8 million of table cells, 1.2 million of images, 1.2
 // million of attributes, 570,000 of choices, 1.7 million of MathML — takes
@@ -158,6 +159,7 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 		b = budget{base: BaseSteps, perNode: StepsPerNode, max: MaxSteps}
 	}
 	session := xpath.NewSession(ctx, b.steps(tree.Nodes))
+	paths := &xpath.Paths{} // the locations of the findings, in one pass over their siblings
 	var out []app.RuleFinding
 	errorCount, warningCount, omitted := 0, 0, 0
 	for _, set := range c.sets {
@@ -168,7 +170,7 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 		res, err := set.engine.Check(session, tree, room)
 		omitted += res.OmittedWarnings
 		for _, f := range res.Failures {
-			rf := finding(f, set.mounted)
+			rf := finding(f, set.mounted, paths)
 			if rf.Warning {
 				warningCount++
 			} else {
@@ -185,13 +187,16 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 			return withOmitted(out, omitted, limits), errors.New("Schematron: " + err.Error())
 		}
 	}
-	if c.types {
-		for _, f := range checkTypes(tree) { // errors only
-			if limits.Errors > 0 && errorCount >= limits.Errors {
-				break
-			}
-			errorCount++
-			out = append(out, f)
+	if room, ok := roomLeft(limits, errorCount, warningCount); ok && c.types {
+		// Errors only, and no more than there is room for. The checks
+		// share the budget and the context of the rule sets.
+		found, err := checkTypes(session, tree, room.Errors, paths)
+		out = append(out, found...)
+		switch {
+		case errors.Is(err, xpath.ErrTooComplex):
+			return withOmitted(out, omitted, limits), fmt.Errorf("%w: %w", app.ErrTooComplex, err)
+		case err != nil:
+			return withOmitted(out, omitted, limits), err
 		}
 	}
 	return withOmitted(out, omitted, limits), nil
@@ -229,13 +234,13 @@ func roomLeft(limits app.RuleLimits, errorCount, warningCount int) (schematron.L
 	return room, true
 }
 
-func finding(f schematron.Failure, mounted bool) app.RuleFinding {
+func finding(f schematron.Failure, mounted bool, paths *xpath.Paths) app.RuleFinding {
 	e := qti.Finding{
 		Code:    qti.CodeSchematron,
 		Rule:    f.Pattern,
 		Line:    int(f.Node.Line),
 		Column:  int(f.Node.Column),
-		Path:    f.Node.Path(),
+		Path:    paths.Path(f.Node),
 		Message: f.Message,
 	}
 	if f.Assertion != "" {
