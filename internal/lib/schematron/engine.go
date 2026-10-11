@@ -216,12 +216,14 @@ func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, maxFailures int
 		if err != nil {
 			return failures, err
 		}
+		constant(s, vars)
 		for _, p := range es.patterns {
 			pvars := vars
 			if len(p.lets) > 0 {
 				if pvars, err = bindLets(s, p.lets, doc.Root, maps.Clone(vars)); err != nil {
 					return failures, err
 				}
+				constant(s, pvars)
 			}
 			// First-match bookkeeping is only needed with several rules.
 			var seen map[*xpath.Node]bool
@@ -317,6 +319,14 @@ func bindLets(sess *xpath.Session, lets []engineLet, n *xpath.Node, vars map[str
 		vars[l.name] = v
 	}
 	return vars, nil
+}
+
+// constant tells the session that the variables of a schema or a pattern,
+// bound once per document, keep their values.
+func constant(s *xpath.Session, vars map[string]xpath.Value) {
+	for _, v := range vars {
+		s.Constant(v)
+	}
 }
 
 // indexElements lists the elements of a document by expanded name, in
