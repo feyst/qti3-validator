@@ -1,0 +1,46 @@
+{
+  "report": {
+    "errors": [
+      {
+        "code": "limit_exceeded",
+        "detailsMessage": null,
+        "generator": "limits",
+        "location": {
+          "column": 1288,
+          "line": 17,
+          "path": "/qti-assessment-item/qti-item-body/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div/div",
+          "resource": "keuze.xml"
+        },
+        "message": "instance depth limit exceeded",
+        "title": "Limits"
+      }
+    ],
+    "exceptions": [],
+    "fatals": [],
+    "generator": "qti-validator",
+    "input": {
+      "name": "keuze.xml",
+      "type": "XML"
+    },
+    "notRun": [],
+    "specification": {
+      "pid": "qti301.pid",
+      "shortName": "qti",
+      "title": "QTI 3.0.1",
+      "version": "3.0.1"
+    },
+    "summary": {
+      "errors": 1,
+      "exceptions": 0,
+      "fatals": 0,
+      "notRun": 0,
+      "outcome": "ERROR",
+      "totalRun": 2,
+      "valid": 0,
+      "warnings": 0
+    },
+    "valids": [],
+    "warnings": []
+  },
+  "status": 200
+}

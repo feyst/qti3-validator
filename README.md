@@ -204,7 +204,7 @@ All settings are environment variables. Sizes are in bytes.
 | `MAX_FILE_SIZE` | `10485760` (10 MiB) | Largest uncompressed XML file inside a package |
 | `MAX_FILES` | `1000` | Most entries a package may contain |
 | `MAX_UNCOMPRESSED_SIZE` | `268435456` (256 MiB) | Largest total of uncompressed XML in one package |
-| `MAX_ERRORS` | `100` | Most errors reported per document |
+| `MAX_ERRORS` | `100` | Most errors per document from the XML Schema and the rules; the rules' warnings have a limit of the same size. See [what is limited](docs/report.md#limits) |
 | `MAX_DEPTH` | `256` | Deepest element nesting accepted |
 | `MAX_CONCURRENT` | number of CPUs | Validations that run at the same time; further requests wait |
 | `MAX_QUEUE` | 4 × `MAX_CONCURRENT` | Requests that may wait for a validation slot; further requests get 503 at once |

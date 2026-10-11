@@ -71,6 +71,39 @@ func TestMaxErrors(t *testing.T) {
 	}
 }
 
+// Warnings of the rules do not use up MAX_ERRORS: three warnings before an
+// error leave room for the error, however small MAX_ERRORS is. Warnings
+// have a limit of their own, MAX_ERRORS.
+func TestMaxErrorsCountsErrorsOnly(t *testing.T) {
+	cond := `<qti-response-condition><qti-response-if>
+      <qti-match><qti-variable identifier="R2"/><qti-correct identifier="R2"/></qti-match>
+      <qti-set-outcome-value identifier="SCORE"><qti-base-value base-type="float">1</qti-base-value></qti-set-outcome-value>
+    </qti-response-if></qti-response-condition>`
+	// R2 has no correct response: a warning per qti-correct. R3 is a string,
+	// which a choice interaction cannot be bound to: an error.
+	doc := `<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="i" title="t" time-dependent="false">
+  <qti-response-declaration identifier="R2" cardinality="single" base-type="identifier"/>
+  <qti-response-declaration identifier="R3" cardinality="single" base-type="string"/>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float"/>
+  <qti-item-body>
+    <qti-choice-interaction response-identifier="R3" max-choices="1">
+      <qti-simple-choice identifier="A">A</qti-simple-choice>
+    </qti-choice-interaction>
+  </qti-item-body>
+  <qti-response-processing>` + strings.Repeat(cond, 3) + `</qti-response-processing>
+</qti-assessment-item>`
+	for _, tc := range []struct{ maxErrors, warnings int }{{100, 3}, {3, 3}, {1, 1}} {
+		v := testValidator(t).WithLimits(qti.Limits{MaxErrors: tc.maxErrors})
+		res := v.ValidateDocument(context.Background(), app.ValidateDocument{Document: strings.NewReader(doc)})
+		if res.Valid || res.Outcome != qti.OutcomeInvalid || len(res.Errors) != 1 || len(res.Warnings) != tc.warnings ||
+			!strings.HasSuffix(res.Errors[0].Rule, "#interaction-response-type") {
+			t.Errorf("MAX_ERRORS %d: valid=%v, %d errors, %d warnings, want 1 error and %d warnings: %+v",
+				tc.maxErrors, res.Valid, len(res.Errors), len(res.Warnings), tc.warnings, res.Errors)
+		}
+	}
+}
+
 func TestDocumentTooLarge(t *testing.T) {
 	limits := testValidator(t).Limits()
 	limits.MaxDocumentSize = 200

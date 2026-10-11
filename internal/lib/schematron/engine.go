@@ -197,20 +197,34 @@ func (l loader) rule(r CompiledRule, patternVars map[string]bool, lists []map[st
 	return er, nil
 }
 
-// Validate runs every pattern on doc and returns up to maxFailures
-// failures (0: no limit), in pattern order and then document order.
+// Limits bound the failures Validate returns. Warnings (see
+// Failure.Warning) and errors are bounded apart, so warnings cannot use up
+// the room for errors.
+type Limits struct {
+	// Errors is the number of failures that are not warnings after which
+	// Validate stops; zero means no limit.
+	Errors int
+	// Warnings is the number of warnings Validate keeps; further warnings
+	// are dropped, but validation goes on. Zero means no limit; a negative
+	// number keeps none.
+	Warnings int
+}
+
+// Validate runs every pattern on doc and returns the failures within
+// limits, in pattern order and then document order.
 //
 // Every expression is evaluated in session s, which may stop the validation
 // with an error wrapping xpath.ErrTooComplex or the error of its context;
 // the failures found until then are returned with it. One session should
 // serve one document, so the paths it remembers are reused across the rules;
 // nil runs without limits in a session of its own.
-func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, maxFailures int) ([]Failure, error) { //nolint:gocognit // the evaluation loop of ISO Schematron; tested against the reference implementation
+func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, limits Limits) ([]Failure, error) { //nolint:gocognit // the evaluation loop of ISO Schematron; tested against the reference implementation
 	if s == nil {
 		s = xpath.NewSession(context.Background(), 0)
 	}
 	var index map[expandedName][]*xpath.Node
 	var failures []Failure
+	errorCount, warningCount := 0, 0
 	for _, es := range e.sets {
 		vars, err := bindLets(s, es.lets, doc.Root, map[string]xpath.Value{})
 		if err != nil {
@@ -259,16 +273,27 @@ func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, maxFailures int
 						if !fired {
 							continue
 						}
+						warning := warningRoles[strings.ToLower(a.role)]
+						if warning && (limits.Warnings < 0 || limits.Warnings > 0 && warningCount >= limits.Warnings) {
+							continue // no room for more warnings; errors are still looked for
+						}
 						msg, err := a.render(s, n, rvars)
 						if err != nil {
 							return failures, err
 						}
+						if warning {
+							warningCount++
+						}
 						failures = append(failures, Failure{
 							Source: es.source, Pattern: p.id, Assertion: a.id, Report: a.report,
-							Role: a.role, Flag: a.flag, Warning: warningRoles[strings.ToLower(a.role)],
+							Role: a.role, Flag: a.flag, Warning: warning,
 							Message: msg, Node: n,
 						})
-						if maxFailures > 0 && len(failures) >= maxFailures {
+						if warning {
+							continue
+						}
+						errorCount++
+						if limits.Errors > 0 && errorCount >= limits.Errors {
 							return failures, nil
 						}
 					}

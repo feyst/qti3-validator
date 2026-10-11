@@ -30,13 +30,13 @@ func (f *fakeSchema) CheckSchema([]byte, qti.Limits) SchemaVerdict {
 type fakeRules struct {
 	findings []RuleFinding
 	err      error
-	max      int // the maxFindings it was called with
+	limits   RuleLimits // the limits it was called with
 	checked  int
 }
 
-func (f *fakeRules) CheckRules(_ context.Context, _ []byte, maxFindings int) ([]RuleFinding, error) {
+func (f *fakeRules) CheckRules(_ context.Context, _ []byte, limits RuleLimits) ([]RuleFinding, error) {
 	f.checked++
-	f.max = maxFindings
+	f.limits = limits
 	return f.findings, f.err
 }
 

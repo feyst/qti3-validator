@@ -98,7 +98,7 @@ wrong.
 | `pci-module-exists` | The `primary-path` or `fallback-path` of a PCI module, and its module configurations, are files in the package; `.js` may be left out. A missing `primary-path` with a `fallback-path` that exists is a warning | The interaction cannot load | error, or warning |
 | `catalog-file-exists` | The `qti-file-href` of a catalog card is a file in the package | "these files MUST be contained in the corresponding QTI content package" | error |
 | `template-location-exists` | A local `template-location` of response processing is a file in the package | A delivery engine that does not know the template cannot fetch it | warning |
-| `test-item-variable-declared` | A test's `ITEM.VARIABLE` refers to a variable the item declares, or a built-in one | "All variables must be declared" | error |
+| `test-item-variable-declared` | A test's `ITEM.VARIABLE` refers to a variable the item declares, or a built-in one. `ITEM` is an item ref of that test, or of a section it includes with `qti-assessment-section-ref`; two tests may use the same item-ref identifier for different items | "All variables must be declared" | error |
 
 ## Value types
 

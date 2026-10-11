@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -240,33 +241,70 @@ func (c *refChecker) exists(kind RefKind, target string) bool {
 }
 
 // checkVariables checks the "ITEM.VARIABLE" references of tests against the
-// variables the referenced items declare.
+// variables the referenced items declare. Item-ref identifiers are unique
+// only within one test, so each test is checked against its own item refs:
+// those in the test itself and in the sections it includes with
+// qti-assessment-section-ref, however deeply nested.
 func (c *refChecker) checkVariables(names []string) {
-	items := map[string]string{} // item-ref identifier → item file
 	for _, name := range names {
-		for _, ir := range c.p.Documents[name].Refs.ItemRefs {
-			if target, local, inside := resolve(name, ir.Href); local && inside {
-				items[ir.Identifier] = target
-			}
+		vrs := c.p.Documents[name].Refs.VariableRefs
+		if len(vrs) == 0 {
+			continue
 		}
-	}
-	for _, name := range names {
-		for _, vr := range c.p.Documents[name].Refs.VariableRefs {
-			file, ok := items[vr.Item]
+		items := c.testItems(name)
+		for _, vr := range vrs {
+			file := items[vr.Item]
 			doc, found := c.p.Documents[file]
-			if !ok || !found || doc.Schema != "qti-assessment-item" || builtinVariables[vr.Variable] {
-				continue // not an item, or an item reference that does not resolve: reported above
+			if file == "" || !found || doc.Schema != "qti-assessment-item" || builtinVariables[vr.Variable] {
+				// Not an item, an item reference that does not resolve
+				// (reported above), or an identifier that names different
+				// items in the test and its sections (not unique, so which
+				// item is meant is unknown).
+				continue
 			}
-			declared := false
-			for _, d := range doc.Refs.Declared {
-				declared = declared || d == vr.Variable
-			}
-			if !declared {
+			if !slices.Contains(doc.Refs.Declared, vr.Variable) {
 				c.add(name, vr.Line, vr.Column, CheckTestItemVariable, false,
 					"qti-variable refers to %s.%s, but %s declares no variable %s.", vr.Item, vr.Variable, file, vr.Variable)
 			}
 		}
 	}
+}
+
+// testItems maps the item-ref identifiers of a test to the item files they
+// refer to: the item refs of the test and of the section documents it
+// includes. An identifier that refers to different files maps to "".
+func (c *refChecker) testItems(test string) map[string]string {
+	items := map[string]string{}
+	visited := map[string]bool{}
+	queue := []string{test}
+	for len(queue) > 0 {
+		doc := queue[0]
+		queue = queue[1:]
+		if visited[doc] {
+			continue
+		}
+		visited[doc] = true
+		refs := c.p.Documents[doc].Refs
+		for _, ir := range refs.ItemRefs {
+			target, local, inside := resolve(doc, ir.Href)
+			if !local || !inside {
+				continue
+			}
+			if prev, ok := items[ir.Identifier]; ok && prev != target {
+				target = ""
+			}
+			items[ir.Identifier] = target
+		}
+		for _, ref := range refs.References {
+			if ref.Kind != RefSection {
+				continue
+			}
+			if target, local, inside := resolve(doc, ref.Href); local && inside && c.p.Documents[target].Schema == "qti-assessment-section" {
+				queue = append(queue, target)
+			}
+		}
+	}
+	return items
 }
 
 // resolve resolves href against the document it is in. local is false for a

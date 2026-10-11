@@ -47,7 +47,7 @@ func validateFile(t *testing.T, e *Engine, name string) []Failure {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failures, err := e.Validate(nil, parseDoc(t, string(data)), 0)
+	failures, err := e.Validate(nil, parseDoc(t, string(data)), Limits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestFeaturesInvalid(t *testing.T) {
 
 func TestAbstractPatternInstance(t *testing.T) {
 	e := compileFeatures(t)
-	failures, err := e.Validate(nil, parseDoc(t, `<order xmlns="urn:order" code="ABC"><line id="a" qty="1"/></order>`), 0)
+	failures, err := e.Validate(nil, parseDoc(t, `<order xmlns="urn:order" code="ABC"><line id="a" qty="1"/></order>`), Limits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestValidateStopsWithinBudget(t *testing.T) {
 	}
 	b.WriteString("</r>")
 	doc := parseDoc(t, b.String())
-	failures, err := e.Validate(xpath.NewSession(t.Context(), 100_000), doc, 0)
+	failures, err := e.Validate(xpath.NewSession(t.Context(), 100_000), doc, Limits{})
 	if !errors.Is(err, xpath.ErrTooComplex) || len(failures) != 1 || failures[0].Pattern != "cheap" {
 		t.Fatalf("got %+v, %v", failures, err)
 	}
@@ -131,9 +131,52 @@ func TestValidateStopsWithinBudget(t *testing.T) {
 func TestMaxFailures(t *testing.T) {
 	e := compileFeatures(t)
 	data, _ := os.ReadFile("testdata/order-invalid.xml")
-	failures, err := e.Validate(nil, parseDoc(t, string(data)), 3)
+	failures, err := e.Validate(nil, parseDoc(t, string(data)), Limits{Errors: 3, Warnings: -1})
 	if err != nil || len(failures) != 3 {
 		t.Fatalf("got %d failures, %v", len(failures), err)
+	}
+}
+
+// Warnings do not count towards the limit on errors: five warnings before
+// an error leave room for the error. They have a limit of their own.
+func TestLimitsCountErrorsAndWarningsApart(t *testing.T) {
+	const sch = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+<sch:pattern id="w"><sch:rule context="a"><sch:report test="true()" role="warning">w</sch:report></sch:rule></sch:pattern>
+<sch:pattern id="e"><sch:rule context="b"><sch:assert test="false()">e</sch:assert></sch:rule></sch:pattern>
+</sch:schema>`
+	rs, err := Extract("x", strings.NewReader(sch))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := Compile(rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := parseDoc(t, `<r><a/><a/><a/><a/><a/><b/><b/></r>`)
+	count := func(failures []Failure) (errs, warnings int) {
+		for _, f := range failures {
+			if f.Warning {
+				warnings++
+			} else {
+				errs++
+			}
+		}
+		return errs, warnings
+	}
+	for _, tc := range []struct {
+		limits         Limits
+		errs, warnings int
+	}{
+		{Limits{}, 2, 5},
+		{Limits{Errors: 1}, 1, 5},
+		{Limits{Errors: 3}, 2, 5},
+		{Limits{Errors: 1, Warnings: 2}, 1, 2},
+		{Limits{Warnings: -1}, 2, 0},
+	} {
+		failures, err := e.Validate(nil, doc, tc.limits)
+		if errs, warnings := count(failures); err != nil || errs != tc.errs || warnings != tc.warnings {
+			t.Errorf("%+v: got %d errors, %d warnings, %v; want %d, %d", tc.limits, errs, warnings, err, tc.errs, tc.warnings)
+		}
 	}
 }
 

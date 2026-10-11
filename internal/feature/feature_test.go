@@ -132,6 +132,23 @@ var cases = []featureCase{
 		"items/keuze.xml": replace(`<qti-base-value base-type="identifier">GOED</qti-base-value>`, `<qti-base-value base-type="float">1</qti-base-value>`),
 	})},
 	{name: "not-a-zip", contentType: "application/zip", body: func(*testing.T) []byte { return []byte("dit is geen zip") }},
+	// A second test that uses the item-ref identifier "keuze" of test.xml
+	// for another item: each test is checked against its own items, so
+	// test.xml may read keuze.FEEDBACK, which only items/keuze.xml declares.
+	{name: "toets-second-test", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"test.xml": func(s string) *string {
+			s = strings.Replace(s, `<qti-test-part `, `<qti-outcome-declaration identifier="FEEDBACK" cardinality="single" base-type="identifier"/>
+  <qti-test-part `, 1)
+			s = strings.Replace(s, `<qti-outcome-processing>`, `<qti-outcome-processing>
+    <qti-set-outcome-value identifier="FEEDBACK"><qti-variable identifier="keuze.FEEDBACK"/></qti-set-outcome-value>`, 1)
+			return &s
+		},
+		"vervolg.xml": with(secondTest),
+		"imsmanifest.xml": replace(`<resource identifier="keuze" `, `<resource identifier="vervolg" type="imsqti_test_xmlv3p0" href="vervolg.xml">
+      <file href="vervolg.xml"/>
+    </resource>
+    <resource identifier="keuze" `),
+	})},
 
 	// Package structure: a fragment that an item includes and an outcome
 	// declaration, both listed as QTI resources, are valid.
@@ -183,6 +200,19 @@ var cases = []featureCase{
 	{name: "item", body: file("features/packages/toets/items/keuze.xml"), contentType: "application/xml", query: "name=keuze.xml"},
 	{name: "item-mathml-as-3.0.0", body: file("features/packages/toets/items/formule.xml"), query: "version=3.0.0&name=formule.xml"},
 
+	// A QTI 2 item on its own: not validated, but the report names the QTI
+	// version it would have been validated against.
+	{name: "item-qti2", query: "name=keuze.xml", body: func(t *testing.T) []byte {
+		return []byte(strings.Replace(string(testutil.ReadTestdata(t, "features/packages/toets/items/keuze.xml")),
+			`xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"`, `xmlns="http://www.imsglobal.org/xsd/imsqti_v2p2"`, 1))
+	}},
+	// Nested deeper than MAX_DEPTH: the schema check stops there, so the
+	// rules do not run and totalRun does not count them.
+	{name: "item-too-deep", query: "name=keuze.xml", body: func(t *testing.T) []byte {
+		return []byte(strings.Replace(string(testutil.ReadTestdata(t, "features/packages/toets/items/keuze.xml")),
+			`<qti-item-body>`, `<qti-item-body>`+strings.Repeat("<div>", 300)+strings.Repeat("</div>", 300), 1))
+	}},
+
 	// The example packages in examples/.
 	{name: "example-valid", body: example("valid.zip")},
 	{name: "example-with-errors", body: example("with-errors.zip")},
@@ -193,6 +223,22 @@ var cases = []featureCase{
 	{name: "php-qti3-no-response-processing", body: file("features/php-qti3/no-response-processing.zip"), contentType: "application/zip"},
 	{name: "php-qti3-no-max-score-all-items", body: file("features/php-qti3/no-max-score-all-items.zip"), contentType: "application/zip"},
 }
+
+// secondTest is a test whose item ref "keuze" is items/meerkeuze.xml, which
+// declares SCORE but not FEEDBACK.
+const secondTest = `<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-test xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="vervolg" title="Vervolg">
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float"/>
+  <qti-test-part identifier="deel-1" navigation-mode="nonlinear" submission-mode="simultaneous">
+    <qti-assessment-section identifier="kennis" title="Kennis" visible="true">
+      <qti-assessment-item-ref identifier="keuze" href="items/meerkeuze.xml"/>
+    </qti-assessment-section>
+  </qti-test-part>
+  <qti-outcome-processing>
+    <qti-set-outcome-value identifier="SCORE"><qti-variable identifier="keuze.SCORE"/></qti-set-outcome-value>
+  </qti-outcome-processing>
+</qti-assessment-test>
+`
 
 func TestFeatures(t *testing.T) {
 	v, err := bootstrap.NewValidator(bootstrap.Options{})

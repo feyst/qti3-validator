@@ -1,0 +1,54 @@
+{
+  "report": {
+    "errors": [],
+    "exceptions": [],
+    "fatals": [
+      {
+        "code": "unsupported_document",
+        "detailsMessage": null,
+        "generator": "document-type",
+        "location": {
+          "resource": "keuze.xml"
+        },
+        "message": "root element {http://www.imsglobal.org/xsd/imsqti_v2p2}qti-assessment-item is not a supported QTI 3 document",
+        "title": "Document type"
+      }
+    ],
+    "generator": "qti-validator",
+    "input": {
+      "name": "keuze.xml",
+      "type": "XML"
+    },
+    "notRun": [
+      {
+        "code": "not_run",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "keuze.xml"
+        },
+        "message": "Not run: the document could not be read.",
+        "title": "XML Schema and Schematron"
+      }
+    ],
+    "specification": {
+      "pid": "qti301.pid",
+      "shortName": "qti",
+      "title": "QTI 3.0.1",
+      "version": "3.0.1"
+    },
+    "summary": {
+      "errors": 0,
+      "exceptions": 0,
+      "fatals": 1,
+      "notRun": 1,
+      "outcome": "FATAL",
+      "totalRun": 1,
+      "valid": 0,
+      "warnings": 0
+    },
+    "valids": [],
+    "warnings": []
+  },
+  "status": 200
+}

@@ -8,6 +8,14 @@ type DocumentResult struct {
 	Errors   []Finding
 	Warnings []Finding // findings that leave the document valid
 	Outcome  Outcome
+	Ran      Checks // the checks that ran on the document
+}
+
+// Checks records which checks ran on a document. A check that started but
+// stopped before the end ran.
+type Checks struct {
+	Schema bool // XML Schema validation
+	Rules  bool // Schematron rules
 }
 
 // Failure is the result of a document that could not be validated at all.
@@ -53,4 +61,5 @@ type FileResult struct {
 	Version  string
 	Errors   []Finding
 	Warnings []Finding
+	Ran      Checks
 }

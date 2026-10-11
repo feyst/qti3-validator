@@ -71,8 +71,9 @@ type Specification struct {
 // Summary is the public model's summary: the worst outcome and a count per
 // outcome. In the public validator's reports TotalRun counts the checks that
 // ran (14 for one credential), so here it counts checks as well: reading
-// each document, its XML Schema validation and its Schematron rules, and the
-// package itself. Valid counts the VALID items.
+// each document, its XML Schema validation and its Schematron rules when
+// they ran (qti.Checks), and the package itself. Valid counts the VALID
+// items.
 type Summary struct {
 	Outcome    string `json:"outcome"`
 	Fatals     int    `json:"fatals"`
@@ -183,7 +184,7 @@ func ForPackage(res qti.PackageResult, meta Meta) Report {
 	for _, f := range res.Files {
 		b.addDocument(packagePath(f.File), qti.DocumentResult{
 			Valid: f.Valid, Schema: f.Schema, Version: f.Version,
-			Errors: f.Errors, Warnings: f.Warnings,
+			Errors: f.Errors, Warnings: f.Warnings, Ran: f.Ran,
 		}, f.Skipped)
 	}
 	return b.report
@@ -237,8 +238,13 @@ func (b *reportBuilder) addDocument(resource string, res qti.DocumentResult, ski
 		it.Outcome = OutcomeNameWarning
 		b.add(it)
 	}
-	if !fatal {
-		b.report.Summary.TotalRun += 2 // XML Schema and Schematron
+	// A document that could not be read was not validated, even when the
+	// schema check is what found that out; the NOT_RUN item below says so.
+	if res.Ran.Schema && !fatal {
+		b.report.Summary.TotalRun++
+	}
+	if res.Ran.Rules && !fatal {
+		b.report.Summary.TotalRun++
 	}
 	switch {
 	case fatal:
