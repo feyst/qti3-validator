@@ -2,6 +2,9 @@
 
 `POST /api/validate` answers every request it could validate with HTTP 200
 and a report, whatever the report found. The verdict is `summary.outcome`.
+A validation that stopped before the end (code `too_complex`) is HTTP 422,
+and one the service failed (code `internal`) HTTP 500; both still come with
+a report.
 
 The report follows the public report model of 1EdTech's own validators, so it
 looks familiar if you have used them. Its sources are the
@@ -134,7 +137,7 @@ From least to most severe:
 | `WARNING` | Something to look at, such as an overridden QTI version | yes |
 | `ERROR` | The document breaks the XML Schema or a rule, or the package is incomplete | no |
 | `FATAL` | The input could not be read: not well-formed XML, not UTF-8, not a QTI document, not a ZIP | no |
-| `EXCEPTION` | The service itself failed, for example a validation interrupted by `REQUEST_TIMEOUT`; the response is then HTTP 500 | no |
+| `EXCEPTION` | The validation did not finish: it stopped because a document is too complex or took longer than `REQUEST_TIMEOUT` (HTTP 422), or the service itself failed (HTTP 500) | no |
 
 A report is valid when its outcome is `VALID` or `WARNING`.
 
@@ -160,6 +163,7 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `version_overridden` | WARNING | The `version` parameter differs from the manifest's `<schemaversion>` |
 | `skipped` | NOT_RUN | An XML file in a package that is not a QTI document |
 | `not_run` | NOT_RUN | Checks that could not run after a FATAL finding |
+| `too_complex` | EXCEPTION | Validation stopped before the end: the document's rules need more work than one document may take (a budget of XPath steps that grows with the number of nodes in the document, up to a fixed maximum of some 20 to 30 seconds of work; the rules of plain content stay well within it at any size up to `MAX_REQUEST_SIZE`), or validation took longer than `REQUEST_TIMEOUT`. The findings before it are kept. In a package it is reported in the file that stopped; when time ran out, a package finding also names the files that were not validated. HTTP 422 |
 | `internal` | EXCEPTION | An unexpected error in the service |
 
 At most `MAX_ERRORS` findings (100 by default) are reported per document.

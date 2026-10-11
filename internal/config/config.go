@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"runtime"
 	"strconv"
@@ -20,6 +21,8 @@ type Config struct {
 	MaxErrors           int           // MAX_ERRORS: validation errors per document
 	MaxDepth            int           // MAX_DEPTH: XML element nesting
 	MaxConcurrent       int           // MAX_CONCURRENT: validations running at once
+	MaxQueue            int           // MAX_QUEUE: requests waiting for a validation slot
+	MaxSpoolSize        int64         // MAX_SPOOL_SIZE: all request bodies being received or validated, bytes
 	RequestTimeout      time.Duration // REQUEST_TIMEOUT
 	ValidatorsDir       string        // VALIDATORS_DIR: extra .xsd and .sch files
 	// ValidatorsDirSet reports that VALIDATORS_DIR was set explicitly. Then
@@ -33,7 +36,7 @@ const DefaultValidatorsDir = "/validators"
 
 // Default returns the defaults.
 func Default() Config {
-	return Config{
+	c := Config{
 		Addr:                ":8080",
 		MaxRequestSize:      10 << 20,
 		MaxPackageSize:      100 << 20,
@@ -46,6 +49,16 @@ func Default() Config {
 		RequestTimeout:      60 * time.Second,
 		ValidatorsDir:       DefaultValidatorsDir,
 	}
+	c.deriveDefaults()
+	return c
+}
+
+// deriveDefaults sets the settings whose defaults follow from others: room
+// to spool four packages of MAX_PACKAGE_SIZE, and four waiting requests per
+// slot.
+func (c *Config) deriveDefaults() {
+	c.MaxSpoolSize = 4 * min(c.MaxPackageSize, math.MaxInt64/4)
+	c.MaxQueue = 4 * min(c.MaxConcurrent, math.MaxInt32/4)
 }
 
 // FromEnv returns the defaults overridden by environment variables.
@@ -83,6 +96,15 @@ func FromEnv() (Config, error) {
 		}
 		*i.dst = int(v)
 	}
+	c.deriveDefaults()
+	if err := positiveEnv("MAX_SPOOL_SIZE", &c.MaxSpoolSize); err != nil {
+		return c, err
+	}
+	queue := int64(c.MaxQueue)
+	if err := positiveEnv("MAX_QUEUE", &queue); err != nil {
+		return c, err
+	}
+	c.MaxQueue = int(queue)
 	if v, ok := os.LookupEnv("VALIDATORS_DIR"); ok {
 		c.ValidatorsDir, c.ValidatorsDirSet = v, true
 	}

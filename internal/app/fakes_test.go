@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -14,10 +15,14 @@ import (
 type fakeSchema struct {
 	verdict SchemaVerdict
 	checked int
+	during  func() // called while checking
 }
 
 func (f *fakeSchema) CheckSchema([]byte, qti.Limits) SchemaVerdict {
 	f.checked++
+	if f.during != nil {
+		f.during()
+	}
 	return f.verdict
 }
 
@@ -29,7 +34,7 @@ type fakeRules struct {
 	checked  int
 }
 
-func (f *fakeRules) CheckRules(_ []byte, maxFindings int) ([]RuleFinding, error) {
+func (f *fakeRules) CheckRules(_ context.Context, _ []byte, maxFindings int) ([]RuleFinding, error) {
 	f.checked++
 	f.max = maxFindings
 	return f.findings, f.err
@@ -47,6 +52,7 @@ type fakeEntry struct {
 	data     string
 	declared uint64 // declared size; len(data) when zero
 	readErr  error  // returned after the data
+	during   func() // called halfway through the data
 }
 
 func (e fakeEntry) Name() string { return e.name }
@@ -60,6 +66,10 @@ func (e fakeEntry) DeclaredSize() uint64 {
 
 func (e fakeEntry) Open() (io.ReadCloser, error) {
 	r := io.Reader(strings.NewReader(e.data))
+	if e.during != nil {
+		half := len(e.data) / 2
+		r = io.MultiReader(strings.NewReader(e.data[:half]), hookReader(e.during), strings.NewReader(e.data[half:]))
+	}
 	if e.readErr != nil {
 		r = io.MultiReader(r, errReader{e.readErr})
 	}
@@ -70,13 +80,21 @@ type errReader struct{ err error }
 
 func (r errReader) Read([]byte) (int, error) { return 0, r.err }
 
+// hookReader calls itself and reads nothing.
+type hookReader func()
+
+func (h hookReader) Read([]byte) (int, error) {
+	h()
+	return 0, io.EOF
+}
+
 // newTestValidator returns a validator whose every version uses schema and
 // rules, and whose archive is entries.
 func newTestValidator(t *testing.T, schema SchemaChecker, rules RuleChecker, entries ...ArchiveEntry) *Validator {
 	t.Helper()
 	cfg := Config{
 		Versions: map[string]Profile{},
-		OpenArchive: func(io.ReaderAt, int64) (Archive, error) {
+		OpenArchive: func(io.ReaderAt, int64, int) (Archive, error) {
 			if entries == nil {
 				return nil, errors.New("not a zip")
 			}

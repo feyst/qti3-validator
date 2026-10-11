@@ -9,10 +9,13 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"qti3-validator/internal/app"
 	"qti3-validator/internal/bootstrap"
@@ -30,6 +33,9 @@ var (
 type testOptions struct {
 	MaxRequestSize int64 // limit of one document
 	MaxPackageSize int64
+	RequestTimeout time.Duration
+	// SlowRules adds testutil.SlowRules to the built-in rules.
+	SlowRules bool
 }
 
 func newTestServer(t *testing.T, o testOptions) *httptest.Server {
@@ -42,10 +48,16 @@ func newTestServer(t *testing.T, o testOptions) *httptest.Server {
 		shared = v
 	})
 	v := shared
-	if o.MaxRequestSize != 0 {
+	if o.MaxRequestSize != 0 || o.SlowRules {
+		bo := bootstrap.Options{Limits: qti.Limits{MaxDocumentSize: o.MaxRequestSize}}
+		if o.SlowRules {
+			bo.ValidatorsDir = t.TempDir()
+			if err := os.WriteFile(filepath.Join(bo.ValidatorsDir, "slow.sch"), []byte(testutil.SlowRules), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		var err error
-		v, err = bootstrap.NewValidator(bootstrap.Options{Limits: qti.Limits{MaxDocumentSize: o.MaxRequestSize}})
-		if err != nil {
+		if v, err = bootstrap.NewValidator(bo); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -58,6 +70,10 @@ func newTestServer(t *testing.T, o testOptions) *httptest.Server {
 	if o.MaxPackageSize != 0 {
 		opts.MaxPackageSize = o.MaxPackageSize
 	}
+	if o.RequestTimeout != 0 {
+		opts.RequestTimeout = o.RequestTimeout
+	}
+	opts.MaxDocumentSize = o.MaxRequestSize
 	srv := httptest.NewServer(New(opts, v, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
 	t.Cleanup(srv.Close)
 	return srv
@@ -216,6 +232,28 @@ func TestValidatePackage(t *testing.T) {
 	if status != 200 || outcome(body) != "VALID" || body["input"].(map[string]any)["type"] != "XML" ||
 		body["input"].(map[string]any)["name"] != "document.xml" {
 		t.Fatalf("XML as octet-stream: %d %v", status, body)
+	}
+}
+
+// A validation that stops before the end, here out of time, is HTTP 422 with
+// a report: an EXCEPTION with code too_complex after the findings so far.
+func TestValidateTooComplex(t *testing.T) {
+	srv := newTestServer(t, testOptions{SlowRules: true, RequestTimeout: 300 * time.Millisecond})
+	slow := []byte(testutil.ItemWithChoices(300))
+	status, body := post(t, srv.URL+"/api/validate", "application/xml", slow)
+	errs, _ := body["errors"].([]any)
+	if status != http.StatusUnprocessableEntity || outcome(body) != "EXCEPTION" || firstCode(body) != "too_complex" || len(errs) == 0 {
+		t.Fatalf("document: got %d %v", status, body)
+	}
+
+	files := map[string][]byte{
+		"imsmanifest.xml":  testdata(t, "package/imsmanifest.xml"),
+		"items/item-1.xml": testdata(t, "package/item-1.xml"),
+		"slow.xml":         slow,
+	}
+	status, body = post(t, srv.URL+"/api/validate", "application/zip", zipOf(t, files))
+	if status != http.StatusUnprocessableEntity || outcome(body) != "EXCEPTION" || firstCode(body) != "too_complex" {
+		t.Fatalf("package: got %d %v", status, body)
 	}
 }
 

@@ -26,7 +26,7 @@ func (v *Validator) validateReader(ctx context.Context, r io.Reader, req qti.Ver
 	if failure != nil {
 		return *failure
 	}
-	return v.validate(data, req, limits)
+	return v.validate(ctx, data, req, limits)
 }
 
 // readDocument reads a document into memory, bounded by MaxDocumentSize. On
@@ -35,12 +35,15 @@ func readDocument(ctx context.Context, r io.Reader, limits qti.Limits) ([]byte, 
 	lr := &limitReader{r: ctxReader{ctx: ctx, r: r}, remaining: limits.MaxDocumentSize}
 	data, err := io.ReadAll(lr)
 	var res qti.DocumentResult
+	stop, stopped := stopFinding(ctx.Err())
 	switch {
 	case lr.exceeded:
 		res = qti.Failure(qti.OutcomeTooLarge, "", qti.CodeTooLarge,
 			fmt.Sprintf("document is larger than %d bytes", limits.MaxDocumentSize))
-	case ctx.Err() != nil:
-		res = qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "validation interrupted: "+ctx.Err().Error())
+	case stopped:
+		// Out of time or cancelled while reading: stopped like a validation
+		// that runs out of time, not an internal error.
+		res = qti.Failure(qti.OutcomeTooComplex, "", stop.Code, stop.Message)
 	case err != nil:
 		res = qti.Failure(qti.OutcomeInternal, "", qti.CodeInternal, "read: "+err.Error())
 	default:
@@ -49,7 +52,10 @@ func readDocument(ctx context.Context, r io.Reader, limits qti.Limits) ([]byte, 
 	return nil, &res
 }
 
-func (v *Validator) validate(data []byte, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
+// validate validates a document in memory. When ctx is done or the rules
+// need too much work, it stops with a too_complex finding after the findings
+// so far.
+func (v *Validator) validate(ctx context.Context, data []byte, req qti.VersionRequest, limits qti.Limits) qti.DocumentResult {
 	root, err := xmldoc.DetectRoot(bytes.NewReader(data))
 	if err != nil {
 		return detectionFailure(err)
@@ -57,7 +63,7 @@ func (v *Validator) validate(data []byte, req qti.VersionRequest, limits qti.Lim
 	docType, ok := qti.LookupDocumentType(root)
 	if !ok {
 		if p, ok := v.custom[root]; ok {
-			return v.validateCustom(v.customTypes[root], p, data, limits)
+			return v.validateCustom(ctx, v.customTypes[root], p, data, limits)
 		}
 		// Malformed XML is reported as such, whatever its root.
 		if err := xmldoc.CheckWellFormed(bytes.NewReader(data)); err != nil {
@@ -74,7 +80,7 @@ func (v *Validator) validate(data []byte, req qti.VersionRequest, limits qti.Lim
 	choice := qti.ChooseVersion(req, declared)
 	profile := v.versions[choice.Version.Name]
 
-	res, verdict := checkSchema(profile.Schema, docType, data, limits)
+	res, verdict := checkSchema(ctx, profile.Schema, docType, data, limits)
 	if choice.ReplacesSchemaVerdict {
 		res.DropSchemaVersionVerdict()
 	}
@@ -84,28 +90,38 @@ func (v *Validator) validate(data []byte, req qti.VersionRequest, limits qti.Lim
 	res.Version = choice.Version.Name
 	choice.ApplyNotice(&res)
 	if !assessed {
-		return res // not well-formed, too large, or not assessable
+		return res // not well-formed, too large, not assessable, or stopped
 	}
-	return checkRules(profile.Rules, data, res, limits)
+	return checkRules(ctx, profile.Rules, data, res, limits)
 }
 
-func (v *Validator) validateCustom(docType qti.DocumentType, p Profile, data []byte, limits qti.Limits) qti.DocumentResult {
-	res, verdict := checkSchema(p.Schema, docType, data, limits)
+func (v *Validator) validateCustom(ctx context.Context, docType qti.DocumentType, p Profile, data []byte, limits qti.Limits) qti.DocumentResult {
+	res, verdict := checkSchema(ctx, p.Schema, docType, data, limits)
 	if !assessable(res, verdict) {
 		return res
 	}
-	return checkRules(p.Rules, data, res, limits)
+	return checkRules(ctx, p.Rules, data, res, limits)
 }
 
-// checkSchema runs the schema check.
-func checkSchema(s SchemaChecker, docType qti.DocumentType, data []byte, limits qti.Limits) (qti.DocumentResult, SchemaVerdict) {
+// checkSchema runs the schema check. The check itself cannot be
+// interrupted, so ctx is checked before and after it.
+func checkSchema(ctx context.Context, s SchemaChecker, docType qti.DocumentType, data []byte, limits qti.Limits) (qti.DocumentResult, SchemaVerdict) {
+	if f, ok := stopFinding(ctx.Err()); ok {
+		res := qti.DocumentResult{Schema: docType.Schema}
+		res.AddError(f, qti.OutcomeTooComplex)
+		return res, SchemaVerdict{}
+	}
 	verdict := s.CheckSchema(data, limits)
-	return qti.DocumentResult{
+	res := qti.DocumentResult{
 		Valid:   verdict.Outcome == qti.OutcomeValid,
 		Schema:  docType.Schema,
 		Errors:  verdict.Findings,
 		Outcome: verdict.Outcome,
-	}, verdict
+	}
+	if f, ok := stopFinding(ctx.Err()); ok {
+		res.AddError(f, qti.OutcomeTooComplex)
+	}
+	return res, verdict
 }
 
 // assessable reports whether the rules can run after the schema check: the
@@ -115,8 +131,10 @@ func assessable(res qti.DocumentResult, verdict SchemaVerdict) bool {
 }
 
 // checkRules runs the rules on a well-formed document and adds their
-// findings to res, as long as fewer than MaxErrors errors were found.
-func checkRules(rules RuleChecker, data []byte, res qti.DocumentResult, limits qti.Limits) qti.DocumentResult {
+// findings to res, as long as fewer than MaxErrors errors were found. Rules
+// that stop before the end add the findings so far and a too_complex
+// finding.
+func checkRules(ctx context.Context, rules RuleChecker, data []byte, res qti.DocumentResult, limits qti.Limits) qti.DocumentResult {
 	if rules == nil {
 		return res
 	}
@@ -124,8 +142,9 @@ func checkRules(rules RuleChecker, data []byte, res qti.DocumentResult, limits q
 	if remaining <= 0 {
 		return res
 	}
-	findings, err := rules.CheckRules(data, remaining)
-	if err != nil {
+	findings, err := rules.CheckRules(ctx, data, remaining)
+	stop, stopped := stopFinding(err)
+	if err != nil && !stopped {
 		return qti.Failure(qti.OutcomeInternal, res.Schema, qti.CodeInternal, err.Error())
 	}
 	for _, f := range findings {
@@ -135,7 +154,29 @@ func checkRules(rules RuleChecker, data []byte, res qti.DocumentResult, limits q
 		}
 		res.AddError(f.Finding, qti.OutcomeInvalid)
 	}
+	if stopped {
+		res.AddError(stop, qti.OutcomeTooComplex)
+	}
 	return res
+}
+
+// stopFinding returns the finding for a validation that err stopped before
+// the end: the document needs more work than the checks allow, or ctx is
+// done, normally because the request ran out of time. It reports false for
+// any other error.
+func stopFinding(err error) (qti.Finding, bool) {
+	var msg string
+	switch {
+	case errors.Is(err, ErrTooComplex):
+		msg = "validation stopped: the document is too complex to validate"
+	case errors.Is(err, context.DeadlineExceeded):
+		msg = "validation stopped: the document took longer to validate than REQUEST_TIMEOUT allows"
+	case errors.Is(err, context.Canceled):
+		msg = "validation stopped: the request was cancelled"
+	default:
+		return qti.Finding{}, false
+	}
+	return qti.Finding{Code: qti.CodeTooComplex, Message: msg}, true
 }
 
 // detectionFailure is the result of a document whose root cannot be read.

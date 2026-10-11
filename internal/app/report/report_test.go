@@ -64,6 +64,22 @@ func TestDocumentReportFatal(t *testing.T) {
 	}
 }
 
+// A validation that stopped is an EXCEPTION, after the errors found before.
+func TestDocumentReportTooComplex(t *testing.T) {
+	res := qti.DocumentResult{Schema: "qti-assessment-item", Version: "3.0.1", Outcome: qti.OutcomeTooComplex, Errors: []qti.Finding{
+		{Code: qti.CodeValidation, Message: "bad value"},
+		{Code: qti.CodeTooComplex, Message: "validation stopped: the document is too complex to validate"},
+	}}
+	r := ForDocument(res, testMeta)
+	if r.Summary.Outcome != OutcomeNameException || r.IsValid() || r.Summary.Errors != 1 || r.Summary.Exceptions != 1 ||
+		r.Summary.TotalRun != 3 || r.Summary.Valid != 0 || len(r.Valids) != 0 {
+		t.Fatalf("summary %+v", r.Summary)
+	}
+	if it := r.Exceptions[0]; it.Code != string(qti.CodeTooComplex) || it.Generator != "limits" || it.Title != "Limits" {
+		t.Fatalf("exception %+v", it)
+	}
+}
+
 // Warnings alone leave a report valid. A manifest's schema is the manifest
 // schema of its version.
 func TestReportWarningsStayValid(t *testing.T) {

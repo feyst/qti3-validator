@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"io"
 
 	"qti3-validator/internal/domain/qti"
@@ -21,10 +23,17 @@ type SchemaVerdict struct {
 }
 
 // RuleChecker runs Schematron rules on a well-formed document and returns at
-// most maxFindings findings; zero means no limit.
+// most maxFindings findings; zero means no limit. When it stops before the
+// end, because the rules take more work than it allows for one document or
+// ctx is done, it returns the findings so far with an error wrapping
+// ErrTooComplex or ctx.Err().
 type RuleChecker interface {
-	CheckRules(data []byte, maxFindings int) ([]RuleFinding, error)
+	CheckRules(ctx context.Context, data []byte, maxFindings int) ([]RuleFinding, error)
 }
+
+// ErrTooComplex reports that checking a document takes more work than a
+// checker allows for one document.
+var ErrTooComplex = errors.New("the document is too complex to check")
 
 // RuleFinding is a finding of a rule. A warning leaves the document valid.
 type RuleFinding struct {
@@ -67,5 +76,11 @@ type ArchiveEntry interface {
 	Open() (io.ReadCloser, error)
 }
 
-// ArchiveOpener reads an archive's directory.
-type ArchiveOpener func(r io.ReaderAt, size int64) (Archive, error)
+// ArchiveOpener reads an archive's directory. An archive with more than
+// maxEntries entries is refused with ErrTooManyEntries, before its directory
+// is read into memory.
+type ArchiveOpener func(r io.ReaderAt, size int64, maxEntries int) (Archive, error)
+
+// ErrTooManyEntries is returned by an ArchiveOpener for an archive with more
+// entries than allowed.
+var ErrTooManyEntries = errors.New("archive has too many entries")

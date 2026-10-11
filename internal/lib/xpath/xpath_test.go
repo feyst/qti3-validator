@@ -194,6 +194,19 @@ func TestPositions(t *testing.T) {
 	}
 }
 
+// Nodes counts elements, attributes, text, comments and processing
+// instructions, but not namespace declarations or what is outside the
+// document element.
+func TestNodes(t *testing.T) {
+	doc, err := Parse(strings.NewReader(`<?xml version="1.0"?>` + "\n" + `<r xmlns="urn:r" a="1"><s>t<!--c--><?p x?></s> </r>` + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Nodes != 7 {
+		t.Fatalf("got %d nodes, want 7", doc.Nodes)
+	}
+}
+
 func TestConcurrentEvaluation(t *testing.T) {
 	e, err := Compile("count(//d:item[@n > 1]) + string-length(name(/*))", Options{Namespaces: testNS})
 	if err != nil {

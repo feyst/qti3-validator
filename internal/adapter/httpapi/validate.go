@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,11 +54,12 @@ func shapeOf(r *http.Request) requestShape {
 }
 
 // apiValidate serves POST /api/validate, the one validation endpoint: the
-// input in the multipart field "file", answered with HTTP 200 and a report,
-// and 400 for an unknown validatorId (the request shape follows the public
-// OpenAPI at https://vc.1ed.tech/v3/api-docs). The input may also be sent as
-// the body: an XML document as application/xml, a package as
-// application/zip.
+// input in the multipart field "file", answered with a report, and 400 for an
+// unknown validatorId (the request shape follows the public OpenAPI at
+// https://vc.1ed.tech/v3/api-docs). A report is HTTP 200 whatever it found,
+// and 422 when validation stopped before the end (too_complex); see
+// statusFor. The input may also be sent as the body: an XML document as
+// application/xml, a package as application/zip.
 func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	if id := r.URL.Query().Get("validatorId"); id != "" && !slices.ContainsFunc(Validators, func(v ValidatorInfo) bool { return v.ID == id }) {
 		writeError(w, http.StatusBadRequest, codeUnknownValidator, "validatorId must be one of the ids listed by GET /api/validators")
@@ -68,44 +71,111 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, uploadName := io.Reader(r.Body), ""
-	if shape == shapeMultipart {
+	// Freed last, once the temporary file is removed.
+	reservation, ok := s.reserveBody(w, r, shape)
+	if !ok {
+		return
+	}
+	defer reservation.release()
+
+	// One deadline bounds the request: receiving the body, waiting for a
+	// slot and validating. The response may be written writeGrace later.
+	ctx, cancel := context.WithTimeout(r.Context(), s.opts.RequestTimeout)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(deadline)
+	_ = rc.SetWriteDeadline(deadline.Add(s.writeGrace))
+
+	body, uploadName, limit := io.Reader(r.Body), "", s.opts.MaxPackageSize
+	switch shape {
+	case shapeMultipart:
 		part, ok := s.filePart(w, r)
 		if !ok {
 			return
 		}
 		body, uploadName = part, part.FileName()
-	}
-	ctx, release, ok := s.acquire(w, r)
-	if !ok {
-		return
-	}
-	defer release()
-
-	if shape == shapeDocument {
-		// A document is read into memory, bounded by the document limit; it
-		// needs no temporary file.
-		res := s.validator.ValidateDocument(ctx, app.ValidateDocument{Document: body, Version: version})
-		s.writeDocumentReport(w, res, newMeta(inputName(r, uploadName, defaultDocumentName)))
-		return
+	case shapeDocument:
+		// The validator reports a document over its limit; one byte more is
+		// enough for it to tell.
+		limit = s.opts.MaxDocumentSize + 1
+		body = io.LimitReader(body, limit)
 	}
 
-	f, size, ok := s.spool(w, body)
+	// The input is received in full before a slot is taken, so a slow upload
+	// holds none: slots bound the work of validation, not the network.
+	f, size, ok := s.spool(w, body, limit, reservation)
 	if !ok {
 		return
 	}
 	defer os.Remove(f.Name())
 	defer f.Close()
 
-	if shape == shapePackage || isZIPFile(f) {
+	release, ok := s.acquire(ctx, w)
+	if !ok {
+		return
+	}
+	defer release()
+
+	if shape == shapePackage || shape != shapeDocument && isZIPFile(f) {
 		res := s.validator.ValidatePackage(ctx, app.ValidatePackage{
 			Package: f, Size: size, Limits: s.opts.PackageLimits, Version: version,
 		})
+		s.extendWriteDeadline(rc)
 		s.writePackageReport(w, res, newMeta(inputName(r, uploadName, defaultPackageName)))
 		return
 	}
 	res := s.validator.ValidateDocument(ctx, app.ValidateDocument{Document: io.NewSectionReader(f, 0, size), Version: version})
+	s.extendWriteDeadline(rc)
 	s.writeDocumentReport(w, res, newMeta(inputName(r, uploadName, defaultDocumentName)))
+}
+
+// reserveBody returns the reservation in MaxSpoolSize for the temporary
+// file of the body of r, empty until the body arrives. A Content-Length
+// over the limit of the request shape, or over the whole budget, is refused
+// as too large before the body is read. On failure the response has been
+// written.
+func (s *Server) reserveBody(w http.ResponseWriter, r *http.Request, shape requestShape) (*spoolReservation, bool) {
+	// spool writes one byte past its limit to tell that a body is too large.
+	most, limit := s.opts.MaxPackageSize+1, s.opts.MaxPackageSize
+	tooLarge := "package is larger than the configured MAX_PACKAGE_SIZE"
+	switch shape {
+	case shapeDocument:
+		// Cut one byte past the limit, for the validator to report; any
+		// length is accepted.
+		most, limit = s.opts.MaxDocumentSize+1, math.MaxInt64
+	case shapeMultipart:
+		limit, tooLarge = s.opts.MaxPackageSize+multipartOverhead, "request is larger than the configured MAX_PACKAGE_SIZE"
+	case shapePackage, shapeSniff:
+	}
+	if r.ContentLength > limit {
+		refuseUnread(w)
+		writeError(w, http.StatusRequestEntityTooLarge, string(qti.CodeTooLarge), tooLarge)
+		return nil, false
+	}
+	if r.ContentLength >= 0 {
+		most = min(most, r.ContentLength)
+		if most > s.opts.MaxSpoolSize {
+			refuseUnread(w)
+			writeSpoolTooLarge(w)
+			return nil, false
+		}
+	}
+	return s.newSpoolReservation(), true
+}
+
+// writeSpoolTooLarge answers 413 for a body that does not fit in
+// MaxSpoolSize even with no other upload in progress: retrying cannot help.
+func writeSpoolTooLarge(w http.ResponseWriter) {
+	writeError(w, http.StatusRequestEntityTooLarge, string(qti.CodeTooLarge),
+		"request is larger than the configured MAX_SPOOL_SIZE, the room for all uploads at once")
+}
+
+// extendWriteDeadline gives the response writeGrace from now, however long
+// validation overran REQUEST_TIMEOUT: the client gets its report rather than
+// a reset connection.
+func (s *Server) extendWriteDeadline(rc *http.ResponseController) {
+	_ = rc.SetWriteDeadline(time.Now().Add(s.writeGrace))
 }
 
 // versionParam reads the optional version query parameter, which forces the
@@ -153,9 +223,15 @@ func (s *Server) writePackageReport(w http.ResponseWriter, res qti.PackageResult
 	writeJSON(w, statusFor(res.Outcome), report.ForPackage(res, meta))
 }
 
-// isZIPFile reports whether f starts with a ZIP local file header.
+// isZIPFile reports whether f starts with a ZIP signature: a local file
+// header, the end of central directory record of an empty archive, or the
+// marker of a spanned archive.
 func isZIPFile(f *os.File) bool {
 	var magic [4]byte
 	n, _ := f.ReadAt(magic[:], 0)
-	return n == len(magic) && string(magic[:]) == "PK\x03\x04"
+	switch string(magic[:n]) {
+	case "PK\x03\x04", "PK\x05\x06", "PK\x07\x08":
+		return true
+	}
+	return false
 }

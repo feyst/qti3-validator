@@ -1,6 +1,7 @@
 package schematron
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"regexp"
@@ -198,20 +199,31 @@ func (l loader) rule(r CompiledRule, patternVars map[string]bool, lists []map[st
 
 // Validate runs every pattern on doc and returns up to maxFailures
 // failures (0: no limit), in pattern order and then document order.
-func (e *Engine) Validate(doc *xpath.Document, maxFailures int) ([]Failure, error) { //nolint:gocognit // the evaluation loop of ISO Schematron; tested against the reference implementation
+//
+// Every expression is evaluated in session s, which may stop the validation
+// with an error wrapping xpath.ErrTooComplex or the error of its context;
+// the failures found until then are returned with it. One session should
+// serve one document, so the paths it remembers are reused across the rules;
+// nil runs without limits in a session of its own.
+func (e *Engine) Validate(s *xpath.Session, doc *xpath.Document, maxFailures int) ([]Failure, error) { //nolint:gocognit // the evaluation loop of ISO Schematron; tested against the reference implementation
+	if s == nil {
+		s = xpath.NewSession(context.Background(), 0)
+	}
 	var index map[expandedName][]*xpath.Node
 	var failures []Failure
 	for _, es := range e.sets {
-		vars, err := bindLets(es.lets, doc.Root, map[string]xpath.Value{})
+		vars, err := bindLets(s, es.lets, doc.Root, map[string]xpath.Value{})
 		if err != nil {
 			return failures, err
 		}
+		constant(s, vars)
 		for _, p := range es.patterns {
 			pvars := vars
 			if len(p.lets) > 0 {
-				if pvars, err = bindLets(p.lets, doc.Root, maps.Clone(vars)); err != nil {
+				if pvars, err = bindLets(s, p.lets, doc.Root, maps.Clone(vars)); err != nil {
 					return failures, err
 				}
+				constant(s, pvars)
 			}
 			// First-match bookkeeping is only needed with several rules.
 			var seen map[*xpath.Node]bool
@@ -225,7 +237,7 @@ func (e *Engine) Validate(doc *xpath.Document, maxFailures int) ([]Failure, erro
 						index = indexElements(doc.Root)
 					}
 					nodes = index[*r.byName]
-				} else if nodes, err = r.context.Select(xpath.Context{Node: doc.Root, Variables: pvars}); err != nil {
+				} else if nodes, err = r.context.Select(xpath.Context{Node: doc.Root, Variables: pvars, Session: s}); err != nil {
 					return failures, err
 				}
 				for _, n := range nodes {
@@ -237,19 +249,19 @@ func (e *Engine) Validate(doc *xpath.Document, maxFailures int) ([]Failure, erro
 					}
 					rvars := pvars
 					if len(r.lets) > 0 {
-						if rvars, err = bindLets(r.lets, n, maps.Clone(pvars)); err != nil {
+						if rvars, err = bindLets(s, r.lets, n, maps.Clone(pvars)); err != nil {
 							return failures, err
 						}
 					}
 					for _, a := range r.assertions {
-						fired, err := a.fires(n, rvars)
+						fired, err := a.fires(s, n, rvars)
 						if err != nil {
 							return failures, err
 						}
 						if !fired {
 							continue
 						}
-						msg, err := a.render(n, rvars)
+						msg, err := a.render(s, n, rvars)
 						if err != nil {
 							return failures, err
 						}
@@ -269,27 +281,27 @@ func (e *Engine) Validate(doc *xpath.Document, maxFailures int) ([]Failure, erro
 	return failures, nil
 }
 
-func (a engineAssertion) fires(n *xpath.Node, vars map[string]xpath.Value) (bool, error) {
+func (a engineAssertion) fires(sess *xpath.Session, n *xpath.Node, vars map[string]xpath.Value) (bool, error) {
 	var ok bool
 	if a.native != nil {
 		ok = a.native.holds(n)
 	} else {
 		var err error
-		if ok, err = a.test.EvaluateBool(xpath.Context{Node: n, Variables: vars}); err != nil {
+		if ok, err = a.test.EvaluateBool(xpath.Context{Node: n, Variables: vars, Session: sess}); err != nil {
 			return false, err
 		}
 	}
 	return ok == a.report, nil
 }
 
-func (a engineAssertion) render(n *xpath.Node, vars map[string]xpath.Value) (string, error) {
+func (a engineAssertion) render(sess *xpath.Session, n *xpath.Node, vars map[string]xpath.Value) (string, error) {
 	var b strings.Builder
 	for _, p := range a.message {
 		if p.selectExpr == nil {
 			b.WriteString(p.text)
 			continue
 		}
-		s, err := p.selectExpr.EvaluateString(xpath.Context{Node: n, Variables: vars})
+		s, err := p.selectExpr.EvaluateString(xpath.Context{Node: n, Variables: vars, Session: sess})
 		if err != nil {
 			return "", err
 		}
@@ -298,15 +310,23 @@ func (a engineAssertion) render(n *xpath.Node, vars map[string]xpath.Value) (str
 	return b.String(), nil
 }
 
-func bindLets(lets []engineLet, n *xpath.Node, vars map[string]xpath.Value) (map[string]xpath.Value, error) {
+func bindLets(sess *xpath.Session, lets []engineLet, n *xpath.Node, vars map[string]xpath.Value) (map[string]xpath.Value, error) {
 	for _, l := range lets {
-		v, err := l.expr.Evaluate(xpath.Context{Node: n, Variables: vars})
+		v, err := l.expr.Evaluate(xpath.Context{Node: n, Variables: vars, Session: sess})
 		if err != nil {
 			return nil, err
 		}
 		vars[l.name] = v
 	}
 	return vars, nil
+}
+
+// constant tells the session that the variables of a schema or a pattern,
+// bound once per document, keep their values.
+func constant(s *xpath.Session, vars map[string]xpath.Value) {
+	for _, v := range vars {
+		s.Constant(v)
+	}
 }
 
 // indexElements lists the elements of a document by expanded name, in

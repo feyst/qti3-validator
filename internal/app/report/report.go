@@ -330,6 +330,9 @@ func itemFor(e qti.Finding, resource, schema, version string) Item {
 		it.Title, it.Generator, it.Outcome = "QTI version", "version", OutcomeNameWarning
 	case qti.CodeTooLarge, qti.CodeLimitExceeded:
 		it.Title, it.Generator = "Limits", "limits"
+	case qti.CodeTooComplex:
+		// Not a verdict on the document: the checks did not finish.
+		it.Title, it.Generator, it.Outcome = "Limits", "limits", OutcomeNameException
 	default:
 		it.Title, it.Generator, it.Outcome = "Internal error", "internal", OutcomeNameException
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/testutil"
 )
 
 func TestValidPackage(t *testing.T) {
@@ -93,6 +94,17 @@ func TestPackageTooManyFiles(t *testing.T) {
 	res := validatePackage(t, makeZip(t, packageEntries(t)...), qti.PackageLimits{MaxFiles: 2})
 	if res.Outcome != qti.OutcomeTooLarge || res.Errors[0].Code != qti.CodeTooManyFiles {
 		t.Fatalf("got %+v", res)
+	}
+}
+
+// A package whose central directory has more records than MAX_FILES is
+// refused as too many files, whatever count it declares.
+func TestPackageCrowdedDirectory(t *testing.T) {
+	for _, declared := range []int{5000, 1} {
+		res := validatePackage(t, testutil.CrowdedZIP(5000, declared, true), qti.PackageLimits{MaxFiles: 1000})
+		if res.Outcome != qti.OutcomeTooLarge || res.Errors[0].Code != qti.CodeTooManyFiles {
+			t.Fatalf("declaring %d: got %+v", declared, res)
+		}
 	}
 }
 

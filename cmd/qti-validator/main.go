@@ -90,14 +90,17 @@ func validatorOptions(log *slog.Logger, cfg config.Config) bootstrap.Options {
 
 func httpOptions(cfg config.Config) httpapi.Options {
 	return httpapi.Options{
-		Addr:           cfg.Addr,
-		MaxPackageSize: cfg.MaxPackageSize,
+		Addr:            cfg.Addr,
+		MaxPackageSize:  cfg.MaxPackageSize,
+		MaxDocumentSize: cfg.MaxRequestSize,
 		PackageLimits: qti.PackageLimits{
 			MaxFiles:            cfg.MaxFiles,
 			MaxFileSize:         cfg.MaxFileSize,
 			MaxUncompressedSize: cfg.MaxUncompressedSize,
 		},
 		MaxConcurrent:  cfg.MaxConcurrent,
+		MaxQueue:       cfg.MaxQueue,
+		MaxSpoolSize:   cfg.MaxSpoolSize,
 		RequestTimeout: cfg.RequestTimeout,
 	}
 }
@@ -123,7 +126,9 @@ func run(log *slog.Logger) error {
 	log.Info("validator ready", "qti_versions", qti.SupportedVersions(),
 		"compile_ms", time.Since(start).Milliseconds(), "heap_mib", mem.HeapAlloc>>20)
 
-	srv := httpapi.New(httpOptions(cfg), v, log).HTTPServer()
+	hopts := httpOptions(cfg)
+	hopts.MaxSpoolSize = spoolBudget(log, cfg, probeSpoolEnv())
+	srv := httpapi.New(hopts, v, log).HTTPServer()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	errc := make(chan error, 1)

@@ -2,6 +2,7 @@ package xpath
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -39,19 +40,80 @@ func Compile(source string, opts Options) (*Expr, error) {
 	if err != nil {
 		return nil, fmt.Errorf("xpath %q: %w", source, err)
 	}
+	markIndependent(root)
 	return &Expr{source: source, root: root}, nil
+}
+
+// markIndependent marks the absolute paths in e that select the same nodes
+// wherever they are evaluated. Such a path depends on its context only
+// through current() and variables: its predicates evaluate in contexts of
+// their own, with their own position and size. A rule such as
+// count(//a[@id = //b/@ref]) evaluates //b/@ref for every a, and the whole
+// path for every context node of the rule; marked, each is evaluated once
+// per document.
+func markIndependent(e expr) {
+	if p, ok := e.(*pathExpr); ok && p.absolute && p.filter == nil && len(p.steps) > 0 {
+		p.independent = !dependsOnContext(p)
+		if optimise {
+			markKeyed(p)
+		}
+	}
+	for _, sub := range subexpressions(e) {
+		markIndependent(sub)
+	}
+}
+
+// dependsOnContext reports whether e refers to current() or a variable.
+func dependsOnContext(e expr) bool {
+	switch x := e.(type) {
+	case variableExpr:
+		return true
+	case *callExpr:
+		if x.name == "current" {
+			return true
+		}
+	}
+	return slices.ContainsFunc(subexpressions(e), dependsOnContext)
+}
+
+// subexpressions returns the operands, arguments and predicates of e.
+func subexpressions(e expr) []expr {
+	switch x := e.(type) {
+	case *negateExpr:
+		return []expr{x.e}
+	case *unionExpr:
+		return []expr{x.left, x.right}
+	case *binaryExpr:
+		return []expr{x.left, x.right}
+	case *filterExpr:
+		return append([]expr{x.primary}, x.preds...)
+	case *callExpr:
+		return x.args
+	case *pathExpr:
+		var out []expr
+		if x.filter != nil {
+			out = append(out, x.filter)
+		}
+		for _, s := range x.steps {
+			out = append(out, s.preds...)
+		}
+		return out
+	}
+	return nil
 }
 
 // mergeDescendantSteps rewrites descendant-or-self::node()/child::T into
 // descendant::T, which selects the same nodes without building the
 // intermediate set of every node in the subtree. It applies only when the
-// child step has no predicates: //p[1] is not descendant::p[1].
+// predicates of the child step depend neither on position nor on size:
+// //p[1] is not descendant::p[1], but //p[@a] is descendant::p[@a].
 func mergeDescendantSteps(steps []step) []step {
 	out := steps[:0:0]
 	for i := 0; i < len(steps); i++ {
 		s := steps[i]
 		if s.axis == axisDescendantOrSelf && s.test.kind == testNode && len(s.preds) == 0 &&
-			i+1 < len(steps) && steps[i+1].axis == axisChild && len(steps[i+1].preds) == 0 {
+			i+1 < len(steps) && steps[i+1].axis == axisChild &&
+			(len(steps[i+1].preds) == 0 || optimise && steps[i+1].byNode) {
 			next := steps[i+1]
 			next.axis = axisDescendant
 			out = append(out, next)
@@ -227,17 +289,17 @@ func (p *parser) parseRelativePath(path *pathExpr) error {
 }
 
 func descendantOrSelfStep() step {
-	return step{axis: axisDescendantOrSelf, test: nodeTest{kind: testNode}}
+	return step{axis: axisDescendantOrSelf, test: nodeTest{kind: testNode}, byNode: true}
 }
 
 func (p *parser) parseStep() (step, error) {
 	if p.isPunct(".") {
 		p.i++
-		return step{axis: axisSelf, test: nodeTest{kind: testNode}}, nil
+		return step{axis: axisSelf, test: nodeTest{kind: testNode}, byNode: true}, nil
 	}
 	if p.isPunct("..") {
 		p.i++
-		return step{axis: axisParent, test: nodeTest{kind: testNode}}, nil
+		return step{axis: axisParent, test: nodeTest{kind: testNode}, byNode: true}, nil
 	}
 	s := step{axis: axisChild}
 	switch t := p.peek(); {
@@ -261,6 +323,8 @@ func (p *parser) parseStep() (step, error) {
 	}
 	s.test = test
 	s.preds, err = p.parsePredicates()
+	s.first = optimise && selectsFirst(s.preds)
+	s.byNode = !slices.ContainsFunc(s.preds, func(p expr) bool { return !filtersByNode(p) })
 	return s, err
 }
 
@@ -406,7 +470,21 @@ func (p *parser) parseCall(t token) (expr, error) {
 	if err := p.expectPunct(")"); err != nil {
 		return nil, err
 	}
-	fn, ok := functions[t.text]
+	var fn function
+	var ok bool
+	if prefix, local, prefixed := strings.Cut(t.text, ":"); prefixed {
+		// A prefixed name is an extension function, found by its
+		// namespace URI rather than by the prefix as written.
+		uri, err := p.namespace(prefix)
+		if err != nil {
+			return nil, err
+		}
+		if uri == ExtensionNamespace {
+			fn, ok = extensionFunctions[local]
+		}
+	} else {
+		fn, ok = functions[t.text]
+	}
 	if !ok {
 		if unsupportedFunctions[t.text] {
 			return nil, fmt.Errorf("function %s() is not supported", t.text)

@@ -206,7 +206,13 @@ func init() { //nolint:gocognit // the table of the XPath 1.0 core functions
 			return id, nil
 		}},
 	}
+	extensionFunctions = map[string]function{
+		CountByAttribute: {5, 5, countByAttribute},
+	}
 }
+
+// extensionFunctions are the functions in ExtensionNamespace, by local name.
+var extensionFunctions map[string]function
 
 // round implements XPath round(): halves go up, -0.5 <= x < 0 gives -0.
 func round(f float64) float64 {
