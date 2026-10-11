@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -66,7 +67,8 @@ func TestRulesSkippedWhenSchemaInconclusive(t *testing.T) {
 	}
 }
 
-// Rules get the room MaxErrors leaves; none at all when the schema used it.
+// Rules get the room for errors MaxErrors leaves; none at all when the
+// schema used it. Their warnings have a limit of their own, MaxErrors.
 func TestRulesShareMaxErrors(t *testing.T) {
 	rules := &fakeRules{}
 	schema := &fakeSchema{verdict: SchemaVerdict{
@@ -75,8 +77,8 @@ func TestRulesShareMaxErrors(t *testing.T) {
 	}}
 	v := newTestValidator(t, schema, rules).WithLimits(qti.Limits{MaxErrors: 5})
 	validateDoc(t, v, item)
-	if rules.max != 3 {
-		t.Fatalf("rules got max %d, want 3", rules.max)
+	if want := (RuleLimits{Errors: 3, Warnings: 5}); rules.limits != want {
+		t.Fatalf("rules got limits %+v, want %+v", rules.limits, want)
 	}
 	rules.checked = 0
 	validateDoc(t, v.WithLimits(qti.Limits{MaxErrors: 2}), item)
@@ -89,6 +91,40 @@ func TestRuleFailureIsInternal(t *testing.T) {
 	rules := &fakeRules{err: errors.New("Schematron: boom")}
 	res := validateDoc(t, newTestValidator(t, &fakeSchema{verdict: validVerdict}, rules), item)
 	if res.Outcome != qti.OutcomeInternal || res.Errors[0].Code != qti.CodeInternal || res.Errors[0].Message != "Schematron: boom" {
+		t.Fatalf("got %+v", res)
+	}
+}
+
+// A rule failure keeps what was found before it: the schema errors, the
+// version notice and the version.
+func TestRuleFailureKeepsEarlierFindings(t *testing.T) {
+	rules := &fakeRules{err: errors.New("Schematron: boom")}
+	schema := &fakeSchema{verdict: SchemaVerdict{
+		Outcome: qti.OutcomeInvalid, Conclusive: true, Findings: []qti.Finding{{Code: qti.CodeValidation, Message: "bad"}},
+	}}
+	v := newTestValidator(t, schema, rules)
+	res := v.ValidateDocument(t.Context(), ValidateDocument{Document: strings.NewReader(manifest("3.0.0")), Version: "3.0.1"})
+	if res.Outcome != qti.OutcomeInternal || res.Valid || res.Version != "3.0.1" || res.Schema != "imscp-manifest" ||
+		len(res.Errors) != 2 || res.Errors[0].Code != qti.CodeValidation || res.Errors[1].Code != qti.CodeInternal ||
+		len(res.Warnings) != 1 || res.Warnings[0].Code != qti.CodeVersionOverridden {
+		t.Fatalf("got %+v", res)
+	}
+}
+
+// A rule failure also keeps the findings of the rules before it, such as
+// those of the built-in rules before a mounted rule set that fails.
+func TestRuleFailureKeepsEarlierRuleFindings(t *testing.T) {
+	rules := &fakeRules{
+		findings: []RuleFinding{
+			{Finding: qti.Finding{Code: qti.CodeSchematron, Message: "error"}},
+			{Finding: qti.Finding{Code: qti.CodeSchematron, Message: "warning"}, Warning: true},
+		},
+		err: errors.New("Schematron: boom"),
+	}
+	res := validateDoc(t, newTestValidator(t, &fakeSchema{verdict: validVerdict}, rules), item)
+	if res.Outcome != qti.OutcomeInternal || res.Valid || len(res.Errors) != 2 ||
+		res.Errors[0].Message != "error" || res.Errors[1].Code != qti.CodeInternal ||
+		len(res.Warnings) != 1 || res.Warnings[0].Message != "warning" {
 		t.Fatalf("got %+v", res)
 	}
 }
@@ -107,6 +143,54 @@ func TestDocumentDetection(t *testing.T) {
 	}
 	if res := validateDoc(t, v.WithLimits(qti.Limits{MaxDocumentSize: 10}), item); res.Outcome != qti.OutcomeTooLarge {
 		t.Errorf("too large: got %+v", res)
+	}
+}
+
+// A document that could not be read far enough to know its type gets the
+// version it would have been validated against: the forced one, or the
+// latest.
+func TestUnreadableDocumentGetsVersion(t *testing.T) {
+	v := newTestValidator(t, &fakeSchema{verdict: validVerdict}, nil)
+	for _, doc := range []string{`<x/>`, `<x>`, `<!DOCTYPE x><x/>`} {
+		if res := validateDoc(t, v, doc); res.Version != qti.LatestVersion().Name {
+			t.Errorf("%q: version %q, want %q", doc, res.Version, qti.LatestVersion().Name)
+		}
+		res := v.ValidateDocument(t.Context(), ValidateDocument{Document: strings.NewReader(doc), Version: "3.0.0"})
+		if res.Version != "3.0.0" {
+			t.Errorf("%q forced to 3.0.0: version %q", doc, res.Version)
+		}
+	}
+	if res := validateDoc(t, v.WithLimits(qti.Limits{MaxDocumentSize: 10}), item); res.Version != qti.LatestVersion().Name {
+		t.Errorf("too large: version %q", res.Version)
+	}
+}
+
+// Ran records the checks that ran, for the report's totalRun.
+func TestRanRecordsChecks(t *testing.T) {
+	invalid := SchemaVerdict{Outcome: qti.OutcomeInvalid, Conclusive: true, Findings: []qti.Finding{{Code: qti.CodeValidation}}}
+	inconclusive := SchemaVerdict{Outcome: qti.OutcomeInvalid, Findings: []qti.Finding{{Code: qti.CodeValidation}}}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, tc := range []struct {
+		name    string
+		ctx     context.Context
+		verdict SchemaVerdict
+		limits  qti.Limits
+		doc     string
+		want    qti.Checks
+	}{
+		{"valid", t.Context(), validVerdict, qti.Limits{}, item, qti.Checks{Schema: true, Rules: true}},
+		{"invalid", t.Context(), invalid, qti.Limits{}, item, qti.Checks{Schema: true, Rules: true}},
+		{"inconclusive", t.Context(), inconclusive, qti.Limits{}, item, qti.Checks{Schema: true}},
+		{"MAX_ERRORS reached", t.Context(), invalid, qti.Limits{MaxErrors: 1}, item, qti.Checks{Schema: true}},
+		{"stopped before", cancelled, validVerdict, qti.Limits{}, item, qti.Checks{}},
+		{"malformed", t.Context(), validVerdict, qti.Limits{}, `<x>`, qti.Checks{}},
+	} {
+		v := newTestValidator(t, &fakeSchema{verdict: tc.verdict}, &fakeRules{}).WithLimits(tc.limits)
+		res := v.ValidateDocument(tc.ctx, ValidateDocument{Document: strings.NewReader(tc.doc)})
+		if res.Ran != tc.want {
+			t.Errorf("%s: ran %+v, want %+v", tc.name, res.Ran, tc.want)
+		}
 	}
 }
 
@@ -296,6 +380,107 @@ func TestPackageOutOfTimeWhileReading(t *testing.T) {
 	}
 	if e := res.Errors[0]; !strings.Contains(e.Message, "item-2.xml and the files after it were not validated") {
 		t.Fatalf("package: %+v", e)
+	}
+}
+
+// Out of time before the fragments are validated, which comes after every
+// file was read, a fragment resource says so too: it is not reported as a
+// file that is no QTI document.
+func TestPackageOutOfTimeBeforeFragments(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	schema := &fakeSchema{verdict: validVerdict}
+	schema.during = func() {
+		if schema.checked == 2 {
+			cancel() // in the item
+		}
+	}
+	v := newTestValidator(t, schema, nil,
+		fakeEntry{name: qti.ManifestName, data: strings.Replace(manifest("3.0.0"), `</resources>`,
+			`<resource type="imsqti_fragment_xmlv3p0" href="frag.xml"/></resources>`, 1)},
+		fakeEntry{name: "frag.xml", data: `<div xmlns="` + qti.NamespaceASI + `"/>`},
+		fakeEntry{name: "item.xml", data: item},
+		fakeEntry{name: "item-2.xml", data: item},
+	)
+	res := v.ValidatePackage(ctx, ValidatePackage{Package: bytes.NewReader(nil)})
+	if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Files) != 3 || len(res.Errors) != 1 ||
+		!strings.Contains(res.Errors[0].Message, "item-2.xml and the files after it were not validated") {
+		t.Fatalf("got %+v", res)
+	}
+	if f := fileResult(t, res, "frag.xml"); f.Valid || f.Skipped || len(f.Errors) != 1 || f.Errors[0].Code != qti.CodeTooComplex {
+		t.Fatalf("frag.xml: %+v", f)
+	}
+}
+
+// A package that stops over its size before the fragments are validated
+// does not leave a fragment resource read so far with the result of a file
+// that is no QTI document.
+func TestPackageTooLargeBeforeFragments(t *testing.T) {
+	m := fakeEntry{name: qti.ManifestName, data: strings.Replace(manifest("3.0.0"), `</resources>`,
+		`<resource type="imsqti_fragment_xmlv3p0" href="frag.xml"/></resources>`, 1)}
+	frag := fakeEntry{name: "frag.xml", data: `<div xmlns="` + qti.NamespaceASI + `"/>`}
+	v := newTestValidator(t, &fakeSchema{verdict: validVerdict}, nil, m, frag, fakeEntry{name: "item.xml", data: item})
+	res := validatePkg(t, v, qti.PackageLimits{MaxUncompressedSize: int64(len(m.data)+len(frag.data)) + 5})
+	if res.Valid || res.Outcome != qti.OutcomeTooLarge || res.Errors[len(res.Errors)-1].Code != qti.CodeTooLarge {
+		t.Fatalf("got %+v", res)
+	}
+	if f := fileResult(t, res, "frag.xml"); !f.Valid || len(f.Errors) != 0 {
+		t.Fatalf("frag.xml: %+v", f)
+	}
+}
+
+// Out of time while the included files are validated as fragments, a
+// package stops the same way: the fragment that was running reports
+// too_complex, and the package names the ones that were not validated.
+func TestPackageOutOfTimeInFragments(t *testing.T) {
+	const div = `<div xmlns="` + qti.NamespaceASI + `"/>`
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	schema := &fakeSchema{verdict: validVerdict}
+	// The manifest and the item are checked first; the fragments only once
+	// the item is known to include them.
+	schema.during = func() {
+		if schema.checked == 3 {
+			cancel()
+		}
+	}
+	cfg := Config{
+		Versions:   map[string]Profile{},
+		References: fakeReferences{"frag-a.xml", "frag-b.xml", "frag-c.xml"},
+		OpenArchive: func(io.ReaderAt, int64, int) (Archive, error) {
+			return fakeArchive{
+				fakeEntry{name: qti.ManifestName, data: manifest("3.0.0")},
+				fakeEntry{name: "frag-a.xml", data: div},
+				fakeEntry{name: "item.xml", data: item},
+				fakeEntry{name: "frag-b.xml", data: div},
+				fakeEntry{name: "frag-c.xml", data: div},
+			}, nil
+		},
+	}
+	for _, name := range qti.SupportedVersions() {
+		cfg.Versions[name] = Profile{Schema: schema}
+	}
+	v, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := v.ValidatePackage(ctx, ValidatePackage{Package: bytes.NewReader(nil)})
+	if res.Valid || res.Outcome != qti.OutcomeTooComplex || len(res.Files) != 5 || schema.checked != 3 {
+		t.Fatalf("got %+v after %d schema checks", res, schema.checked)
+	}
+	for _, name := range []string{"frag-a.xml", "frag-b.xml", "frag-c.xml"} {
+		if f := fileResult(t, res, name); f.Valid || f.Skipped || len(f.Errors) != 1 || f.Errors[0].Code != qti.CodeTooComplex {
+			t.Errorf("%s: %+v", name, f)
+		}
+	}
+	var stops []string
+	for _, e := range res.Errors {
+		if e.Code == qti.CodeTooComplex {
+			stops = append(stops, e.Message)
+		}
+	}
+	if len(stops) != 1 || !strings.Contains(stops[0], "cancelled; frag-b.xml and the QTI fragments after it were not validated") {
+		t.Fatalf("package: %+v", res.Errors)
 	}
 }
 

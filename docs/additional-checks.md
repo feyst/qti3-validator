@@ -80,19 +80,27 @@ These run when a package is validated, after every file in it was read: they
 compare what the documents refer to with the files the package holds.
 References to other hosts (`https://…`) are not checked; whether they can be
 reached depends on the moment, not on the package. A reference that leaves
-the package (`../…`) counts as missing.
+the package (`../…`) counts as missing. An `href` that is not a valid URI
+reference, such as `100%.png` for a file of that name (write `100%25.png`),
+is reported under the check of the reference as not valid, not as missing;
+a file the manifest names that way does not also get `file-in-manifest`. A
+reference to an XML file that could not be read (too large, a corrupt entry)
+is not checked for its document type: that file's own finding says what is
+wrong.
 
 | Check | What it checks | Basis | Level |
 | --- | --- | --- | --- |
 | `manifest-file-exists` | Every `href` of a resource and its files in `imsmanifest.xml` is a file in the package (with `xml:base` applied) | Package files "MUST be contained in the corresponding QTI content package" | error |
-| `file-in-manifest` | Every file in the package is listed in the manifest | [Beginner's Guide](https://www.imsglobal.org/spec/qti/v3p0/guide): a manifest "lists all the assets contained within the package" | warning |
+| `file-in-manifest` | Every file in the package is listed in the manifest. Not checked when `imsmanifest.xml` is not a QTI 3 manifest, which is reported on the manifest itself | [Beginner's Guide](https://www.imsglobal.org/spec/qti/v3p0/guide): a manifest "lists all the assets contained within the package" | warning |
 | `item-ref-exists` | A `qti-assessment-item-ref` refers to an item in the package, a `qti-assessment-section-ref` to a section. An LTI link counts as an item, as the [Implementation Guide](https://www.imsglobal.org/spec/qti/v3p0/impl) describes in "Package with a Test and Items with LTI resources" | The test cannot load the item | error |
 | `stimulus-ref-exists` | A `qti-assessment-stimulus-ref` refers to a stimulus in the package | The item cannot show the stimulus | error |
 | `asset-exists` | `img`, `object`, `audio`, `video` (and its poster), `source`, `track`, `qti-stylesheet` and XInclude references are files in the package | The item cannot load them | error |
 | `pci-module-exists` | The `primary-path` or `fallback-path` of a PCI module, and its module configurations, are files in the package; `.js` may be left out. A missing `primary-path` with a `fallback-path` that exists is a warning | The interaction cannot load | error, or warning |
 | `catalog-file-exists` | The `qti-file-href` of a catalog card is a file in the package | "these files MUST be contained in the corresponding QTI content package" | error |
 | `template-location-exists` | A local `template-location` of response processing is a file in the package | A delivery engine that does not know the template cannot fetch it | warning |
-| `test-item-variable-declared` | A test's `ITEM.VARIABLE` refers to a variable the item declares, or a built-in one | "All variables must be declared" | error |
+| `item-ref-identifier-unique` | The item refs of a test and of the sections it includes with `qti-assessment-section-ref`, however deeply nested, have distinct identifiers across these documents; reported on the test, not on the sections, once per identifier. A section document that the test includes more than once, directly or through another section, is reported once: its item refs are then in the test more than once (a section that includes itself is `section-ref-cycle` instead). Within one document `test-identifier-unique` checks this; two tests may use the same item-ref identifier | "must be unique within the test" | error |
+| `section-ref-cycle` | No section document of a test includes itself with `qti-assessment-section-ref`, directly or through other sections; reported on the test, once per section that closes a cycle, with the documents of the cycle in the message. A cycle that no test reaches is not reported | A section cannot be a part of itself: the test has no end | error |
+| `test-item-variable-declared` | A test's `ITEM.VARIABLE` refers to a variable the item declares, or a built-in one. `ITEM` is an item ref of that test, or of a section it includes with `qti-assessment-section-ref`; two tests may use the same item-ref identifier for different items. Not checked when `ITEM` names different items in the test (see `item-ref-identifier-unique`) | "All variables must be declared" | error |
 
 ## Value types
 

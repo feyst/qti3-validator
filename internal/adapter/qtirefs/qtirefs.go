@@ -9,7 +9,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
-	"path"
 	"strings"
 
 	"qti3-validator/internal/app"
@@ -67,8 +66,9 @@ func (Reader) ReadReferences(data []byte) (qti.DocumentReferences, error) {
 type reader struct {
 	refs     qti.DocumentReferences
 	root     xml.Name
-	bases    []string // xml:base of the enclosing manifest elements
-	inCard   bool     // inside qti-file-href, whose text is the reference
+	open     []string      // the elements around the current one, as Reference.Within names them
+	bases    qti.BaseStack // xml:base of the enclosing manifest elements
+	inCard   bool          // inside qti-file-href, whose text is the reference
 	cardLine int
 	cardCol  int
 	cardText strings.Builder
@@ -79,6 +79,12 @@ func (r *reader) start(t xml.StartElement, line, col int) {
 		r.root = t.Name
 		r.refs.Root = t.Name.Local
 	}
+	within := r.open
+	if t.Name.Space == qti.NamespaceASI {
+		r.open = append(r.open, t.Name.Local)
+	} else {
+		r.open = append(r.open, "{"+t.Name.Space+"}"+t.Name.Local)
+	}
 	add := func(kind qti.RefKind, href string) {
 		if href != "" {
 			r.refs.References = append(r.refs.References, qti.Reference{
@@ -88,17 +94,18 @@ func (r *reader) start(t xml.StartElement, line, col int) {
 	}
 	switch t.Name.Space {
 	case qti.NamespaceManifest:
-		base := attr(t, namespaceXML, "base")
-		if len(r.bases) > 0 {
-			base = path.Join(r.bases[len(r.bases)-1], base)
-		}
-		r.bases = append(r.bases, base)
+		base := r.bases.Push(attr(t, namespaceXML, "base"))
 		if t.Name.Local == "resource" || t.Name.Local == "file" {
-			add(qti.RefManifestFile, joinBase(base, attr(t, "", "href")))
+			add(qti.RefManifestFile, qti.JoinBase(base, attr(t, "", "href")))
 		}
 	case namespaceXInclude:
 		if t.Name.Local == "include" {
 			add(qti.RefAsset, attr(t, "", "href"))
+			// parse="text" includes a file as text, whatever it holds.
+			if n := len(r.refs.References); attr(t, "", "href") != "" && attr(t, "", "parse") != "text" {
+				r.refs.References[n-1].Include = true
+				r.refs.References[n-1].Within = "/" + strings.Join(within, "/")
+			}
 		}
 	case qti.NamespaceASI:
 		readASI(&r.refs, t, r.root, line, col, add)
@@ -110,8 +117,9 @@ func (r *reader) start(t xml.StartElement, line, col int) {
 }
 
 func (r *reader) end(t xml.EndElement) {
-	if t.Name.Space == qti.NamespaceManifest && len(r.bases) > 0 {
-		r.bases = r.bases[:len(r.bases)-1]
+	r.open = r.open[:len(r.open)-1]
+	if t.Name.Space == qti.NamespaceManifest {
+		r.bases.Pop()
 	}
 	if r.inCard && t.Name.Local == "qti-file-href" {
 		r.inCard = false
@@ -165,15 +173,6 @@ func readASI(refs *qti.DocumentReferences, t xml.StartElement, root xml.Name, li
 			add(qti.RefAsset, attr(t, "", a))
 		}
 	}
-}
-
-// joinBase applies an xml:base to a relative href. An href or base with a
-// scheme points elsewhere and is left as it is.
-func joinBase(base, href string) string {
-	if base == "" || href == "" || strings.Contains(href, ":") || strings.Contains(base, ":") {
-		return href
-	}
-	return path.Join(base, href)
 }
 
 func attr(t xml.StartElement, space, local string) string {

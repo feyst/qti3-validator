@@ -1,9 +1,11 @@
 package qti
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -26,10 +28,15 @@ const (
 
 // Reference is a reference from a document to another file in its package.
 type Reference struct {
-	Kind         RefKind
-	Href         string // as written, relative to the document; for RefManifestFile with xml:base applied
-	Fallback     string // RefModule: the fallback-path, used when Href does not resolve
-	Element      string // the element that holds it, for messages
+	Kind     RefKind
+	Href     string // as written, relative to the document; for RefManifestFile with xml:base applied
+	Fallback string // RefModule: the fallback-path, used when Href does not resolve
+	Element  string // the element that holds it, for messages
+	Include  bool   // an XInclude of XML: the file it names is a fragment of this document
+	// Within is, for an Include, the path of the element the XInclude stands
+	// in, from the root of the document: "/qti-assessment-item/qti-item-body".
+	// An element outside the QTI namespace is in it as "{namespace}name".
+	Within       string
 	Line, Column int
 }
 
@@ -66,6 +73,10 @@ type PackageDocument struct {
 type PackageContents struct {
 	Files     []string
 	Documents map[string]PackageDocument // by file name
+	// Unreadable are XML files that could not be read, because they are too
+	// large or their entry is corrupt. A reference to one is not checked for
+	// its document type: the file's own error already says what is wrong.
+	Unreadable map[string]bool
 }
 
 // ReferenceFinding is a finding of the reference checks. File is the
@@ -86,6 +97,8 @@ const (
 	CheckPCIModuleExists        = "pci-module-exists"
 	CheckCatalogFileExists      = "catalog-file-exists"
 	CheckTestItemVariable       = "test-item-variable-declared"
+	CheckItemRefUnique          = "item-ref-identifier-unique"
+	CheckSectionRefCycle        = "section-ref-cycle"
 )
 
 // builtinVariables are declared implicitly in every item.
@@ -93,8 +106,10 @@ var builtinVariables = map[string]bool{"numAttempts": true, "duration": true, "c
 
 // CheckReferences checks that every reference in a package resolves to a
 // file of the package, of the right document type where that matters, that
-// every file is listed in the manifest, and that a test refers only to
-// variables its items declare. References to other hosts (URLs with a
+// every file is listed in the manifest, that the item refs of a test and of
+// the sections it includes have distinct identifiers, that no section of a
+// test includes itself, and that a test refers only to variables its items
+// declare. References to other hosts (URLs with a
 // scheme) are not checked.
 func CheckReferences(p PackageContents) []ReferenceFinding {
 	c := refChecker{files: map[string]bool{}, p: p}
@@ -107,24 +122,13 @@ func CheckReferences(p PackageContents) []ReferenceFinding {
 	}
 	sort.Strings(names)
 	listed := map[string]bool{}
-	_, hasManifest := p.Documents[ManifestName]
+	// Without a QTI 3 manifest, which the manifest's own validation reports,
+	// nothing is listed, so the files are not reported one by one.
+	hasManifest := p.Documents[ManifestName].Schema == SchemaManifest
 	for _, name := range names {
-		checked := map[string]bool{} // manifest files, which a resource and its file both name
-		for _, ref := range p.Documents[name].Refs.References {
-			target, local, inside := resolve(name, ref.Href)
-			if ref.Kind == RefManifestFile {
-				if checked[target] {
-					continue
-				}
-				checked[target] = true
-				if local && inside {
-					listed[target] = true
-				}
-			}
-			c.check(name, ref, target, local, inside)
-		}
+		c.checkDocument(name, listed)
 	}
-	c.checkVariables(names)
+	c.checkTests(names)
 	if hasManifest {
 		for _, f := range p.Files {
 			if f != ManifestName && !listed[f] {
@@ -139,6 +143,36 @@ type refChecker struct {
 	p     PackageContents
 	files map[string]bool
 	out   []ReferenceFinding
+}
+
+// checkDocument checks the references of one document, and adds the files
+// the manifest lists to listed.
+func (c *refChecker) checkDocument(name string, listed map[string]bool) {
+	checked := map[string]bool{} // manifest files, which a resource and its file both name
+	for _, ref := range c.p.Documents[name].Refs.References {
+		target, local, inside := resolve(name, ref.Href)
+		err := invalidHref(ref.Href)
+		if err != nil {
+			// The file is listed, if not correctly: one finding is enough.
+			target, local, inside = path.Join(path.Dir(name), strings.TrimSpace(ref.Href)), true, true
+		}
+		if ref.Kind == RefManifestFile {
+			if checked[target] {
+				continue
+			}
+			checked[target] = true
+			if local && inside {
+				listed[target] = true
+			}
+		}
+		if err != nil {
+			r := rules[ref.Kind]
+			c.add(name, ref.Line, ref.Column, r.check, r.warning,
+				"%s refers to %q, which is not a valid URI reference: %v.", ref.Element, ref.Href, err)
+			continue
+		}
+		c.check(name, ref, target, local, inside)
+	}
 }
 
 func (c *refChecker) add(file string, line, col int, check string, warning bool, format string, args ...any) {
@@ -175,9 +209,12 @@ func (c *refChecker) check(from string, ref Reference, target string, local, ins
 		c.add(from, ref.Line, ref.Column, r.check, r.warning, "%s refers to %q, which is outside the package.", ref.Element, ref.Href)
 		return
 	}
+	if r.schema != "" && c.p.Unreadable[target] {
+		return // the file could not be read; its own error says so
+	}
 	if !c.exists(ref.Kind, target) {
 		if ref.Kind == RefModule && ref.Fallback != "" {
-			if fb, local, inside := resolve(from, ref.Fallback); !local || inside && c.exists(ref.Kind, fb) {
+			if fb, local, inside := resolve(from, ref.Fallback); invalidHref(ref.Fallback) == nil && (!local || inside && c.exists(ref.Kind, fb)) {
 				c.add(from, ref.Line, ref.Column, r.check, true,
 					"%s: primary-path %q is not in the package; the fallback-path %q is used.", ref.Element, ref.Href, ref.Fallback)
 				return
@@ -212,39 +249,229 @@ func (c *refChecker) exists(kind RefKind, target string) bool {
 	return c.files[target] || kind == RefModule && c.files[target+".js"]
 }
 
-// checkVariables checks the "ITEM.VARIABLE" references of tests against the
-// variables the referenced items declare.
-func (c *refChecker) checkVariables(names []string) {
-	items := map[string]string{} // item-ref identifier → item file
+// checkTests checks the item refs of each test and its "ITEM.VARIABLE"
+// references. Item-ref identifiers are unique only within one test, so each
+// test is checked against its own item refs: those in the test itself and in
+// the sections it includes with qti-assessment-section-ref, however deeply
+// nested. A section that includes itself, directly or through other
+// sections, is reported as that (CheckSectionRefCycle), on the test too. The rules see one document at a time, so an identifier used in two
+// of these documents is reported here; one used twice in one document is
+// left to the rules (test-identifier-unique). Duplicates are reported on the
+// test only: a section document is not a scope of its own, and the tests
+// that include it report it. Its "ITEM.VARIABLE" references are checked
+// against the item refs it can see itself.
+func (c *refChecker) checkTests(names []string) {
 	for _, name := range names {
-		for _, ir := range c.p.Documents[name].Refs.ItemRefs {
-			if target, local, inside := resolve(name, ir.Href); local && inside {
-				items[ir.Identifier] = target
+		doc := c.p.Documents[name]
+		vrs := doc.Refs.VariableRefs
+		isTest := doc.Schema == "qti-assessment-test"
+		if !isTest && len(vrs) == 0 {
+			continue
+		}
+		found := c.testItems(name)
+		if isTest {
+			for _, d := range found.dups {
+				c.add(name, 0, 0, CheckItemRefUnique, false,
+					"qti-assessment-item-ref identifier %q is used in both %s (for %s) and %s (for %s) of test %s; item-ref identifiers must be unique within a test.",
+					d.identifier, d.first.doc, d.first.target, d.second.doc, d.second.target, name)
+			}
+			for _, section := range found.repeated {
+				c.checkRepeatedSection(name, section)
+			}
+			for _, cycle := range found.cycles {
+				c.add(name, 0, 0, CheckSectionRefCycle, false,
+					"%s includes itself with qti-assessment-section-ref (%s) in test %s; a section cannot be a part of itself.",
+					cycle[0], strings.Join(cycle, " includes "), name)
 			}
 		}
+		c.checkVariables(name, vrs, found.items)
 	}
-	for _, name := range names {
-		for _, vr := range c.p.Documents[name].Refs.VariableRefs {
-			file, ok := items[vr.Item]
-			doc, found := c.p.Documents[file]
-			if !ok || !found || doc.Schema != "qti-assessment-item" || builtinVariables[vr.Variable] {
-				continue // not an item, or an item reference that does not resolve: reported above
-			}
-			declared := false
-			for _, d := range doc.Refs.Declared {
-				declared = declared || d == vr.Variable
-			}
-			if !declared {
-				c.add(name, vr.Line, vr.Column, CheckTestItemVariable, false,
-					"qti-variable refers to %s.%s, but %s declares no variable %s.", vr.Item, vr.Variable, file, vr.Variable)
-			}
+}
+
+// checkRepeatedSection reports a section document that a test includes more
+// than once: each of its item refs, and of the sections it includes, is
+// then in the test more than once.
+func (c *refChecker) checkRepeatedSection(test, section string) {
+	identifiers := c.testItems(section).identifiers
+	if len(identifiers) == 0 {
+		return
+	}
+	more := ""
+	if n := len(identifiers) - 1; n == 1 {
+		more = " and 1 other"
+	} else if n > 1 {
+		more = fmt.Sprintf(" and %d others", n)
+	}
+	c.add(test, 0, 0, CheckItemRefUnique, false,
+		"%s is included more than once in test %s, which puts its qti-assessment-item-ref identifiers (%q%s) in the test more than once; item-ref identifiers must be unique within a test.",
+		section, test, identifiers[0], more)
+}
+
+// checkVariables checks the "ITEM.VARIABLE" references of a test against the
+// variables its items declare.
+func (c *refChecker) checkVariables(test string, vrs []VariableRef, items map[string]string) {
+	for _, vr := range vrs {
+		file := items[vr.Item]
+		doc, found := c.p.Documents[file]
+		if file == "" || !found || doc.Schema != "qti-assessment-item" || builtinVariables[vr.Variable] {
+			// Not an item, an item reference that does not resolve
+			// (reported above), or an identifier that names different
+			// items in the test and its sections (not unique, so which
+			// item is meant is unknown).
+			continue
+		}
+		if !slices.Contains(doc.Refs.Declared, vr.Variable) {
+			c.add(test, vr.Line, vr.Column, CheckTestItemVariable, false,
+				"qti-variable refers to %s.%s, but %s declares no variable %s.", vr.Item, vr.Variable, file, vr.Variable)
 		}
 	}
 }
 
+// itemRefSite is where an item ref is, and the item file it refers to.
+type itemRefSite struct{ doc, target string }
+
+// duplicateItemRef is an item-ref identifier used in two documents of a test.
+type duplicateItemRef struct {
+	identifier    string
+	first, second itemRefSite
+}
+
+// testItemRefs collects the item refs of a test and its sections.
+type testItemRefs struct {
+	// items maps an identifier to the item file it refers to, or to "" when
+	// it refers to different files.
+	items map[string]string
+	// identifiers are the identifiers, once each, in the order they were
+	// found.
+	identifiers []string
+	first       map[string]itemRefSite
+	// dups are the identifiers used in more than one document, once each,
+	// in the order they were found.
+	dups     []duplicateItemRef
+	reported map[string]bool
+	// repeated are the section documents that are included more than once,
+	// once each, in the order they were found. A section that includes
+	// itself is not among them for that.
+	repeated []string
+	// cycles are the section documents that include themselves, directly or
+	// through other sections, once each: the documents from the section to
+	// itself, in the order they include each other.
+	cycles [][]string
+}
+
+func (r *testItemRefs) add(identifier string, site itemRefSite) {
+	if prev, ok := r.first[identifier]; !ok {
+		r.first[identifier] = site
+		r.identifiers = append(r.identifiers, identifier)
+	} else if prev.doc != site.doc && !r.reported[identifier] {
+		r.reported[identifier] = true
+		r.dups = append(r.dups, duplicateItemRef{identifier: identifier, first: prev, second: site})
+	}
+	target := site.target
+	if prev, ok := r.items[identifier]; ok && prev != target {
+		target = ""
+	}
+	r.items[identifier] = target
+}
+
+// testItems collects the item refs of a test, or of a section: those of the
+// document itself and of the section documents it includes. It maps their
+// identifiers to the item files they refer to, an identifier that refers to
+// different files to "", and finds the identifiers used in more than one of
+// these documents, the sections included more than once, and the sections
+// that include themselves.
+func (c *refChecker) testItems(test string) testItemRefs {
+	found := testItemRefs{items: map[string]string{}, first: map[string]itemRefSite{}, reported: map[string]bool{}}
+	// A document in the queue comes with the documents that include it,
+	// from test down. One that is among them includes itself, which is not
+	// being included more than once: sectionCycles finds those.
+	type inclusion struct {
+		doc  string
+		from []string
+	}
+	visits := map[string]int{}
+	queue := []inclusion{{doc: test}}
+	for len(queue) > 0 {
+		in := queue[0]
+		queue = queue[1:]
+		doc := in.doc
+		if slices.Contains(in.from, doc) {
+			continue
+		}
+		visits[doc]++
+		if visits[doc] == 2 {
+			found.repeated = append(found.repeated, doc)
+		}
+		if visits[doc] > 1 {
+			continue
+		}
+		from := append(slices.Clone(in.from), doc)
+		for _, ir := range c.p.Documents[doc].Refs.ItemRefs {
+			if target, local, inside := resolve(doc, ir.Href); local && inside {
+				found.add(ir.Identifier, itemRefSite{doc: doc, target: target})
+			}
+		}
+		for _, target := range c.sections(doc) {
+			queue = append(queue, inclusion{doc: target, from: from})
+		}
+	}
+	found.cycles = c.sectionCycles(test)
+	return found
+}
+
+// sections returns the section documents that a test or section includes
+// with qti-assessment-section-ref, in the order of its references.
+func (c *refChecker) sections(doc string) []string {
+	var out []string
+	for _, ref := range c.p.Documents[doc].Refs.References {
+		if ref.Kind != RefSection {
+			continue
+		}
+		if target, local, inside := resolve(doc, ref.Href); local && inside && c.p.Documents[target].Schema == "qti-assessment-section" {
+			out = append(out, target)
+		}
+	}
+	return out
+}
+
+// sectionCycles finds the section documents, among those a test or section
+// includes, that include themselves. Each comes once, as the documents from
+// the section back to itself.
+func (c *refChecker) sectionCycles(start string) [][]string {
+	const open, done = 1, 2
+	var (
+		cycles [][]string
+		within []string // the documents being visited, each including the next
+		state  = map[string]int{}
+		closed = map[string]bool{}
+		visit  func(doc string)
+	)
+	visit = func(doc string) {
+		state[doc] = open
+		within = append(within, doc)
+		for _, target := range c.sections(doc) {
+			switch state[target] {
+			case open:
+				if !closed[target] {
+					closed[target] = true
+					cycles = append(cycles, append(slices.Clone(within[slices.Index(within, target):]), target))
+				}
+			case done:
+			default:
+				visit(target)
+			}
+		}
+		within = within[:len(within)-1]
+		state[doc] = done
+	}
+	visit(start)
+	return cycles
+}
+
 // resolve resolves href against the document it is in. local is false for a
-// reference to another host, a fragment or a data URI; inside is false when
-// the path leaves the package.
+// reference to another host, a fragment or a data URI, and for an href that
+// is not a valid URI reference, which CheckReferences reports as such;
+// inside is false when the path leaves the package.
 func resolve(doc, href string) (target string, local, inside bool) {
 	href = strings.TrimSpace(href)
 	if href == "" || strings.HasPrefix(href, "#") {
@@ -252,7 +479,7 @@ func resolve(doc, href string) (target string, local, inside bool) {
 	}
 	u, err := url.Parse(href)
 	if err != nil {
-		return "", true, false
+		return "", false, false
 	}
 	if u.Scheme != "" || u.Host != "" {
 		return "", false, false
@@ -262,4 +489,14 @@ func resolve(doc, href string) (target string, local, inside bool) {
 		return p, true, false
 	}
 	return p, true, true
+}
+
+// invalidHref returns why an href is not a valid URI reference, such as a
+// "%" that does not start an escape, or nil when it is one.
+func invalidHref(href string) error {
+	_, err := url.Parse(strings.TrimSpace(href))
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
+		return urlErr.Err
+	}
+	return err
 }

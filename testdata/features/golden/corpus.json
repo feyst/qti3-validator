@@ -209,7 +209,6 @@
   "qtiv3-examples/CAT/CAT_Test01_Adaptive_EchoAdapt.zip": {
     "outcome": "FATAL",
     "codes": [
-      "reference",
       "unsupported_document"
     ]
   },
@@ -222,7 +221,6 @@
   "qtiv3-examples/PCI/sample_pci.zip": {
     "outcome": "FATAL",
     "codes": [
-      "reference",
       "unsupported_document"
     ]
   },
@@ -497,10 +495,7 @@
     "outcome": "VALID"
   },
   "qtiv3-examples/packaging/CASEWithOutcome/CASEWithOutcome.zip": {
-    "outcome": "FATAL",
-    "codes": [
-      "unsupported_document"
-    ]
+    "outcome": "VALID"
   },
   "qtiv3-examples/packaging/CASEWithOutcome/Test_258641331.xml": {
     "outcome": "VALID"
@@ -509,10 +504,7 @@
     "outcome": "VALID"
   },
   "qtiv3-examples/packaging/CASEWithOutcome/testoutcome01.xml": {
-    "outcome": "FATAL",
-    "codes": [
-      "unsupported_document"
-    ]
+    "outcome": "VALID"
   },
   "qtiv3-examples/packaging/basicFeedbackTest/assessment.xml": {
     "outcome": "VALID"

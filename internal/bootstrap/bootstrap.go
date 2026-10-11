@@ -78,7 +78,11 @@ func NewValidator(opts Options) (*app.Validator, error) {
 		if err != nil {
 			return nil, err
 		}
-		cfg.Versions[v.Name] = app.Profile{Schema: schema, Rules: rules.Chain(builtin, mounted.Rules)}
+		elements, err := xsdschema.DeclaredElements(resolver, v.ASI)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Versions[v.Name] = app.Profile{Schema: schema, Rules: rules.Chain(builtin, mounted.Rules), Elements: &elements}
 	}
 	for _, t := range mounted.Types {
 		cfg.CustomTypes = append(cfg.CustomTypes, app.CustomType{

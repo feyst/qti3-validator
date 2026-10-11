@@ -20,15 +20,55 @@ type SchemaVerdict struct {
 	// Conclusive reports that the whole document was assessed, so rules can
 	// run on it too.
 	Conclusive bool
+	// RootUndeclared reports that the schema declares no global element for
+	// the document's root, so its content was not assessed against it.
+	RootUndeclared bool
+	// UnresolvedIDRefs are the indexes in Findings of IDREFs whose ID is not
+	// in the document. In a fragment that is no error: the ID may be in the
+	// document that includes it.
+	UnresolvedIDRefs []int
 }
 
-// RuleChecker runs Schematron rules on a well-formed document and returns at
-// most maxFindings findings; zero means no limit. When it stops before the
-// end, because the rules take more work than it allows for one document or
-// ctx is done, it returns the findings so far with an error wrapping
-// ErrTooComplex or ctx.Err().
+// SchemaElements are the names of the elements a schema declares in its
+// target namespace.
+type SchemaElements struct {
+	Namespace string
+	// Global are the elements declared at the top level: a document, or a
+	// fragment, with such a root can be validated as it is.
+	Global map[string]bool
+	// Local are the elements declared inside a type or a group, which are
+	// valid only where that type allows them.
+	Local map[string]bool
+	// ManyTyped are the elements declared with more than one type: which
+	// one such an element has depends on the element it stands in, as a
+	// qti-rubric-block of an item is another type than one of a section.
+	ManyTyped map[string]bool
+}
+
+// Declares reports whether the schema declares an element of that name,
+// anywhere.
+func (e SchemaElements) Declares(local string) bool { return e.Global[local] || e.Local[local] }
+
+// RuleChecker runs Schematron rules on a well-formed document and returns
+// the findings within limits. When it stops before the end, because the
+// rules take more work than it allows for one document or ctx is done, it
+// returns the findings so far with an error wrapping ErrTooComplex or
+// ctx.Err(). When a rule fails, it returns the findings so far with any
+// other error.
 type RuleChecker interface {
-	CheckRules(ctx context.Context, data []byte, maxFindings int) ([]RuleFinding, error)
+	CheckRules(ctx context.Context, data []byte, limits RuleLimits) ([]RuleFinding, error)
+}
+
+// RuleLimits bound the findings of a RuleChecker. Errors and warnings are
+// bounded apart, so warnings never take the room of an error.
+type RuleLimits struct {
+	// Errors is the number of errors after which the rules stop; zero means
+	// no limit.
+	Errors int
+	// Warnings is the number of warnings kept; the rules go on looking for
+	// errors after it, and add one warning with qti.CodeWarningsOmitted that
+	// says how many warnings they left out. Zero means no limit.
+	Warnings int
 }
 
 // ErrTooComplex reports that checking a document takes more work than a
@@ -46,6 +86,10 @@ type RuleFinding struct {
 type Profile struct {
 	Schema SchemaChecker
 	Rules  RuleChecker
+	// Elements are the elements of the QTI schema, for checking the
+	// fragments of a package. Without them the content of a fragment whose
+	// root is not a global element is not checked, which a warning says.
+	Elements *SchemaElements
 }
 
 // CustomType is a document type a mounted validator adds. It has no QTI

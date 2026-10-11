@@ -10,8 +10,10 @@ import (
 
 var testMeta = Meta{Generator: "qti-validator test", InputName: "input", Now: time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC)}
 
+var ranBoth = qti.Checks{Schema: true, Rules: true}
+
 func validItem(version string) qti.DocumentResult {
-	return qti.DocumentResult{Valid: true, Schema: "qti-assessment-item", Version: version, Outcome: qti.OutcomeValid}
+	return qti.DocumentResult{Valid: true, Schema: "qti-assessment-item", Version: version, Outcome: qti.OutcomeValid, Ran: ranBoth}
 }
 
 func TestDocumentReportValid(t *testing.T) {
@@ -64,9 +66,40 @@ func TestDocumentReportFatal(t *testing.T) {
 	}
 }
 
+// A document that was not validated has a NOT_RUN item that says why,
+// whether or not its finding is FATAL.
+func TestDocumentReportNotRunReason(t *testing.T) {
+	for _, tc := range []struct {
+		code    qti.Code
+		outcome string
+		message string
+	}{
+		{qti.CodeInvalidXML, OutcomeNameFatal, "Not run: the document could not be read."},
+		{qti.CodeUnsupportedDocument, OutcomeNameFatal, "Not run: the document is not a supported document type."},
+		{qti.CodeTooLarge, OutcomeNameError, "Not run: the document is too large."},
+		{qti.CodeTooComplex, OutcomeNameException, "Not run: validation stopped before these checks."},
+	} {
+		pkg := qti.PackageResult{Version: "3.0.1", Outcome: qti.OutcomeInvalid, Files: []qti.FileResult{
+			{File: "item.xml", Errors: []qti.Finding{{Code: tc.code, File: "item.xml", Message: "m"}}},
+		}}
+		r := ForPackage(pkg, testMeta)
+		if r.Summary.Outcome != tc.outcome || r.Summary.NotRun != 1 || r.Summary.TotalRun != 2 || r.NotRun[0].Message != tc.message ||
+			r.NotRun[0].Location.Resource != "/item.xml" {
+			t.Errorf("%s: %+v", tc.code, r)
+		}
+	}
+	// Checks that ran are not reported as not run.
+	res := qti.DocumentResult{Schema: "qti-assessment-item", Version: "3.0.1", Outcome: qti.OutcomeInvalid, Ran: ranBoth, Errors: []qti.Finding{
+		{Code: qti.CodeValidation, Message: "bad value"}, {Code: qti.CodeTooLarge, Message: "m"},
+	}}
+	if r := ForDocument(res, testMeta); r.Summary.NotRun != 0 || r.Summary.TotalRun != 3 {
+		t.Errorf("ran: %+v", r.Summary)
+	}
+}
+
 // A validation that stopped is an EXCEPTION, after the errors found before.
 func TestDocumentReportTooComplex(t *testing.T) {
-	res := qti.DocumentResult{Schema: "qti-assessment-item", Version: "3.0.1", Outcome: qti.OutcomeTooComplex, Errors: []qti.Finding{
+	res := qti.DocumentResult{Schema: "qti-assessment-item", Version: "3.0.1", Outcome: qti.OutcomeTooComplex, Ran: ranBoth, Errors: []qti.Finding{
 		{Code: qti.CodeValidation, Message: "bad value"},
 		{Code: qti.CodeTooComplex, Message: "validation stopped: the document is too complex to validate"},
 	}}
@@ -94,6 +127,14 @@ func TestReportWarningsStayValid(t *testing.T) {
 	if r.Warnings[0].Code != string(qti.CodeVersionOverridden) || r.Warnings[0].Generator != "version" {
 		t.Fatalf("warning %+v", r.Warnings[0])
 	}
+	// The note that rule warnings were left out is a warning with a code of
+	// its own: limit_exceeded is always an error.
+	res.Warnings = []qti.Finding{{Code: qti.CodeWarningsOmitted, Message: "3 further warnings"}}
+	r = ForDocument(res, testMeta)
+	if r.Summary.Outcome != OutcomeNameWarning || !r.IsValid() || len(r.Errors) != 0 || r.Warnings[0].Code != "warnings_omitted" ||
+		r.Warnings[0].Outcome != OutcomeNameWarning || r.Warnings[0].Title != "Limits" || r.Warnings[0].Generator != "limits" {
+		t.Fatalf("summary %+v, warnings %+v", r.Summary, r.Warnings)
+	}
 	res = qti.DocumentResult{
 		Schema: "imscp-manifest", Version: "3.0.0", Outcome: qti.OutcomeInvalid,
 		Errors: []qti.Finding{{Code: qti.CodeValidation, Message: "bad type"}},
@@ -110,9 +151,9 @@ func TestPackageReport(t *testing.T) {
 		Version: "3.0.0", Outcome: qti.OutcomeMalformed,
 		Errors: []qti.Finding{{Code: qti.CodeUnsafePath, File: "../evil.xml", Message: "unsafe"}},
 		Files: []qti.FileResult{
-			{File: "imsmanifest.xml", Valid: true, Schema: "imscp-manifest", Version: "3.0.0"},
-			{File: "test.xml", Valid: true, Schema: "qti-assessment-test", Version: "3.0.0"},
-			{File: "items/item-1.xml", Valid: true, Schema: "qti-assessment-item", Version: "3.0.0"},
+			{File: "imsmanifest.xml", Valid: true, Schema: "imscp-manifest", Version: "3.0.0", Ran: ranBoth},
+			{File: "test.xml", Valid: true, Schema: "qti-assessment-test", Version: "3.0.0", Ran: ranBoth},
+			{File: "items/item-1.xml", Valid: true, Schema: "qti-assessment-item", Version: "3.0.0", Ran: ranBoth},
 			{File: "items/broken.xml", Errors: broken.Errors},
 			{File: "extra/config.xml", Valid: true, Skipped: true},
 		},
@@ -131,6 +172,33 @@ func TestPackageReport(t *testing.T) {
 	}
 	if r.Errors[0].Code != string(qti.CodeUnsafePath) || r.Errors[0].Location.Resource != "/../evil.xml" {
 		t.Fatalf("package error %+v", r.Errors[0])
+	}
+}
+
+// totalRun counts the checks that ran: reading, and the XML Schema and the
+// Schematron rules only when they ran.
+func TestTotalRunCountsChecksThatRan(t *testing.T) {
+	for _, tc := range []struct {
+		ran  qti.Checks
+		want int
+	}{
+		{ranBoth, 3},
+		{qti.Checks{Schema: true}, 2}, // the rules did not run: MAX_ERRORS reached, or the schema check was not conclusive
+		{qti.Checks{}, 1},             // stopped before the schema check, or too large
+	} {
+		res := qti.DocumentResult{
+			Schema: "qti-assessment-item", Version: "3.0.1", Outcome: qti.OutcomeInvalid, Ran: tc.ran,
+			Errors: []qti.Finding{{Code: qti.CodeValidation, Message: "bad"}},
+		}
+		if got := ForDocument(res, testMeta).Summary.TotalRun; got != tc.want {
+			t.Errorf("%+v: totalRun %d, want %d", tc.ran, got, tc.want)
+		}
+		pkg := qti.PackageResult{Version: "3.0.1", Outcome: qti.OutcomeInvalid, Files: []qti.FileResult{
+			{File: "item.xml", Schema: res.Schema, Version: res.Version, Errors: res.Errors, Ran: tc.ran},
+		}}
+		if got := ForPackage(pkg, testMeta).Summary.TotalRun; got != tc.want+1 {
+			t.Errorf("package %+v: totalRun %d, want %d", tc.ran, got, tc.want+1)
+		}
 	}
 }
 

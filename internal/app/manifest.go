@@ -3,8 +3,6 @@ package app
 import (
 	"bytes"
 	"encoding/xml"
-	"net/url"
-	"path"
 	"strings"
 
 	"qti3-validator/internal/domain/qti"
@@ -43,43 +41,76 @@ func manifestSchemaVersion(data []byte) qti.DeclaredVersion {
 	}
 }
 
-// manifestQTIFiles lists the href and file hrefs of the manifest's QTI
-// resources, as paths inside the package.
-func manifestQTIFiles(data []byte) map[string]bool {
-	files := map[string]bool{}
+// A manifestFile is what the manifest says of a file of one of its QTI
+// resources.
+type manifestFile struct {
+	kind qti.ResourceKind
+	// href reports that the file is the href of a resource: the document
+	// the resource is, not merely one of its files.
+	href bool
+}
+
+// manifestResources says, for the files of the manifest's QTI resources,
+// what they must be, by their path inside the package. xml:base is applied
+// as the reference checks apply it. The href of a resource is what its type
+// says; a file of a resource is a fragment when any fragment resource lists
+// it, so an item may list the fragments it includes among its files.
+func manifestResources(data []byte) map[string]manifestFile {
+	hrefs := map[string]qti.ResourceKind{}
+	files := map[string]qti.ResourceKind{}
 	dec := xml.NewDecoder(bytes.NewReader(data))
-	inQTI := false
-	add := func(href string) {
-		if href == "" {
-			return
+	var bases qti.BaseStack
+	kind := qti.ResourceOther
+	add := func(to map[string]qti.ResourceKind, base, href string) {
+		target, ok := qti.PackagePath(qti.ManifestName, qti.JoinBase(base, href))
+		if ok && kind != qti.ResourceOther && to[target] != qti.ResourceFragment {
+			to[target] = kind
 		}
-		if u, err := url.PathUnescape(href); err == nil {
-			href = u
-		}
-		files[path.Clean(href)] = true
 	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return files
+			break
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
+			if t.Name.Space != qti.NamespaceManifest {
+				continue
+			}
+			base := bases.Push(xmlBase(t))
 			switch t.Name.Local {
 			case "resource":
-				inQTI = qti.IsQTIResourceType(xmldoc.Attr(t, "type"))
-				if inQTI {
-					add(xmldoc.Attr(t, "href"))
-				}
+				kind = qti.ClassifyResourceType(xmldoc.Attr(t, "type"))
+				add(hrefs, base, xmldoc.Attr(t, "href"))
 			case "file":
-				if inQTI {
-					add(xmldoc.Attr(t, "href"))
-				}
+				add(files, base, xmldoc.Attr(t, "href"))
 			}
 		case xml.EndElement:
+			if t.Name.Space != qti.NamespaceManifest {
+				continue
+			}
+			bases.Pop()
 			if t.Name.Local == "resource" {
-				inQTI = false
+				kind = qti.ResourceOther
 			}
 		}
 	}
+	out := make(map[string]manifestFile, len(hrefs)+len(files))
+	for f, k := range files {
+		out[f] = manifestFile{kind: k}
+	}
+	for f, k := range hrefs {
+		out[f] = manifestFile{kind: k, href: true}
+	}
+	return out
+}
+
+// xmlBase returns the xml:base of an element.
+func xmlBase(t xml.StartElement) string {
+	for _, a := range t.Attr {
+		if a.Name.Space == "http://www.w3.org/XML/1998/namespace" && a.Name.Local == "base" {
+			return a.Value
+		}
+	}
+	return ""
 }

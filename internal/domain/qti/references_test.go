@@ -101,3 +101,265 @@ func TestCheckReferences(t *testing.T) {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }
+
+// Item-ref identifiers are unique only within a test: two tests that both
+// call their item I1 are each checked against their own item, including
+// items of the sections a test includes.
+func TestCheckVariablesPerTest(t *testing.T) {
+	item := func(declared ...string) PackageDocument {
+		return PackageDocument{Schema: "qti-assessment-item", Refs: DocumentReferences{Declared: declared}}
+	}
+	test := func(href string, vars ...VariableRef) PackageDocument {
+		return PackageDocument{Schema: "qti-assessment-test", Refs: DocumentReferences{
+			References:   []Reference{ref(RefItem, href)},
+			ItemRefs:     []ItemRef{{Identifier: "I1", Href: href}},
+			VariableRefs: vars,
+		}}
+	}
+	p := PackageContents{
+		Files: []string{"a/test.xml", "a/item.xml", "b/test.xml", "b/item.xml", "c/test.xml", "c/section.xml", "c/sub.xml", "c/item.xml"},
+		Documents: map[string]PackageDocument{
+			"a/test.xml": test("item.xml", VariableRef{Item: "I1", Variable: "SCORE_A"}, VariableRef{Item: "I1", Variable: "SCORE_B"}),
+			"a/item.xml": item("SCORE_A"),
+			"b/test.xml": test("item.xml", VariableRef{Item: "I1", Variable: "SCORE_B"}, VariableRef{Item: "I1", Variable: "SCORE_A"}),
+			"b/item.xml": item("SCORE_B"),
+			// c/test.xml has no item refs of its own: its item is in a
+			// section it includes, which includes another section.
+			"c/test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{
+				References:   []Reference{ref(RefSection, "section.xml")},
+				VariableRefs: []VariableRef{{Item: "C1", Variable: "SCORE_C"}, {Item: "C1", Variable: "NOPE"}},
+			}},
+			"c/section.xml": {Schema: "qti-assessment-section", Refs: DocumentReferences{References: []Reference{ref(RefSection, "sub.xml")}}},
+			"c/sub.xml": {Schema: "qti-assessment-section", Refs: DocumentReferences{
+				References: []Reference{ref(RefItem, "item.xml")},
+				ItemRefs:   []ItemRef{{Identifier: "C1", Href: "item.xml"}},
+			}},
+			"c/item.xml": item("SCORE_C"),
+		},
+	}
+	var got []string
+	for _, f := range CheckReferences(p) {
+		if f.Rule == CheckTestItemVariable {
+			got = append(got, f.File+": "+f.Message)
+		}
+	}
+	slices.Sort(got)
+	want := []string{
+		"a/test.xml: qti-variable refers to I1.SCORE_B, but a/item.xml declares no variable SCORE_B.",
+		"b/test.xml: qti-variable refers to I1.SCORE_A, but b/item.xml declares no variable SCORE_A.",
+		"c/test.xml: qti-variable refers to C1.NOPE, but c/item.xml declares no variable NOPE.",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+// An item-ref identifier used in two documents of one test, the test and a
+// section it includes or two such sections, is reported on the test once;
+// the rules see one document at a time and cannot. One used twice in one
+// document is left to the rules, and two tests may share an identifier.
+func TestItemRefIdentifierUniqueAcrossDocuments(t *testing.T) {
+	item := PackageDocument{Schema: "qti-assessment-item", Refs: DocumentReferences{Declared: []string{"SCORE"}}}
+	section := func(sections []string, items ...ItemRef) PackageDocument {
+		d := PackageDocument{Schema: "qti-assessment-section", Refs: DocumentReferences{ItemRefs: items}}
+		for _, s := range sections {
+			d.Refs.References = append(d.Refs.References, ref(RefSection, s))
+		}
+		for _, ir := range items {
+			d.Refs.References = append(d.Refs.References, ref(RefItem, ir.Href))
+		}
+		return d
+	}
+	test := func(sections []string, items ...ItemRef) PackageDocument {
+		d := section(sections, items...)
+		d.Schema = "qti-assessment-test"
+		return d
+	}
+	p := PackageContents{
+		Files: []string{
+			"a/test.xml", "a/s1.xml", "a/i1.xml", "a/i2.xml",
+			"b/test.xml", "b/s1.xml", "b/s2.xml", "b/i1.xml",
+			"c/test.xml", "c/i1.xml", "c/i2.xml",
+			"d/test.xml", "d/i1.xml",
+		},
+		Documents: map[string]PackageDocument{
+			// The test and its section use I1 for different items, and the
+			// section uses I2 twice (left to the rules).
+			"a/test.xml": func() PackageDocument {
+				d := test([]string{"s1.xml"}, ItemRef{Identifier: "I1", Href: "i1.xml"})
+				d.Refs.VariableRefs = []VariableRef{{Item: "I1", Variable: "NOPE"}}
+				return d
+			}(),
+			"a/s1.xml": section(nil, ItemRef{Identifier: "I1", Href: "i2.xml"}, ItemRef{Identifier: "I2", Href: "i1.xml"}, ItemRef{Identifier: "I2", Href: "i2.xml"}),
+			"a/i1.xml": item, "a/i2.xml": item,
+			// Two sections use I1 for the same item, three times in all.
+			"b/test.xml": test([]string{"s1.xml", "s2.xml"}),
+			"b/s1.xml":   section(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+			"b/s2.xml":   section(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+			"b/i1.xml":   item,
+			// One document: left to the rules.
+			"c/test.xml": test(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}, ItemRef{Identifier: "I1", Href: "i2.xml"}),
+			"c/i1.xml":   item, "c/i2.xml": item,
+			// Another test with I1: not a duplicate.
+			"d/test.xml": test(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+			"d/i1.xml":   item,
+		},
+	}
+	var got []string
+	for _, f := range CheckReferences(p) {
+		if f.Warning {
+			t.Errorf("warning: %+v", f)
+		}
+		got = append(got, f.File+" "+f.Rule+": "+f.Message)
+	}
+	slices.Sort(got)
+	want := []string{
+		`a/test.xml item-ref-identifier-unique: qti-assessment-item-ref identifier "I1" is used in both a/test.xml (for a/i1.xml) and a/s1.xml (for a/i2.xml) of test a/test.xml; item-ref identifiers must be unique within a test.`,
+		`b/test.xml item-ref-identifier-unique: qti-assessment-item-ref identifier "I1" is used in both b/s1.xml (for b/i1.xml) and b/s2.xml (for b/i1.xml) of test b/test.xml; item-ref identifiers must be unique within a test.`,
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+// Duplicate item-ref identifiers are reported on tests only: a section that
+// has a variable reference is not a test, and is not reported as one.
+func TestItemRefIdentifierUniqueNotOnSections(t *testing.T) {
+	item := PackageDocument{Schema: "qti-assessment-item", Refs: DocumentReferences{Declared: []string{"SCORE"}}}
+	p := PackageContents{
+		Files: []string{"test.xml", "s0.xml", "s1.xml", "i1.xml"},
+		Documents: map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s0.xml")}}},
+			"s0.xml": {Schema: "qti-assessment-section", Refs: DocumentReferences{
+				ItemRefs:   []ItemRef{{Identifier: "I1", Href: "i1.xml"}},
+				References: []Reference{ref(RefSection, "s1.xml")},
+				// One that resolves, and one that does not: the variable
+				// check of a section stays.
+				VariableRefs: []VariableRef{{Item: "I1", Variable: "SCORE"}, {Item: "I1", Variable: "NOPE"}},
+			}},
+			"s1.xml": {Schema: "qti-assessment-section", Refs: DocumentReferences{ItemRefs: []ItemRef{{Identifier: "I1", Href: "i1.xml"}}}},
+			"i1.xml": item,
+		},
+	}
+	want := []string{"s0.xml " + CheckTestItemVariable, "test.xml " + CheckItemRefUnique}
+	if got := checks(CheckReferences(p)); !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// A section document that a test includes twice puts its item refs, and
+// those of the sections it includes, in the test twice.
+func TestItemRefIdentifierUniqueSectionIncludedTwice(t *testing.T) {
+	item := PackageDocument{Schema: "qti-assessment-item"}
+	section := func(refs []Reference, items ...ItemRef) PackageDocument {
+		return PackageDocument{Schema: "qti-assessment-section", Refs: DocumentReferences{ItemRefs: items, References: refs}}
+	}
+	for _, tc := range []struct {
+		name string
+		docs map[string]PackageDocument
+		want []string
+	}{
+		{"twice by the test", map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s1.xml"), ref(RefSection, "s1.xml")}}},
+			"s1.xml":   section(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+		}, []string{`test.xml: s1.xml is included more than once in test test.xml, which puts its qti-assessment-item-ref identifiers ("I1") in the test more than once; item-ref identifiers must be unique within a test.`}},
+		{"by the test and by a section, with item refs in a nested section", map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s0.xml"), ref(RefSection, "s1.xml")}}},
+			"s0.xml":   section([]Reference{ref(RefSection, "s1.xml")}),
+			"s1.xml":   section([]Reference{ref(RefSection, "s2.xml")}, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+			"s2.xml":   section(nil, ItemRef{Identifier: "I2", Href: "i1.xml"}, ItemRef{Identifier: "I3", Href: "i1.xml"}),
+		}, []string{`test.xml: s1.xml is included more than once in test test.xml, which puts its qti-assessment-item-ref identifiers ("I1" and 2 others) in the test more than once; item-ref identifiers must be unique within a test.`}},
+		{"a section without item refs", map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s1.xml"), ref(RefSection, "s1.xml")}}},
+			"s1.xml":   section(nil),
+		}, nil},
+		{"once", map[string]PackageDocument{
+			"test.xml": {Schema: "qti-assessment-test", Refs: DocumentReferences{References: []Reference{ref(RefSection, "s1.xml")}}},
+			"s1.xml":   section(nil, ItemRef{Identifier: "I1", Href: "i1.xml"}),
+		}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := PackageContents{Files: []string{"i1.xml"}, Documents: tc.docs}
+			tc.docs["i1.xml"] = item
+			for name := range tc.docs {
+				if name != "i1.xml" {
+					p.Files = append(p.Files, name)
+				}
+			}
+			var got []string
+			for _, f := range CheckReferences(p) {
+				if f.Rule != CheckItemRefUnique || f.Warning {
+					t.Errorf("unexpected: %+v", f)
+				}
+				got = append(got, f.File+": "+f.Message)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("got\n%q\nwant\n%q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A section that includes itself, directly or through other sections, is
+// reported as that, and not as a section included more than once.
+func TestSectionRefCycle(t *testing.T) {
+	section := func(sections ...string) PackageDocument {
+		d := PackageDocument{Schema: "qti-assessment-section", Refs: DocumentReferences{ItemRefs: []ItemRef{{Identifier: "I-" + sections[0], Href: "i1.xml"}}}}
+		for _, s := range sections {
+			d.Refs.References = append(d.Refs.References, ref(RefSection, s))
+		}
+		return d
+	}
+	test := func(sections ...string) PackageDocument {
+		d := section(sections...)
+		d.Schema, d.Refs.ItemRefs = "qti-assessment-test", nil
+		return d
+	}
+	for _, tc := range []struct {
+		name string
+		docs map[string]PackageDocument
+		want []string
+	}{
+		{"through another section", map[string]PackageDocument{
+			"test.xml": test("s1.xml"), "s1.xml": section("s2.xml"), "s2.xml": section("s1.xml"),
+		}, []string{`test.xml section-ref-cycle: s1.xml includes itself with qti-assessment-section-ref (s1.xml includes s2.xml includes s1.xml) in test test.xml; a section cannot be a part of itself.`}},
+		{"itself", map[string]PackageDocument{
+			"test.xml": test("s1.xml"), "s1.xml": section("s1.xml"),
+		}, []string{`test.xml section-ref-cycle: s1.xml includes itself with qti-assessment-section-ref (s1.xml includes s1.xml) in test test.xml; a section cannot be a part of itself.`}},
+		// The test includes both sections of the cycle: each is in the
+		// test more than once as well.
+		{"and included twice", map[string]PackageDocument{
+			"test.xml": test("s1.xml", "s2.xml"), "s1.xml": section("s2.xml"), "s2.xml": section("s1.xml"),
+		}, []string{
+			`test.xml item-ref-identifier-unique: s2.xml is included more than once in test test.xml, which puts its qti-assessment-item-ref identifiers ("I-s1.xml" and 1 other) in the test more than once; item-ref identifiers must be unique within a test.`,
+			`test.xml item-ref-identifier-unique: s1.xml is included more than once in test test.xml, which puts its qti-assessment-item-ref identifiers ("I-s2.xml" and 1 other) in the test more than once; item-ref identifiers must be unique within a test.`,
+			`test.xml section-ref-cycle: s1.xml includes itself with qti-assessment-section-ref (s1.xml includes s2.xml includes s1.xml) in test test.xml; a section cannot be a part of itself.`,
+		}},
+		{"no cycle", map[string]PackageDocument{
+			"test.xml": test("s1.xml"), "s1.xml": section("s2.xml"), "s2.xml": section("s3.xml"),
+			"s3.xml": {Schema: "qti-assessment-section"},
+		}, nil},
+		// Without a test nothing reports it: a section is not a scope.
+		{"no test", map[string]PackageDocument{"s1.xml": section("s2.xml"), "s2.xml": section("s1.xml")}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := PackageContents{Files: []string{"i1.xml"}, Documents: tc.docs}
+			tc.docs["i1.xml"] = PackageDocument{Schema: "qti-assessment-item"}
+			for name := range tc.docs {
+				if name != "i1.xml" {
+					p.Files = append(p.Files, name)
+				}
+			}
+			var got []string
+			for _, f := range CheckReferences(p) {
+				if f.Warning {
+					t.Errorf("warning: %+v", f)
+				}
+				got = append(got, f.File+" "+f.Rule+": "+f.Message)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("got\n%q\nwant\n%q", got, tc.want)
+			}
+		})
+	}
+}

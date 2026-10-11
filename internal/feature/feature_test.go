@@ -132,10 +132,164 @@ var cases = []featureCase{
 		"items/keuze.xml": replace(`<qti-base-value base-type="identifier">GOED</qti-base-value>`, `<qti-base-value base-type="float">1</qti-base-value>`),
 	})},
 	{name: "not-a-zip", contentType: "application/zip", body: func(*testing.T) []byte { return []byte("dit is geen zip") }},
+	// A second test that uses the item-ref identifier "keuze" of test.xml
+	// for another item: each test is checked against its own items, so
+	// test.xml may read keuze.FEEDBACK, which only items/keuze.xml declares.
+	{name: "toets-second-test", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"test.xml": func(s string) *string {
+			s = strings.Replace(s, `<qti-test-part `, `<qti-outcome-declaration identifier="FEEDBACK" cardinality="single" base-type="identifier"/>
+  <qti-test-part `, 1)
+			s = strings.Replace(s, `<qti-outcome-processing>`, `<qti-outcome-processing>
+    <qti-set-outcome-value identifier="FEEDBACK"><qti-variable identifier="keuze.FEEDBACK"/></qti-set-outcome-value>`, 1)
+			return &s
+		},
+		"vervolg.xml": with(secondTest),
+		"imsmanifest.xml": replace(`<resource identifier="keuze" `, `<resource identifier="vervolg" type="imsqti_test_xmlv3p0" href="vervolg.xml">
+      <file href="vervolg.xml"/>
+    </resource>
+    <resource identifier="keuze" `),
+	})},
+
+	// Package structure: a fragment that an item includes and an outcome
+	// declaration, both listed as QTI resources, are valid.
+	{name: "toets-fragment-and-outcome", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`  <resources>`, `  <resources>
+    <resource identifier="uitleg" type="imsqti_fragment_xmlv3p0" href="fragments/uitleg.xml">
+      <file href="fragments/uitleg.xml"/>
+    </resource>
+    <resource identifier="score" type="imsqti_outcomes_xmlv3p0" href="outcomes/score.xml">
+      <file href="outcomes/score.xml"/>
+    </resource>`),
+		"items/keuze.xml": replace(`<qti-item-body>`, `<qti-item-body>
+    <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="../fragments/uitleg.xml"/>`),
+		"fragments/uitleg.xml": with(`<?xml version="1.0" encoding="UTF-8"?>
+<div xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" class="uitleg">
+  <p>Kies het juiste antwoord.</p>
+</div>
+`),
+		"outcomes/score.xml": with(`<?xml version="1.0" encoding="UTF-8"?>
+<qti-outcome-declaration xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="SCORE" cardinality="single" base-type="float">
+  <qti-default-value><qti-value>0.0</qti-value></qti-default-value>
+</qti-outcome-declaration>
+`),
+	})},
+	// A fragment listed only as a file of the item that includes it: the
+	// XInclude makes it a fragment. Its root is a response rule, which is
+	// validated as inside a qti-response-processing; the misspelt element
+	// is an error at its own line and path.
+	{name: "toets-fragment-response-rule", contentType: "application/zip", body: toets(includedBy("items/keuze.xml",
+		`<file href="fragments/regel.xml"/>`, `<qti-response-processing>`, "fragments/regel.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<qti-response-condition xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0">
+  <qti-response-if>
+    <qti-is-null><qti-variable identifier="RESPONSE"/></qti-is-null>
+    <qti-set-outcome-waarde identifier="SCORE"><qti-base-value base-type="float">0</qti-base-value></qti-set-outcome-waarde>
+  </qti-response-if>
+</qti-response-condition>
+`))},
+	// A fragment whose root is no element of QTI at all.
+	{name: "toets-fragment-unknown-root", contentType: "application/zip", body: toets(includedBy("items/keuze.xml",
+		`<file href="fragments/uitleg.xml"/>`, `<qti-item-body>`, "fragments/uitleg.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<qti-uitleg xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0">
+  <p>Kies het juiste antwoord.</p>
+</qti-uitleg>
+`))},
+	// A fragment whose root is a part of an interaction: validated as inside
+	// a qti-gap-match-interaction.
+	{name: "toets-fragment-interaction-part", contentType: "application/zip", body: toets(includedBy("items/gatenkoppel.xml",
+		`<file href="fragments/waal.xml"/>`, `<qti-gap-text identifier="MAAS" match-max="1">Maas</qti-gap-text>`, "fragments/waal.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<qti-gap-text xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="WAAL" match-max="1">Waal</qti-gap-text>
+`))},
+	// A fragment whose root the validator cannot check on its own, a card of
+	// a catalog: a warning, and no schema check counted for it.
+	{name: "toets-fragment-not-checked", contentType: "application/zip", body: toets(includedBy("items/keuze.xml",
+		`<file href="fragments/kaart.xml"/>`, `<qti-item-body>`, "fragments/kaart.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<qti-card xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" support="glossary-on-screen">
+  <qti-html-content><p>De hoofdstad is de stad die de grondwet zo noemt.</p></qti-html-content>
+</qti-card>
+`))},
+	// A fragment whose root is another type in another element: the rubric
+	// block of a section, which needs no use attribute. The test includes it
+	// in a section, so it is validated as inside a qti-assessment-section.
+	{name: "toets-fragment-section-rubric", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`  <resources>`, `  <resources>
+    <resource identifier="aanwijzing" type="imsqti_fragment_xmlv3p0" href="fragments/aanwijzing.xml">
+      <file href="fragments/aanwijzing.xml"/>
+    </resource>`),
+		"test.xml": replace(`<qti-assessment-section identifier="kennis" title="Kennis" visible="true">`,
+			`<qti-assessment-section identifier="kennis" title="Kennis" visible="true">
+      <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="fragments/aanwijzing.xml"/>`),
+		"fragments/aanwijzing.xml": with(sectionRubric),
+	})},
+	// The same rubric block, included by an item in its body: there it is
+	// the rubric block of an item, which must have a use attribute. The
+	// error says where the fragment was checked.
+	{name: "toets-fragment-section-rubric-in-item", contentType: "application/zip", body: toets(includedBy("items/keuze.xml",
+		`<file href="fragments/aanwijzing.xml"/>`, `<qti-item-body>`, "fragments/aanwijzing.xml", sectionRubric))},
+	// A fragment resource that no document includes: a qti-content-body
+	// that holds a feedback block. That is valid as the content of a
+	// feedback block, though not as that of modal feedback or a rubric
+	// block, so the fragment is valid.
+	{name: "toets-fragment-content-body", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`  <resources>`, `  <resources>
+    <resource identifier="terugkoppeling" type="imsqti_fragment_xmlv3p0" href="fragments/terugkoppeling.xml">
+      <file href="fragments/terugkoppeling.xml"/>
+    </resource>`),
+		"fragments/terugkoppeling.xml": with(`<?xml version="1.0" encoding="UTF-8"?>
+<qti-content-body xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0">
+  <p>Dat is niet juist.</p>
+  <qti-feedback-block outcome-identifier="FEEDBACK" identifier="UITLEG">
+    <qti-content-body><p>Amsterdam is de hoofdstad; de regering zit in Den Haag.</p></qti-content-body>
+  </qti-feedback-block>
+</qti-content-body>
+`),
+	})},
+	// A manifest that is a valid QTI item: not a manifest, and none of the
+	// checks of an item are counted for it.
+	{name: "toets-manifest-is-item", contentType: "application/zip", body: func(t *testing.T) []byte {
+		t.Helper()
+		files := readDir(t, testutil.Testdata("features/packages/toets"))
+		files["imsmanifest.xml"] = files["items/keuze.xml"]
+		return zipFiles(t, files)
+	}},
+	// A manifest in the namespace of plain IMS Content Packaging is not a
+	// QTI 3 manifest.
+	{name: "toets-generic-manifest", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`xmlns="http://www.imsglobal.org/xsd/qti/qtiv3p0/imscp_v1p1"`, `xmlns="http://www.imsglobal.org/xsd/imscp_v1p1"`),
+	})},
+	// toets-qti2-item with the item's folder in xml:base: still an error.
+	{name: "toets-xml-base-qti2-item", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`<resource identifier="keuzelijst" type="imsqti_item_xmlv3p0" href="items/keuzelijst.xml">
+      <file href="items/keuzelijst.xml"/>`, `<resource identifier="keuzelijst" type="imsqti_item_xmlv3p0" href="keuzelijst.xml" xml:base="items/">
+      <file href="keuzelijst.xml"/>`),
+		"items/keuzelijst.xml": replace(`xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"`, `xmlns="http://www.imsglobal.org/xsd/imsqti_v2p2"`),
+	})},
+	// An item over MAX_FILE_SIZE: only its own error, none in the test.
+	{name: "toets-oversized-item", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"items/keuze.xml": replace(`<qti-item-body>`, `<qti-item-body><!--`+strings.Repeat("x", int(config.Default().MaxFileSize))+`-->`),
+	})},
+	// A file name with "%" written as is in the manifest, not as "%25".
+	{name: "toets-invalid-href", contentType: "application/zip", body: toets(map[string]func(string) *string{
+		"imsmanifest.xml": replace(`<file href="media/kaart.png"/>`, `<file href="media/kaart.png"/>
+      <file href="media/100%.png"/>`),
+		"media/100%.png": with("not really a PNG"),
+	})},
 
 	// Single documents.
 	{name: "item", body: file("features/packages/toets/items/keuze.xml"), contentType: "application/xml", query: "name=keuze.xml"},
 	{name: "item-mathml-as-3.0.0", body: file("features/packages/toets/items/formule.xml"), query: "version=3.0.0&name=formule.xml"},
+
+	// A QTI 2 item on its own: not validated, but the report names the QTI
+	// version it would have been validated against.
+	{name: "item-qti2", query: "name=keuze.xml", body: func(t *testing.T) []byte {
+		return []byte(strings.Replace(string(testutil.ReadTestdata(t, "features/packages/toets/items/keuze.xml")),
+			`xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0"`, `xmlns="http://www.imsglobal.org/xsd/imsqti_v2p2"`, 1))
+	}},
+	// Nested deeper than MAX_DEPTH: the schema check stops there, so the
+	// rules do not run and totalRun does not count them.
+	{name: "item-too-deep", query: "name=keuze.xml", body: func(t *testing.T) []byte {
+		return []byte(strings.Replace(string(testutil.ReadTestdata(t, "features/packages/toets/items/keuze.xml")),
+			`<qti-item-body>`, `<qti-item-body>`+strings.Repeat("<div>", 300)+strings.Repeat("</div>", 300), 1))
+	}},
 
 	// The example packages in examples/.
 	{name: "example-valid", body: example("valid.zip")},
@@ -147,6 +301,45 @@ var cases = []featureCase{
 	{name: "php-qti3-no-response-processing", body: file("features/php-qti3/no-response-processing.zip"), contentType: "application/zip"},
 	{name: "php-qti3-no-max-score-all-items", body: file("features/php-qti3/no-max-score-all-items.zip"), contentType: "application/zip"},
 }
+
+// includedBy makes an item include a new file with XInclude, right after
+// at, and lists the file in the manifest as a file of the
+// item's resource.
+func includedBy(item, listing, at, name, content string) map[string]func(string) *string {
+	return map[string]func(string) *string{
+		"imsmanifest.xml": replace(`<file href="`+item+`"/>`, `<file href="`+item+`"/>
+      `+listing),
+		item: replace(at, at+`
+    <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="../`+name+`"/>`),
+		name: with(content),
+	}
+}
+
+// sectionRubric is a fragment with the rubric block of a section or a test:
+// it has no use attribute, which the rubric block of an item must have.
+const sectionRubric = `<?xml version="1.0" encoding="UTF-8"?>
+<qti-rubric-block xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" view="candidate">
+  <qti-content-body>
+    <p>Lees elke vraag goed voordat je antwoordt.</p>
+  </qti-content-body>
+</qti-rubric-block>
+`
+
+// secondTest is a test whose item ref "keuze" is items/meerkeuze.xml, which
+// declares SCORE but not FEEDBACK.
+const secondTest = `<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-test xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="vervolg" title="Vervolg">
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float"/>
+  <qti-test-part identifier="deel-1" navigation-mode="nonlinear" submission-mode="simultaneous">
+    <qti-assessment-section identifier="kennis" title="Kennis" visible="true">
+      <qti-assessment-item-ref identifier="keuze" href="items/meerkeuze.xml"/>
+    </qti-assessment-section>
+  </qti-test-part>
+  <qti-outcome-processing>
+    <qti-set-outcome-value identifier="SCORE"><qti-variable identifier="keuze.SCORE"/></qti-set-outcome-value>
+  </qti-outcome-processing>
+</qti-assessment-test>
+`
 
 func TestFeatures(t *testing.T) {
 	v, err := bootstrap.NewValidator(bootstrap.Options{})

@@ -14,7 +14,8 @@ const (
 	CodeSchematron          Code = "schematron"
 	CodeUnsupportedVersion  Code = "unsupported_version"
 	CodeVersionOverridden   Code = "version_overridden"
-	CodeLimitExceeded       Code = "limit_exceeded"
+	CodeLimitExceeded       Code = "limit_exceeded"   // nested too deep, or another parser limit
+	CodeWarningsOmitted     Code = "warnings_omitted" // the note that warnings were left out; a warning
 	CodeTooLarge            Code = "too_large"
 	CodeTooComplex          Code = "too_complex" // validation stopped before it finished
 	CodeInternal            Code = "internal"
@@ -22,8 +23,9 @@ const (
 	CodeUnsafePath          Code = "unsafe_path"
 	CodeMissingManifest     Code = "missing_manifest"
 	CodeTooManyFiles        Code = "too_many_files"
-	CodeReference           Code = "reference"  // a reference that does not resolve in the package
-	CodeValueType           Code = "value_type" // a value or expression of the wrong type
+	CodeReference           Code = "reference"   // a reference that does not resolve in the package
+	CodeValueType           Code = "value_type"  // a value or expression of the wrong type
+	CodeNotChecked          Code = "not_checked" // content the validator could not check; a warning
 )
 
 // Finding is one problem in a document or package.

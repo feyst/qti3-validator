@@ -71,8 +71,9 @@ type Specification struct {
 // Summary is the public model's summary: the worst outcome and a count per
 // outcome. In the public validator's reports TotalRun counts the checks that
 // ran (14 for one credential), so here it counts checks as well: reading
-// each document, its XML Schema validation and its Schematron rules, and the
-// package itself. Valid counts the VALID items.
+// each document, its XML Schema validation and its Schematron rules when
+// they ran (qti.Checks), and the package itself. Valid counts the VALID
+// items.
 type Summary struct {
 	Outcome    string `json:"outcome"`
 	Fatals     int    `json:"fatals"`
@@ -183,7 +184,7 @@ func ForPackage(res qti.PackageResult, meta Meta) Report {
 	for _, f := range res.Files {
 		b.addDocument(packagePath(f.File), qti.DocumentResult{
 			Valid: f.Valid, Schema: f.Schema, Version: f.Version,
-			Errors: f.Errors, Warnings: f.Warnings,
+			Errors: f.Errors, Warnings: f.Warnings, Ran: f.Ran,
 		}, f.Skipped)
 	}
 	return b.report
@@ -216,7 +217,8 @@ func newReportBuilder(meta Meta, inputType, version string) *reportBuilder {
 }
 
 // addDocument adds the findings of one document, and a VALID item when it
-// passed or a NOT_RUN item when it was skipped or could not be read.
+// passed or a NOT_RUN item when it was skipped or not validated: it could
+// not be read, is not a supported document type, or is too large.
 func (b *reportBuilder) addDocument(resource string, res qti.DocumentResult, skipped bool) {
 	b.report.Summary.TotalRun++ // reading the document
 	if skipped {
@@ -226,24 +228,39 @@ func (b *reportBuilder) addDocument(resource string, res qti.DocumentResult, ski
 		})
 		return
 	}
-	fatal := false
+	fatal, notRun := false, ""
 	for _, e := range res.Errors {
 		it := itemFor(e, resource, res.Schema, res.Version)
-		fatal = fatal || it.Outcome == OutcomeNameFatal
+		if it.Outcome == OutcomeNameFatal && !fatal {
+			fatal, notRun = true, notRunReason(e.Code)
+		}
 		b.add(it)
+	}
+	// Without a FATAL finding too: a document over a size limit, or one
+	// whose validation stopped before the first check.
+	if !fatal && !res.Valid && !res.Ran.Schema && len(res.Errors) > 0 {
+		notRun = notRunReason(res.Errors[0].Code)
 	}
 	for _, e := range res.Warnings {
 		it := itemFor(e, resource, res.Schema, res.Version)
 		it.Outcome = OutcomeNameWarning
 		b.add(it)
+		if e.Code == qti.CodeNotChecked {
+			notRun = notRunReason(e.Code) // not an error, but not a valid document either
+		}
 	}
-	if !fatal {
-		b.report.Summary.TotalRun += 2 // XML Schema and Schematron
+	// A document that could not be read was not validated, even when the
+	// schema check is what found that out; the NOT_RUN item below says so.
+	if res.Ran.Schema && !fatal {
+		b.report.Summary.TotalRun++
+	}
+	if res.Ran.Rules && !fatal {
+		b.report.Summary.TotalRun++
 	}
 	switch {
-	case fatal:
+	case notRun != "":
 		b.add(Item{
-			Title: "XML Schema and Schematron", Message: "Not run: the document could not be read.",
+			Title: "XML Schema and Schematron", Message: "Not run: " + notRun + ".",
 			Location: Location{Resource: resource}, Generator: "validation", Code: "not_run", Outcome: OutcomeNameNotRun,
 		})
 	case res.Valid:
@@ -253,6 +270,22 @@ func (b *reportBuilder) addDocument(resource string, res qti.DocumentResult, ski
 			Generator: "validation", Code: "valid", Outcome: OutcomeNameValid,
 		})
 	}
+}
+
+// notRunReason says why the XML Schema and the Schematron rules did not run
+// on a document, from the code of the finding that stopped them.
+func notRunReason(code qti.Code) string {
+	switch code {
+	case qti.CodeUnsupportedDocument:
+		return "the document is not a supported document type"
+	case qti.CodeTooLarge:
+		return "the document is too large"
+	case qti.CodeNotChecked:
+		return "the fragment cannot be checked apart from the document that includes it"
+	case qti.CodeInvalidXML, qti.CodeUnsupportedEncoding, qti.CodeUnsupportedXML, qti.CodeInvalidZIP:
+		return "the document could not be read"
+	}
+	return "validation stopped before these checks"
 }
 
 func documentLabel(res qti.DocumentResult) string {
@@ -328,8 +361,12 @@ func itemFor(e qti.Finding, resource, schema, version string) Item {
 		it.Title, it.Generator = "QTI version", "version"
 	case qti.CodeVersionOverridden:
 		it.Title, it.Generator, it.Outcome = "QTI version", "version", OutcomeNameWarning
+	case qti.CodeNotChecked:
+		it.Title, it.Generator, it.Outcome = "QTI fragment", "document-type", OutcomeNameWarning
 	case qti.CodeTooLarge, qti.CodeLimitExceeded:
 		it.Title, it.Generator = "Limits", "limits"
+	case qti.CodeWarningsOmitted:
+		it.Title, it.Generator, it.Outcome = "Limits", "limits", OutcomeNameWarning
 	case qti.CodeTooComplex:
 		// Not a verdict on the document: the checks did not finish.
 		it.Title, it.Generator, it.Outcome = "Limits", "limits", OutcomeNameException

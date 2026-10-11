@@ -82,12 +82,17 @@ Every document goes through four checks:
    bound to a declared response variable, that the files a package refers to
    are in it, and that values and expressions have the right types.
 
-A package is checked file by file. It needs an `imsmanifest.xml` in its root;
-every XML file is validated, media files are not opened, and XML files that
-are not a QTI document are reported as not run.
+A package is checked file by file. It needs a QTI 3 `imsmanifest.xml` in its
+root; every XML file is validated, media files are not opened, and XML files
+that are not a QTI document are reported as not run, unless the manifest lists
+them as a QTI resource. A QTI fragment (XML that another document includes
+with XInclude, whether or not the manifest lists it as a resource of type
+`imsqti_fragment_xmlv3p0`) is checked as a fragment; see
+[the report](docs/report.md#packages).
 
 Accepted documents are QTI items, tests, sections, stimuli, response
-processing templates, package manifests, LOM and QTI metadata. Others,
+processing templates, outcome declarations, package manifests, LOM and QTI
+metadata. Others,
 including QTI 2.x, are rejected with `unsupported_document`, unless a
 [custom validator](docs/custom-validators.md) adds them.
 
@@ -159,7 +164,7 @@ one:
 | `ERROR` | A document breaks the XML Schema or a rule, or a package misses its manifest | no |
 | `FATAL` | Something could not be read at all: XML that is not well-formed, not UTF-8 or has a `DOCTYPE`, a document that is not QTI 3, or a body that is not a ZIP | no |
 | `EXCEPTION` | The validation did not finish: it stopped because a document is too complex or took longer than `REQUEST_TIMEOUT` (code `too_complex`, HTTP 422), or the service itself failed (code `internal`, HTTP 500) | no |
-| `NOT_RUN` | A check was skipped: an XML file that is not a QTI document, or the checks after a `FATAL` | does not count |
+| `NOT_RUN` | A check was skipped: an XML file that is not a QTI document, or the checks of a document that was not validated, such as after a `FATAL` | does not count |
 
 In a package, every file gets its own findings, so one package can contain
 all of them. [`examples/with-errors.zip`](examples/README.md) shows each kind.
@@ -200,7 +205,7 @@ All settings are environment variables. Sizes are in bytes.
 | `MAX_FILE_SIZE` | `10485760` (10 MiB) | Largest uncompressed XML file inside a package |
 | `MAX_FILES` | `1000` | Most entries a package may contain |
 | `MAX_UNCOMPRESSED_SIZE` | `268435456` (256 MiB) | Largest total of uncompressed XML in one package |
-| `MAX_ERRORS` | `100` | Most errors reported per document |
+| `MAX_ERRORS` | `100` | Most errors per document from the XML Schema and the rules; the rules' warnings have a limit of the same size. See [what is limited](docs/report.md#limits) |
 | `MAX_DEPTH` | `256` | Deepest element nesting accepted |
 | `MAX_CONCURRENT` | number of CPUs | Validations that run at the same time; further requests wait |
 | `MAX_QUEUE` | 4 × `MAX_CONCURRENT` | Requests that may wait for a validation slot; further requests get 503 at once |

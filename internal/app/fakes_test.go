@@ -30,13 +30,13 @@ func (f *fakeSchema) CheckSchema([]byte, qti.Limits) SchemaVerdict {
 type fakeRules struct {
 	findings []RuleFinding
 	err      error
-	max      int // the maxFindings it was called with
+	limits   RuleLimits // the limits it was called with
 	checked  int
 }
 
-func (f *fakeRules) CheckRules(_ context.Context, _ []byte, maxFindings int) ([]RuleFinding, error) {
+func (f *fakeRules) CheckRules(_ context.Context, _ []byte, limits RuleLimits) ([]RuleFinding, error) {
 	f.checked++
-	f.max = maxFindings
+	f.limits = limits
 	return f.findings, f.err
 }
 
@@ -126,4 +126,17 @@ func manifest(version string) string {
 func validatePkg(t *testing.T, v *Validator, limits qti.PackageLimits) qti.PackageResult {
 	t.Helper()
 	return v.ValidatePackage(t.Context(), ValidatePackage{Package: bytes.NewReader(nil), Limits: limits})
+}
+
+// fakeReferences makes every item include the given files with XInclude.
+type fakeReferences []string
+
+func (f fakeReferences) ReadReferences(data []byte) (qti.DocumentReferences, error) {
+	var refs qti.DocumentReferences
+	if bytes.HasPrefix(data, []byte("<qti-assessment-item")) {
+		for _, href := range f {
+			refs.References = append(refs.References, qti.Reference{Kind: qti.RefAsset, Href: href, Element: "xi:include", Include: true})
+		}
+	}
+	return refs, nil
 }

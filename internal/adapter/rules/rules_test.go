@@ -51,7 +51,7 @@ func messages(t *testing.T, c *Checker, file string, own, markWarnings bool) ([]
 	if err != nil {
 		t.Fatal(err)
 	}
-	findings, err := c.CheckRules(context.Background(), data, 0)
+	findings, err := c.CheckRules(context.Background(), data, app.RuleLimits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,16 +167,16 @@ func TestChain(t *testing.T) {
 		t.Fatal("a chain of nil checkers is not nil")
 	}
 	var none *Checker
-	if f, err := none.CheckRules(context.Background(), []byte("<x/>"), 0); f != nil || err != nil {
+	if f, err := none.CheckRules(context.Background(), []byte("<x/>"), app.RuleLimits{}); f != nil || err != nil {
 		t.Fatalf("nil checker: %v, %v", f, err)
 	}
 	c := versionRules(t, "3.0.0")
 	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
-	all, err := Chain(c, c).CheckRules(context.Background(), data, 0)
+	all, err := Chain(c, c).CheckRules(context.Background(), data, app.RuleLimits{})
 	if err != nil || len(all) != 2 {
 		t.Fatalf("chain of two: %d findings, %v", len(all), err)
 	}
-	limited, _ := Chain(c, c).CheckRules(context.Background(), data, 1)
+	limited, _ := Chain(c, c).CheckRules(context.Background(), data, app.RuleLimits{Errors: 1})
 	if len(limited) != 1 {
 		t.Fatalf("limited to 1: %d findings", len(limited))
 	}
@@ -188,7 +188,7 @@ func TestBudget(t *testing.T) {
 	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
 	check := func(c *Checker, steps int64) ([]app.RuleFinding, error) {
 		c.budget = budget{base: steps}
-		return c.CheckRules(context.Background(), data, 0)
+		return c.CheckRules(context.Background(), data, app.RuleLimits{})
 	}
 	// Find the least budget one rule set needs.
 	c := versionRules(t, "3.0.0")
@@ -247,13 +247,13 @@ func TestBudgetGrowsWithDocument(t *testing.T) {
 	linear := []byte(testutil.LinearItem(int(qti.DefaultLimits.MaxDocumentSize / 100)))
 	c := versionRules(t, "3.0.1")
 	c.budget = scaled
-	if findings, err := c.CheckRules(context.Background(), linear, 0); err != nil || len(findings) != 0 {
+	if findings, err := c.CheckRules(context.Background(), linear, app.RuleLimits{}); err != nil || len(findings) != 0 {
 		t.Fatalf("plain content: %d findings, %v", len(findings), err)
 	}
 	// Neither the base alone nor a ceiling at the base is enough.
 	for _, b := range []budget{{base: scaled.base}, {base: scaled.base, perNode: StepsPerNode, max: scaled.base}} {
 		c.budget = b
-		if _, err := c.CheckRules(context.Background(), linear, 0); !errors.Is(err, app.ErrTooComplex) {
+		if _, err := c.CheckRules(context.Background(), linear, app.RuleLimits{}); !errors.Is(err, app.ErrTooComplex) {
 			t.Fatalf("plain content on %+v: %v, want app.ErrTooComplex", b, err)
 		}
 	}
@@ -264,7 +264,7 @@ func TestBudgetGrowsWithDocument(t *testing.T) {
 	} {
 		c := mountedRules(t, tc.rules)
 		c.budget = scaled
-		if _, err := c.CheckRules(context.Background(), []byte(tc.doc), 0); !errors.Is(err, app.ErrTooComplex) {
+		if _, err := c.CheckRules(context.Background(), []byte(tc.doc), app.RuleLimits{}); !errors.Is(err, app.ErrTooComplex) {
 			t.Errorf("%s: got %v, want app.ErrTooComplex", name, err)
 		}
 	}
@@ -281,7 +281,7 @@ func TestRulesStayLinear(t *testing.T) {
 	} {
 		c := versionRules(t, "3.0.1")
 		c.budget = budget{base: 100_000, perNode: 150}
-		if _, err := c.CheckRules(context.Background(), []byte(doc), 0); err != nil {
+		if _, err := c.CheckRules(context.Background(), []byte(doc), app.RuleLimits{}); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -308,7 +308,102 @@ func TestContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
-	if _, err := versionRules(t, "3.0.0").CheckRules(ctx, data, 0); !errors.Is(err, context.Canceled) {
+	if _, err := versionRules(t, "3.0.0").CheckRules(ctx, data, app.RuleLimits{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want context.Canceled", err)
+	}
+}
+
+// warningsBeforeError is an item whose rules give three warnings
+// (correct-response-declared, as R2 has no correct response) before one
+// error (interaction-response-type: a choice interaction bound to a string).
+var warningsBeforeError = `<?xml version="1.0" encoding="UTF-8"?>
+<qti-assessment-item xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="i" title="t" time-dependent="false">
+  <qti-response-declaration identifier="R2" cardinality="single" base-type="identifier"/>
+  <qti-response-declaration identifier="R3" cardinality="single" base-type="string"/>
+  <qti-outcome-declaration identifier="SCORE" cardinality="single" base-type="float"/>
+  <qti-item-body>
+    <qti-choice-interaction response-identifier="R3" max-choices="1">
+      <qti-simple-choice identifier="A">A</qti-simple-choice>
+    </qti-choice-interaction>
+  </qti-item-body>
+  <qti-response-processing>` + strings.Repeat(`<qti-response-condition><qti-response-if>
+      <qti-match><qti-variable identifier="R2"/><qti-correct identifier="R2"/></qti-match>
+      <qti-set-outcome-value identifier="SCORE"><qti-base-value base-type="float">1</qti-base-value></qti-set-outcome-value>
+    </qti-response-if></qti-response-condition>`, 3) + `</qti-response-processing>
+</qti-assessment-item>`
+
+// Warnings do not use up the room for errors, within a rule set or across
+// the sets of a chain; they have a limit of their own. Warnings beyond it
+// are left out, and one last warning says how many.
+func TestLimitsCountErrorsAndWarningsApart(t *testing.T) {
+	c := versionRules(t, "3.0.1")
+	var note string
+	count := func(c *Checker, limits app.RuleLimits) (errs, warnings int) {
+		t.Helper()
+		findings, err := c.CheckRules(context.Background(), []byte(warningsBeforeError), limits)
+		if err != nil {
+			t.Fatal(err)
+		}
+		note = ""
+		for i, f := range findings {
+			if f.Code == qti.CodeWarningsOmitted {
+				if !f.Warning || i != len(findings)-1 {
+					t.Errorf("%+v: the note is finding %d of %d, warning %v; want the last, a warning", limits, i+1, len(findings), f.Warning)
+				}
+				note = f.Message
+				continue
+			}
+			if f.Warning {
+				warnings++
+			} else {
+				errs++
+			}
+		}
+		return errs, warnings
+	}
+	if errs, warnings := count(c, app.RuleLimits{}); errs != 1 || warnings != 3 || note != "" {
+		t.Fatalf("no limits: %d errors, %d warnings, note %q; want 1, 3 and no note", errs, warnings, note)
+	}
+	for _, tc := range []struct {
+		checker        *Checker
+		limits         app.RuleLimits
+		errs, warnings int
+		note           string
+	}{
+		{c, app.RuleLimits{Errors: 3, Warnings: 3}, 1, 3, ""},
+		{c, app.RuleLimits{Errors: 2, Warnings: 2}, 1, 2, "1 further warning of the rules was left out: only the first 2 are reported (MAX_ERRORS)."},
+		{Chain(c, c), app.RuleLimits{Errors: 3, Warnings: 4}, 2, 4, "2 further warnings of the rules were left out: only the first 4 are reported (MAX_ERRORS)."},
+		// The second set keeps no warning at all.
+		{Chain(c, c), app.RuleLimits{Errors: 3, Warnings: 3}, 2, 3, "3 further warnings of the rules were left out: only the first 3 are reported (MAX_ERRORS)."},
+		// The rules stop at the error, so the count is of the warnings
+		// found until then: all three come before it.
+		{c, app.RuleLimits{Errors: 1, Warnings: 2}, 1, 2, "1 further warning of the rules was left out: only the first 2 are reported (MAX_ERRORS)."},
+	} {
+		if errs, warnings := count(tc.checker, tc.limits); errs != tc.errs || warnings != tc.warnings || note != tc.note {
+			t.Errorf("%+v: %d errors, %d warnings, note %q; want %d, %d, %q", tc.limits, errs, warnings, note, tc.errs, tc.warnings, tc.note)
+		}
+	}
+}
+
+// failingRules fail on every document: count() takes a node-set, which
+// string(.) is not, and only evaluation finds that out.
+const failingRules = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+  <sch:pattern id="FAILING">
+    <sch:rule context="/*">
+      <sch:assert test="count(string(.)) = 1">Never reached.</sch:assert>
+    </sch:rule>
+  </sch:pattern>
+</sch:schema>`
+
+// A rule set that fails keeps the findings of the sets before it in the
+// chain, and the error wraps neither app.ErrTooComplex nor a context error.
+func TestFailingRuleSetKeepsEarlierFindings(t *testing.T) {
+	data := testutil.ReadTestdata(t, "invalid/schematron-unknown-attribute.xml")
+	findings, err := Chain(versionRules(t, "3.0.0"), mountedRules(t, failingRules)).CheckRules(context.Background(), data, app.RuleLimits{})
+	if err == nil || errors.Is(err, app.ErrTooComplex) || !strings.HasPrefix(err.Error(), "Schematron: ") {
+		t.Fatalf("got error %v, want a Schematron failure", err)
+	}
+	if len(findings) != 1 || findings[0].Code != qti.CodeSchematron || findings[0].Source != "" {
+		t.Fatalf("got %+v, want the one finding of the built-in rules", findings)
 	}
 }
