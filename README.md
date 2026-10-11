@@ -85,9 +85,10 @@ Every document goes through four checks:
 A package is checked file by file. It needs a QTI 3 `imsmanifest.xml` in its
 root; every XML file is validated, media files are not opened, and XML files
 that are not a QTI document are reported as not run, unless the manifest lists
-them as a QTI resource. A QTI fragment (a resource of type
-`imsqti_fragment_xmlv3p0`, included by another document with XInclude) is
-checked as a fragment; see [the report](docs/report.md#packages).
+them as a QTI resource. A QTI fragment (XML that another document includes
+with XInclude, whether or not the manifest lists it as a resource of type
+`imsqti_fragment_xmlv3p0`) is checked as a fragment; see
+[the report](docs/report.md#packages).
 
 Accepted documents are QTI items, tests, sections, stimuli, response
 processing templates, outcome declarations, package manifests, LOM and QTI
@@ -163,7 +164,7 @@ one:
 | `ERROR` | A document breaks the XML Schema or a rule, or a package misses its manifest | no |
 | `FATAL` | Something could not be read at all: XML that is not well-formed, not UTF-8 or has a `DOCTYPE`, a document that is not QTI 3, or a body that is not a ZIP | no |
 | `EXCEPTION` | The validation did not finish: it stopped because a document is too complex or took longer than `REQUEST_TIMEOUT` (code `too_complex`, HTTP 422), or the service itself failed (code `internal`, HTTP 500) | no |
-| `NOT_RUN` | A check was skipped: an XML file that is not a QTI document, or the checks after a `FATAL` | does not count |
+| `NOT_RUN` | A check was skipped: an XML file that is not a QTI document, or the checks of a document that was not validated, such as after a `FATAL` | does not count |
 
 In a package, every file gets its own findings, so one package can contain
 all of them. [`examples/with-errors.zip`](examples/README.md) shows each kind.

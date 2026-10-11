@@ -55,6 +55,7 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 	hasManifest := false
 	budget := limits.MaxUncompressedSize
 	contents := qti.PackageContents{Documents: map[string]qti.PackageDocument{}, Unreadable: map[string]bool{}}
+	var outcomes []fileOutcome
 	for _, e := range entries {
 		name := e.Name()
 		if !qti.SafeEntryName(name) {
@@ -82,7 +83,8 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 			res.Fail(qti.OutcomeTooComplex, stop)
 			return res
 		}
-		fr, outcome, doc := v.validateEntry(ctx, e, limits.MaxFileSize, &budget, req, manifest.resources[name])
+		kind := manifest.resources[name]
+		fr, outcome, doc := v.validateEntry(ctx, e, limits.MaxFileSize, &budget, req, kind)
 		if outcome == qti.OutcomeTooLarge {
 			res.Fail(qti.OutcomeTooLarge, qti.Finding{
 				Code:    qti.CodeTooLarge,
@@ -91,13 +93,18 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 			return res
 		}
 		res.Files = append(res.Files, fr)
-		res.Outcome = res.Outcome.Worse(outcome)
+		outcomes = append(outcomes, fileOutcome{
+			index: len(res.Files) - 1, entry: e, outcome: outcome,
+			// It may still be a fragment that a document further on includes.
+			undecided: notQTI(fr) && kind != qti.ResourceFragment && name != qti.ManifestName,
+		})
 		if doc != nil {
 			contents.Documents[name] = *doc
 		} else {
 			contents.Unreadable[name] = true
 		}
 	}
+	v.decide(ctx, outcomes, &res, &contents, limits.MaxFileSize, req)
 	if v.references != nil {
 		applyReferenceFindings(&res, qti.CheckReferences(contents))
 	}
@@ -106,6 +113,51 @@ func (v *Validator) ValidatePackage(ctx context.Context, q ValidatePackage) qti.
 	}
 	res.Valid = res.Outcome == qti.OutcomeValid
 	return res
+}
+
+// fileOutcome is the outcome of an XML file of a package. An undecided file
+// is not a QTI document, and the manifest does not call it a fragment: what
+// it is depends on the documents of the package, as one that includes it
+// with XInclude makes it a fragment.
+type fileOutcome struct {
+	index     int // in the package's files
+	entry     ArchiveEntry
+	outcome   qti.Outcome // as what the manifest says it is
+	undecided bool
+}
+
+// decide validates the undecided files that a document of the package
+// includes as fragments, and adds the outcome of every file to the
+// package's.
+func (v *Validator) decide(ctx context.Context, outcomes []fileOutcome, res *qti.PackageResult,
+	contents *qti.PackageContents, maxSize int64, req qti.VersionRequest,
+) {
+	included := qti.IncludedFiles(*contents)
+	for _, u := range outcomes {
+		name := u.entry.Name()
+		if u.undecided && included[name] {
+			// Read once more, now as a fragment. The bytes were counted
+			// against the package's budget the first time.
+			again := maxSize
+			fr, outcome, doc := v.validateEntry(ctx, u.entry, maxSize, &again, req, qti.ResourceFragment)
+			// Included XML outside the QTI namespace, such as MathML, that
+			// the manifest does not list as QTI stays skipped.
+			if !res.Files[u.index].Skipped || !notQTI(fr) {
+				res.Files[u.index], u.outcome = fr, outcome
+				if doc != nil {
+					contents.Documents[name] = *doc
+				}
+			}
+		}
+		res.Outcome = res.Outcome.Worse(u.outcome)
+	}
+}
+
+// notQTI reports whether the result of a file is that of well-formed XML
+// that is not a QTI document: skipped, or an error where the manifest lists
+// it as one.
+func notQTI(fr qti.FileResult) bool {
+	return fr.Skipped || len(fr.Errors) == 1 && fr.Errors[0].Code == qti.CodeUnsupportedDocument
 }
 
 // manifestInfo is what the package needs from its manifest before the
@@ -117,7 +169,8 @@ type manifestInfo struct {
 	version string
 	// resources are the files of the manifest's QTI resources. Such a file
 	// must be a QTI document, or a QTI fragment; any other XML file that is
-	// not a QTI document is skipped.
+	// not a QTI document is skipped, unless a document of the package
+	// includes it with XInclude, which makes it a fragment too.
 	resources map[string]qti.ResourceKind
 }
 
@@ -153,7 +206,8 @@ func readEntry(e ArchiveEntry, maxSize int64) ([]byte, error) {
 // it could be read. Its outcome is OutcomeTooLarge only when the
 // package-wide budget ran out, which aborts the package. The manifest and a
 // file the manifest lists as a QTI resource are never skipped: if one is not
-// what it must be, that is an error. A QTI fragment is checked as one.
+// what it must be, that is an error. A QTI fragment is checked as one, when
+// it is not a QTI document itself.
 func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize int64, budget *int64,
 	req qti.VersionRequest, kind qti.ResourceKind,
 ) (qti.FileResult, qti.Outcome, *qti.PackageDocument) {
@@ -184,13 +238,16 @@ func (v *Validator) validateEntry(ctx context.Context, e ArchiveEntry, maxSize i
 		res = v.validate(ctx, data, req, limits)
 		switch {
 		case name == qti.ManifestName:
-			res = requireManifest(data, res)
+			res = v.requireManifest(data, res)
 		case kind == qti.ResourceFragment && unsupportedDocument(res):
 			res = v.validateFragment(ctx, data, req, limits)
 		}
 	}
 	*budget -= counted.n
 	doc := v.documentReferences(data, res)
+	if doc != nil && name == qti.ManifestName && unsupportedDocument(res) {
+		doc.Refs = qti.DocumentReferences{} // not a manifest: what it refers to instead is not the package's
+	}
 
 	out.Schema, out.Version, out.Ran = res.Schema, res.Version, res.Ran
 	out.Errors, out.Warnings = inFile(res.Errors, name), inFile(res.Warnings, name)

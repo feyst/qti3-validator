@@ -66,6 +66,37 @@ func TestDocumentReportFatal(t *testing.T) {
 	}
 }
 
+// A document that was not validated has a NOT_RUN item that says why,
+// whether or not its finding is FATAL.
+func TestDocumentReportNotRunReason(t *testing.T) {
+	for _, tc := range []struct {
+		code    qti.Code
+		outcome string
+		message string
+	}{
+		{qti.CodeInvalidXML, OutcomeNameFatal, "Not run: the document could not be read."},
+		{qti.CodeUnsupportedDocument, OutcomeNameFatal, "Not run: the document is not a supported document type."},
+		{qti.CodeTooLarge, OutcomeNameError, "Not run: the document is too large."},
+		{qti.CodeTooComplex, OutcomeNameException, "Not run: validation stopped before these checks."},
+	} {
+		pkg := qti.PackageResult{Version: "3.0.1", Outcome: qti.OutcomeInvalid, Files: []qti.FileResult{
+			{File: "item.xml", Errors: []qti.Finding{{Code: tc.code, File: "item.xml", Message: "m"}}},
+		}}
+		r := ForPackage(pkg, testMeta)
+		if r.Summary.Outcome != tc.outcome || r.Summary.NotRun != 1 || r.Summary.TotalRun != 2 || r.NotRun[0].Message != tc.message ||
+			r.NotRun[0].Location.Resource != "/item.xml" {
+			t.Errorf("%s: %+v", tc.code, r)
+		}
+	}
+	// Checks that ran are not reported as not run.
+	res := qti.DocumentResult{Schema: "qti-assessment-item", Version: "3.0.1", Outcome: qti.OutcomeInvalid, Ran: ranBoth, Errors: []qti.Finding{
+		{Code: qti.CodeValidation, Message: "bad value"}, {Code: qti.CodeTooLarge, Message: "m"},
+	}}
+	if r := ForDocument(res, testMeta); r.Summary.NotRun != 0 || r.Summary.TotalRun != 3 {
+		t.Errorf("ran: %+v", r.Summary)
+	}
+}
+
 // A validation that stopped is an EXCEPTION, after the errors found before.
 func TestDocumentReportTooComplex(t *testing.T) {
 	res := qti.DocumentResult{Schema: "qti-assessment-item", Version: "3.0.1", Outcome: qti.OutcomeTooComplex, Ran: ranBoth, Errors: []qti.Finding{

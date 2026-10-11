@@ -23,7 +23,27 @@ type SchemaVerdict struct {
 	// RootUndeclared reports that the schema declares no global element for
 	// the document's root, so its content was not assessed against it.
 	RootUndeclared bool
+	// UnresolvedIDRefs are the indexes in Findings of IDREFs whose ID is not
+	// in the document. In a fragment that is no error: the ID may be in the
+	// document that includes it.
+	UnresolvedIDRefs []int
 }
+
+// SchemaElements are the names of the elements a schema declares in its
+// target namespace.
+type SchemaElements struct {
+	Namespace string
+	// Global are the elements declared at the top level: a document, or a
+	// fragment, with such a root can be validated as it is.
+	Global map[string]bool
+	// Local are the elements declared inside a type or a group, which are
+	// valid only where that type allows them.
+	Local map[string]bool
+}
+
+// Declares reports whether the schema declares an element of that name,
+// anywhere.
+func (e SchemaElements) Declares(local string) bool { return e.Global[local] || e.Local[local] }
 
 // RuleChecker runs Schematron rules on a well-formed document and returns
 // the findings within limits. When it stops before the end, because the
@@ -60,6 +80,10 @@ type RuleFinding struct {
 type Profile struct {
 	Schema SchemaChecker
 	Rules  RuleChecker
+	// Elements are the elements of the QTI schema, for checking the
+	// fragments of a package. Without them the content of a fragment whose
+	// root is not a global element is not checked, which a warning says.
+	Elements *SchemaElements
 }
 
 // CustomType is a document type a mounted validator adds. It has no QTI

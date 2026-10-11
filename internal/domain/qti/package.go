@@ -1,6 +1,7 @@
 package qti
 
 import (
+	"net/url"
 	"path"
 	"strings"
 )
@@ -42,6 +43,24 @@ func ClassifyResourceType(t string) ResourceKind {
 	return ResourceOther
 }
 
+// IncludedFiles returns the files of a package that one of its documents
+// includes as XML with XInclude: the fragments of the package, whether or
+// not the manifest lists them as such.
+func IncludedFiles(p PackageContents) map[string]bool {
+	included := map[string]bool{}
+	for name := range p.Documents {
+		for _, ref := range p.Documents[name].Refs.References {
+			if !ref.Include {
+				continue
+			}
+			if target, ok := PackagePath(name, ref.Href); ok {
+				included[target] = true
+			}
+		}
+	}
+	return included
+}
+
 // BaseStack follows the xml:base of nested manifest elements, as IMS
 // Content Packaging chains them: manifest, resources, resource and file. An
 // element without xml:base inherits its parent's.
@@ -68,17 +87,44 @@ func (s *BaseStack) Pop() {
 	}
 }
 
-// JoinBase applies an xml:base to an href. An href with a scheme points
-// elsewhere and is kept as it is; with a base that has one, the result
-// points elsewhere too.
+// JoinBase applies an xml:base to an href, as RFC 3986 resolves a reference
+// against a base, with one difference: the base is always a directory, also
+// without a trailing slash, as packages write it both ways. So "items" and
+// "items/" both make "a.xml" into "items/a.xml".
+//
+// An href with a scheme, or one that starts with "//", points elsewhere and
+// is kept as it is, as is one that is only a fragment ("#id"); with a base that has a scheme, the result points
+// elsewhere too. An href that starts with "/" replaces the path of the
+// base. A scheme is what RFC 3986 says it is: "img/a:b.png" has none.
 func JoinBase(base, href string) string {
 	switch {
-	case base == "" || href == "" || strings.Contains(href, ":"):
+	case base == "" || href == "" || hasScheme(href) || strings.HasPrefix(href, "//") || strings.HasPrefix(href, "#"):
 		return href
-	case strings.Contains(base, ":"):
-		return strings.TrimSuffix(base, "/") + "/" + href
+	case hasScheme(base) || strings.HasPrefix(base, "//"):
+		b, errBase := url.Parse(strings.TrimSuffix(base, "/") + "/")
+		h, errHref := url.Parse(href)
+		if errBase != nil || errHref != nil {
+			return strings.TrimSuffix(base, "/") + "/" + href // not a URI reference, which the reference checks report
+		}
+		return b.ResolveReference(h).String()
+	case strings.HasPrefix(href, "/"):
+		return href
 	}
 	return path.Join(base, href)
+}
+
+// hasScheme reports whether a URI reference starts with a scheme: a letter,
+// then letters, digits, "+", "-" and ".", up to a ":" (RFC 3986, 3.1).
+func hasScheme(ref string) bool {
+	for i, c := range []byte(ref) {
+		switch {
+		case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z':
+		case i > 0 && (c >= '0' && c <= '9' || c == '+' || c == '-' || c == '.'):
+		default:
+			return i > 0 && c == ':'
+		}
+	}
+	return false
 }
 
 // PackagePath resolves an href in the document doc to the path of a file

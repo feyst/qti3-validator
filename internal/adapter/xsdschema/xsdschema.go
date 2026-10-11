@@ -4,10 +4,12 @@ package xsdschema
 
 import (
 	"bytes"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 
 	"github.com/jacoelho/xsd"
 	"github.com/jacoelho/xsd/xsderrors"
@@ -130,6 +132,10 @@ func verdictFor(err error) app.SchemaVerdict {
 		if diag.Code() == xsderrors.CodeValidationRoot {
 			v.RootUndeclared = true
 		}
+		// The library has no code of its own for an IDREF without its ID.
+		if diag.Code() == xsderrors.CodeValidationType && strings.HasPrefix(diag.Message(), unresolvedIDRef) {
+			v.UnresolvedIDRefs = append(v.UnresolvedIDRefs, len(v.Findings))
+		}
 		code, outcome := classify(diag)
 		message := diag.Message()
 		if message == "" && diag.Cause() != nil {
@@ -170,4 +176,62 @@ func classify(diag *xsderrors.Error) (qti.Code, qti.Outcome) {
 		return qti.CodeUnsupportedXML, qti.OutcomeInvalid
 	}
 	return qti.CodeInternal, qti.OutcomeInternal
+}
+
+// unresolvedIDRef starts the library's message for an IDREF whose ID is not
+// in the document.
+const unresolvedIDRef = "IDREF does not resolve"
+
+const namespaceXSD = "http://www.w3.org/2001/XMLSchema"
+
+// DeclaredElements reads the names of the elements the schema at schemaURL
+// declares in its target namespace: at the top level, and locally inside
+// its types and groups. Elements of imported schemas, which are in other
+// namespaces, are not part of it.
+func DeclaredElements(r Resolver, schemaURL string) (app.SchemaElements, error) {
+	f, err := r.Store.Open(schemaURL)
+	if err != nil {
+		return app.SchemaElements{}, err
+	}
+	defer f.Close()
+	elements := app.SchemaElements{Global: map[string]bool{}, Local: map[string]bool{}}
+	dec := xml.NewDecoder(f)
+	qualified := false // whether local elements are in the target namespace
+	for depth := 0; ; {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return elements, nil
+		}
+		if err != nil {
+			return app.SchemaElements{}, fmt.Errorf("read the elements of %s: %w", schemaURL, err)
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+			switch {
+			case depth == 1:
+				if t.Name != (xml.Name{Space: namespaceXSD, Local: "schema"}) {
+					return app.SchemaElements{}, fmt.Errorf("%s: root element is not xs:schema", schemaURL)
+				}
+				elements.Namespace = attr(t, "targetNamespace")
+				qualified = attr(t, "elementFormDefault") == "qualified"
+			case t.Name != xml.Name{Space: namespaceXSD, Local: "element"} || attr(t, "name") == "":
+			case depth == 2:
+				elements.Global[attr(t, "name")] = true
+			case attr(t, "form") == "qualified" || qualified && attr(t, "form") == "":
+				elements.Local[attr(t, "name")] = true
+			}
+		case xml.EndElement:
+			depth--
+		}
+	}
+}
+
+func attr(t xml.StartElement, name string) string {
+	for _, a := range t.Attr {
+		if a.Name.Space == "" && a.Name.Local == name {
+			return a.Value
+		}
+	}
+	return ""
 }

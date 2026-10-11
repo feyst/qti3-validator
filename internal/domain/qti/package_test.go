@@ -44,10 +44,42 @@ func TestBaseStack(t *testing.T) {
 		{"items/", "a.xml", "items/a.xml"},
 		{"items/", "https://example.org/a.xml", "https://example.org/a.xml"},
 		{"https://example.org/x/", "a.xml", "https://example.org/x/a.xml"},
+		// The base is a directory, with or without the slash.
+		{"items", "a.xml", "items/a.xml"},
+		{"https://example.org/x", "a.xml", "https://example.org/x/a.xml"},
+		{"items/", "../media/a.png", "media/a.png"},
+		// A ":" after the first "/", "?" or "#" is not a scheme (RFC 3986).
+		{"items/", "img/a:b.png", "items/img/a:b.png"},
+		{"items/", "./a:b.png", "items/a:b.png"},
+		{"items/", "a.xml?x=1:2", "items/a.xml?x=1:2"},
+		{"items/", "1a:b.png", "items/1a:b.png"}, // a scheme starts with a letter
+		{"items/", "mailto:x@example.org", "mailto:x@example.org"},
+		{"items/", "urn:x-y.z+1:a", "urn:x-y.z+1:a"},
+		// An absolute path replaces the base's, a network path all of it.
+		{"items/", "/a.xml", "/a.xml"},
+		{"items/", "//example.org/a.xml", "//example.org/a.xml"},
+		{"https://example.org/x/", "/a.xml", "https://example.org/a.xml"},
+		{"https://example.org/x/", "../a.xml", "https://example.org/a.xml"},
+		{"items/", "#top", "#top"},
 	} {
 		if got := JoinBase(tc.base, tc.href); got != tc.want {
 			t.Errorf("JoinBase(%q, %q) = %q, want %q", tc.base, tc.href, got, tc.want)
 		}
+	}
+}
+
+func TestIncludedFiles(t *testing.T) {
+	got := IncludedFiles(PackageContents{Documents: map[string]PackageDocument{
+		"items/a.xml": {Refs: DocumentReferences{References: []Reference{
+			{Kind: RefAsset, Href: "shared/frag.xml", Include: true},
+			{Kind: RefAsset, Href: "../frag%202.xml#p", Include: true},
+			{Kind: RefAsset, Href: "https://example.org/frag.xml", Include: true},
+			{Kind: RefAsset, Href: "../../outside.xml", Include: true},
+			{Kind: RefAsset, Href: "style.css"},
+		}}},
+	}})
+	if len(got) != 2 || !got["items/shared/frag.xml"] || !got["frag 2.xml"] {
+		t.Fatalf("got %v", got)
 	}
 }
 

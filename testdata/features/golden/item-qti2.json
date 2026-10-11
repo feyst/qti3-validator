@@ -27,7 +27,7 @@
         "location": {
           "resource": "keuze.xml"
         },
-        "message": "Not run: the document could not be read.",
+        "message": "Not run: the document is not a supported document type.",
         "title": "XML Schema and Schematron"
       }
     ],

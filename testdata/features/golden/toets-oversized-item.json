@@ -19,7 +19,18 @@
       "name": "package.zip",
       "type": "ZIP"
     },
-    "notRun": [],
+    "notRun": [
+      {
+        "code": "not_run",
+        "detailsMessage": null,
+        "generator": "validation",
+        "location": {
+          "resource": "/items/keuze.xml"
+        },
+        "message": "Not run: the document is too large.",
+        "title": "XML Schema and Schematron"
+      }
+    ],
     "specification": {
       "pid": "qti300.pid",
       "shortName": "qti",
@@ -30,7 +41,7 @@
       "errors": 1,
       "exceptions": 0,
       "fatals": 0,
-      "notRun": 0,
+      "notRun": 1,
       "outcome": "ERROR",
       "totalRun": 44,
       "valid": 14,

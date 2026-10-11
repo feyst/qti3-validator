@@ -51,8 +51,8 @@ func TestPackageFragmentResource(t *testing.T) {
 		{"div", `<div xmlns="` + qti.NamespaceASI + `"><p>Shared text</p></div>`, true, ""},
 		{"div with an interaction", `<div xmlns="` + qti.NamespaceASI + `"><qti-hottext-interaction response-identifier="RESPONSE" max-choices="1">` +
 			`<p>The <qti-hottext identifier="A">quick</qti-hottext> fox.</p></qti-hottext-interaction></div>`, true, ""},
-		// Not a global element of the schema: valid only where it is
-		// included, which is not resolved, so its content is not checked.
+		// Not a global element of the schema: validated inside a
+		// qti-response-processing (TestFragmentRoot).
 		{"response condition", `<qti-response-condition xmlns="` + qti.NamespaceASI + `"><qti-response-if><qti-null/>` +
 			`<qti-set-outcome-value identifier="SCORE"><qti-base-value base-type="float">1</qti-base-value></qti-set-outcome-value>` +
 			`</qti-response-if></qti-response-condition>`, true, ""},
@@ -154,6 +154,34 @@ func TestPackageManifestNotQTI3(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// An href with a ":" in a later path segment is a path in the package, to
+// which xml:base applies; one that starts with "/" is not in the package.
+func TestPackageXMLBaseHrefs(t *testing.T) {
+	entries := packageEntries(t)
+	entries[0].data = strings.Replace(entries[0].data, "  </resources>",
+		`<resource identifier="media" type="webcontent" href="img/a:b.png" xml:base="media/"><file href="img/a:b.png"/></resource>
+  </resources>`, 1)
+	entries = append(entries, entry{"media/img/a:b.png", "not really a PNG"})
+	res := validatePackageWith(t, makeZip(t, entries...), "")
+	if m := fileResult(t, res, qti.ManifestName); !res.Valid || len(m.Errors) != 0 {
+		t.Fatalf("got %+v, package %+v", m, res)
+	}
+	for _, w := range res.Warnings {
+		if strings.Contains(w.Message, "a:b.png") {
+			t.Fatalf("listed file reported as unlisted: %+v", w)
+		}
+	}
+
+	entries = packageEntries(t)
+	entries[0].data = strings.Replace(entries[0].data, "  </resources>",
+		`<resource identifier="media" type="webcontent" href="/picture.png" xml:base="items/media/"><file href="picture.png"/></resource>
+  </resources>`, 1)
+	res = validatePackageWith(t, makeZip(t, entries...), "")
+	if m := fileResult(t, res, qti.ManifestName); res.Valid || len(m.Errors) != 1 || m.Errors[0].Code != qti.CodeReference {
+		t.Fatalf("got %+v", m)
 	}
 }
 

@@ -94,6 +94,10 @@ func (r *reader) start(t xml.StartElement, line, col int) {
 	case namespaceXInclude:
 		if t.Name.Local == "include" {
 			add(qti.RefAsset, attr(t, "", "href"))
+			// parse="text" includes a file as text, whatever it holds.
+			if n := len(r.refs.References); attr(t, "", "href") != "" && attr(t, "", "parse") != "text" {
+				r.refs.References[n-1].Include = true
+			}
 		}
 	case qti.NamespaceASI:
 		readASI(&r.refs, t, r.root, line, col, add)

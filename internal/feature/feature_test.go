@@ -173,6 +173,40 @@ var cases = []featureCase{
 </qti-outcome-declaration>
 `),
 	})},
+	// A fragment listed only as a file of the item that includes it: the
+	// XInclude makes it a fragment. Its root is a response rule, which is
+	// validated as inside a qti-response-processing; the misspelt element
+	// is an error at its own line and path.
+	{name: "toets-fragment-response-rule", contentType: "application/zip", body: toets(includedBy("items/keuze.xml",
+		`<file href="fragments/regel.xml"/>`, `<qti-response-processing>`, "fragments/regel.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<qti-response-condition xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0">
+  <qti-response-if>
+    <qti-is-null><qti-variable identifier="RESPONSE"/></qti-is-null>
+    <qti-set-outcome-waarde identifier="SCORE"><qti-base-value base-type="float">0</qti-base-value></qti-set-outcome-waarde>
+  </qti-response-if>
+</qti-response-condition>
+`))},
+	// A fragment whose root is no element of QTI at all.
+	{name: "toets-fragment-unknown-root", contentType: "application/zip", body: toets(includedBy("items/keuze.xml",
+		`<file href="fragments/uitleg.xml"/>`, `<qti-item-body>`, "fragments/uitleg.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<qti-uitleg xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0">
+  <p>Kies het juiste antwoord.</p>
+</qti-uitleg>
+`))},
+	// A fragment whose root the validator cannot check on its own: a
+	// warning, and no schema check counted for it.
+	{name: "toets-fragment-not-checked", contentType: "application/zip", body: toets(includedBy("items/gatenkoppel.xml",
+		`<file href="fragments/waal.xml"/>`, `<qti-gap-text identifier="MAAS" match-max="1">Maas</qti-gap-text>`, "fragments/waal.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<qti-gap-text xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="WAAL" match-max="1">Waal</qti-gap-text>
+`))},
+	// A manifest that is a valid QTI item: not a manifest, and none of the
+	// checks of an item are counted for it.
+	{name: "toets-manifest-is-item", contentType: "application/zip", body: func(t *testing.T) []byte {
+		t.Helper()
+		files := readDir(t, testutil.Testdata("features/packages/toets"))
+		files["imsmanifest.xml"] = files["items/keuze.xml"]
+		return zipFiles(t, files)
+	}},
 	// A manifest in the namespace of plain IMS Content Packaging is not a
 	// QTI 3 manifest.
 	{name: "toets-generic-manifest", contentType: "application/zip", body: toets(map[string]func(string) *string{
@@ -222,6 +256,19 @@ var cases = []featureCase{
 	{name: "php-qti3-invalid-response-processing", body: file("features/php-qti3/invalid-response-processing.zip"), contentType: "application/zip"},
 	{name: "php-qti3-no-response-processing", body: file("features/php-qti3/no-response-processing.zip"), contentType: "application/zip"},
 	{name: "php-qti3-no-max-score-all-items", body: file("features/php-qti3/no-max-score-all-items.zip"), contentType: "application/zip"},
+}
+
+// includedBy makes an item include a new file with XInclude, right after
+// at, and lists the file in the manifest as a file of the
+// item's resource.
+func includedBy(item, listing, at, name, content string) map[string]func(string) *string {
+	return map[string]func(string) *string{
+		"imsmanifest.xml": replace(`<file href="`+item+`"/>`, `<file href="`+item+`"/>
+      `+listing),
+		item: replace(at, at+`
+    <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="../`+name+`"/>`),
+		name: with(content),
+	}
 }
 
 // secondTest is a test whose item ref "keuze" is items/meerkeuze.xml, which

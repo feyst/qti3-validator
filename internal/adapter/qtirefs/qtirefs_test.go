@@ -16,6 +16,7 @@ func TestReadReferences(t *testing.T) {
     <img src="a.png" alt=""/>
     <video src="v.mp4" poster="p.png"><track src="t.vtt"/></video>
     <xi:include href="inc.xml"/>
+    <xi:include href="notes.txt" parse="text"/>
     <qti-portable-custom-interaction response-identifier="RESPONSE" custom-interaction-type-identifier="x" module="m">
       <qti-interaction-modules primary-configuration="conf.json">
         <qti-interaction-module id="m" primary-path="m1" fallback-path="m2.js"/>
@@ -35,7 +36,7 @@ func TestReadReferences(t *testing.T) {
 	}
 	want := []string{
 		"qti-stylesheet=style.css|", "qti-assessment-stimulus-ref=s.xml|", "img=a.png|", "video=v.mp4|", "video=p.png|",
-		"track=t.vtt|", "include=inc.xml|", "qti-interaction-modules=conf.json|", "qti-interaction-module=m1|m2.js",
+		"track=t.vtt|", "include=inc.xml|", "include=notes.txt|", "qti-interaction-modules=conf.json|", "qti-interaction-module=m1|m2.js",
 		"qti-file-href=c.mp3|", "qti-response-processing=rp.xml|",
 	}
 	if len(got) != len(want) {
@@ -44,6 +45,12 @@ func TestReadReferences(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("reference %d: got %s, want %s", i, got[i], want[i])
+		}
+	}
+	for _, r := range refs.References {
+		// Only an XInclude of XML makes the file it names a fragment.
+		if r.Include != (r.Href == "inc.xml") {
+			t.Errorf("%s: Include is %v", r.Href, r.Include)
 		}
 	}
 	if refs.Root != "qti-assessment-item" || len(refs.Declared) != 2 || refs.References[2].Line != 7 {

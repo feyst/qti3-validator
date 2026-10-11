@@ -32,6 +32,7 @@ type Reference struct {
 	Href         string // as written, relative to the document; for RefManifestFile with xml:base applied
 	Fallback     string // RefModule: the fallback-path, used when Href does not resolve
 	Element      string // the element that holds it, for messages
+	Include      bool   // an XInclude of XML: the file it names is a fragment of this document
 	Line, Column int
 }
 

@@ -104,18 +104,43 @@ that passed gets a `valids` item.
 What the manifest lists decides how an XML file of a package is checked.
 Paths in the manifest are resolved with `xml:base` applied, as IMS Content
 Packaging chains it from `manifest` through `resources` and `resource` to
-`file`.
+`file`. An `href` is resolved against it as RFC 3986 says, with one
+difference: an `xml:base` is always a folder, with or without a trailing
+slash, so `xml:base="items"` and `xml:base="items/"` both make `a.xml` into
+`items/a.xml`. An `href` with a scheme (`https:`) points outside the package;
+a `:` further on, as in `img/a:b.png`, is part of a file name. An `href` that
+starts with `/` does not get the `xml:base` and is outside the package.
 
 | File | Checked as |
 | --- | --- |
-| `imsmanifest.xml` | A QTI 3 content package manifest, root `{http://www.imsglobal.org/xsd/qti/qtiv3p0/imscp_v1p1}manifest`. Anything else, such as a manifest of plain IMS Content Packaging (`http://www.imsglobal.org/xsd/imscp_v1p1`), is `unsupported_document`, and the files are then not reported as missing from the manifest one by one |
-| A file of a QTI resource (`imsqti_item_xmlv3p0`, `imsqti_test_xmlv3p0`, `imsqti_outcomes_xmlv3p0`, …) | A QTI document; anything else, such as a QTI 2.x item, is `unsupported_document`. An outcomes resource holds a `qti-outcome-declaration` |
-| A file of a fragment resource (`imsqti_fragment_xmlv3p0`) | A QTI fragment: XML that another document includes with XInclude, such as a `div`. Its root must be in the QTI namespace. When the schema declares that root as a global element, as it does for the HTML content elements, the fragment is validated against it; other roots, such as a `qti-response-condition`, are valid only where they are included, so their content is not checked. XIncludes are not resolved, and the Schematron rules do not run on a fragment. A fragment that passed is reported as `Valid qti-fragment` |
+| `imsmanifest.xml` | A QTI 3 content package manifest, root `{http://www.imsglobal.org/xsd/qti/qtiv3p0/imscp_v1p1}manifest`. Anything else, such as a manifest of plain IMS Content Packaging (`http://www.imsglobal.org/xsd/imscp_v1p1`) or a QTI item, is `unsupported_document` and nothing more: it is not validated as the document it is instead, and the files are then not reported as missing from the manifest one by one. The exception is a document type that a [custom validator](custom-validators.md) adds: that validator checks it |
+| A file of a QTI resource (`imsqti_item_xmlv3p0`, `imsqti_test_xmlv3p0`, `imsqti_outcomes_xmlv3p0`, …) | A QTI document, or a QTI fragment if a QTI document of the package includes it with XInclude; anything else, such as a QTI 2.x item, is `unsupported_document`. An outcomes resource holds a `qti-outcome-declaration` |
+| A file of a fragment resource (`imsqti_fragment_xmlv3p0`), or a file that a QTI document of the package includes with `xi:include` (unless with `parse="text"`) | A QTI document if its root is one; otherwise a QTI fragment, see below |
 | Any other XML file | A QTI document if its root is one; otherwise not run (`skipped`) |
 
+A QTI fragment is XML that another document includes with XInclude, such as
+a `div` with shared text. An item may list it as a fragment resource, as one
+of its own files, or not at all: the `xi:include` is what makes it a
+fragment. Its root must be an element of the QTI schema:
+
+| Root of the fragment | Result |
+| --- | --- |
+| Not in the QTI namespace | `unsupported_document`. Included XML outside the QTI namespace, such as MathML, that the manifest does not list as a file of a QTI resource is not run (`skipped`) instead |
+| In the QTI namespace, but not an element of the QTI version's schema, such as `qti-bogus` | A `validation` error |
+| A global element of the schema: the HTML content elements (`div`, `p`, `table`, …), `qti-outcome-processing` | Validated against the schema as it is |
+| An element the schema allows only inside another | Validated inside the first of these that allows it, with the lines, columns and paths of the fragment itself: `qti-outcome-processing` (outcome rules such as `qti-outcome-condition`), `qti-response-processing` (response rules such as `qti-response-condition`), `qti-template-processing` (template rules), `qti-item-body`, `div` and `p` (interactions, feedback and template blocks, inline content), `qti-response-if` (expressions such as `qti-match`), a response, outcome or template condition (its if, else-if and else branches), `qti-assessment-item` (declarations, `qti-item-body`, `qti-modal-feedback`, …), `qti-response-declaration` (`qti-correct-response`, `qti-mapping`, …), `qti-choice-interaction` (`qti-prompt`, `qti-simple-choice`), `qti-assessment-stimulus` (`qti-stimulus-body`), `qti-assessment-section`, `qti-assessment-test` and `qti-test-part` (their parts, such as `qti-assessment-item-ref` and `qti-rubric-block`) |
+| Any other element of the schema: mostly the parts of the other interactions (`qti-gap-text`, `qti-inline-choice`, `qti-hotspot-choice`, …), of declarations (`qti-value`, `qti-map-entry`, …), of catalogs and of companion materials | Not checked: a `not_checked` warning, a NOT_RUN item, and no XML Schema check counted in `totalRun` |
+
+In a fragment an IDREF without its ID, such as a `response-identifier`, is no
+error: the ID may be in the document that includes it. XIncludes are not
+resolved, so a fragment is not checked in the place where it is included,
+and the Schematron rules do not run on a fragment. A fragment that passed is
+reported as `Valid qti-fragment`.
+
 A file that could not be read (larger than `MAX_FILE_SIZE`, a corrupt entry,
-not well-formed before its type is known) gets its own finding; the documents
-that refer to it get none about its type.
+not well-formed before its type is known) gets its own finding, and a NOT_RUN
+item for its XML Schema and Schematron checks that says why; the documents
+that refer to it get no finding about its type.
 
 ## Report fields
 
@@ -150,7 +175,7 @@ From least to most severe:
 
 | Outcome | Meaning | Valid? |
 | --- | --- | --- |
-| `NOT_RUN` | A check did not run: a file that is not a QTI document, or the checks after a document that could not be read | does not count |
+| `NOT_RUN` | A check did not run: a file that is not a QTI document, or the checks of a document that could not be read, is not a supported document type, is too large, or is a fragment that cannot be checked on its own | does not count |
 | `VALID` | A document passed | yes |
 | `WARNING` | Something to look at, such as an overridden QTI version | yes |
 | `ERROR` | The document breaks the XML Schema or a rule, or the package is incomplete | no |
@@ -180,7 +205,8 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `unsupported_document` | FATAL | Not a supported QTI 3 document, for example a QTI 2.x item or the right element name in the wrong namespace; in a package also an `imsmanifest.xml` that is not a QTI 3 manifest, or a QTI fragment whose root is not in the QTI namespace (see [Packages](#packages)) |
 | `version_overridden` | WARNING | The `version` parameter differs from the manifest's `<schemaversion>` |
 | `skipped` | NOT_RUN | An XML file in a package that is not a QTI document, and that the manifest does not list as a QTI resource |
-| `not_run` | NOT_RUN | Checks that could not run after a FATAL finding |
+| `not_run` | NOT_RUN | The XML Schema and Schematron checks of a document that did not run; the message says why: the document could not be read, is not a supported document type, is too large, or is a fragment that cannot be checked apart from the document that includes it |
+| `not_checked` | WARNING | A QTI fragment whose root is valid only inside an element the validator cannot check it in; its content was not checked (see [Packages](#packages)) |
 | `too_complex` | EXCEPTION | Validation stopped before the end: the document's rules need more work than one document may take (a budget of XPath steps that grows with the number of nodes in the document; the rules of plain content stay well within it at any size up to `MAX_REQUEST_SIZE`), or validation took longer than `REQUEST_TIMEOUT`. The findings before it are kept. In a package it is reported in the file that stopped; when time ran out, a package finding also names the files that were not validated. HTTP 422 |
 | `internal` | EXCEPTION | An unexpected error in the service. The findings before it are kept |
 

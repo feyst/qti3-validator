@@ -22,8 +22,9 @@ const (
 	CodeUnsafePath          Code = "unsafe_path"
 	CodeMissingManifest     Code = "missing_manifest"
 	CodeTooManyFiles        Code = "too_many_files"
-	CodeReference           Code = "reference"  // a reference that does not resolve in the package
-	CodeValueType           Code = "value_type" // a value or expression of the wrong type
+	CodeReference           Code = "reference"   // a reference that does not resolve in the package
+	CodeValueType           Code = "value_type"  // a value or expression of the wrong type
+	CodeNotChecked          Code = "not_checked" // content the validator could not check; a warning
 )
 
 // Finding is one problem in a document or package.
