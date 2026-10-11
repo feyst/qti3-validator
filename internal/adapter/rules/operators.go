@@ -233,6 +233,9 @@ func init() {
 // type, in it and in its sub-expressions. Operands of an unknown type are
 // never reported.
 func (c *typeChecker) infer(n *xpath.Node) valueType {
+	if !c.visit() {
+		return valueType{} // unknown: nothing more is reported
+	}
 	op, known := operators[n.Local]
 	nodes := elements(n)
 	ops := make([]valueType, len(nodes))

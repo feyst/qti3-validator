@@ -280,9 +280,16 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 			for _, m := range matches {
 				n, r := m.node, m.rule
 				rvars := pvars
+				var release []func()
 				if len(r.lets) > 0 {
-					if rvars, err = bindLets(s, r.lets, n, maps.Clone(pvars)); err != nil {
-						return res, err
+					// The lets of a rule keep their values while its later
+					// lets and its assertions are evaluated on this node.
+					rvars = maps.Clone(pvars)
+					for i := range r.lets {
+						if _, err = bindLets(s, r.lets[i:i+1], n, rvars); err != nil {
+							return res, err
+						}
+						release = append(release, s.Scoped(rvars[r.lets[i].name]))
 					}
 				}
 				for _, a := range r.assertions {
@@ -319,6 +326,9 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 						// context of a later rule failed.
 						return res, nil
 					}
+				}
+				for _, done := range release {
+					done()
 				}
 			}
 			if contextErr != nil {

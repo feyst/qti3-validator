@@ -472,6 +472,9 @@ func ParseContext(ctx context.Context, r io.Reader) (*Document, error) { //nolin
 			if cur.Kind == RootNode {
 				continue // whitespace outside the document element is not a node
 			}
+			if len(t) == 0 {
+				continue // an empty CDATA section: there are no empty text nodes
+			}
 			if run != nil {
 				if !collecting {
 					text, collecting = append(text[:0], run.Data...), true

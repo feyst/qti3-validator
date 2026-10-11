@@ -61,6 +61,7 @@ type setKey struct {
 // node-set.
 type stringSet struct {
 	values map[string]bool // nil until a comparison needs it
+	bytes  int             // of string-values built for it; see maxSetBytes
 	// unusable: the string-values take too much memory to keep; the
 	// node-set is compared node by node.
 	unusable bool
@@ -84,8 +85,13 @@ const maxSetBytes = 4 << 20
 // the text below an element that cost a step.
 const stringBytesPerStep = 256
 
+// stringNodesPerStep is the number of nodes visited to join a string-value
+// that cost a step.
+const stringNodesPerStep = 64
+
 // stringValue returns the string-value of n for an evaluation, and charges
-// the session when it had to be built: a step per stringBytesPerStep bytes.
+// the session when it had to be built: a step per stringBytesPerStep bytes
+// and per stringNodesPerStep nodes below n.
 // A string-value that is memory of the document (see Node.stringValue)
 // costs nothing beyond the step of whatever asked for it.
 //
@@ -106,7 +112,8 @@ func (s *Session) stringValue(n *Node) (string, error) {
 	if !built {
 		return v, nil
 	}
-	return v, s.charge(len(v) / stringBytesPerStep)
+	// Joining the text visits every node below n, whatever text it finds.
+	return v, s.charge(len(v)/stringBytesPerStep + int(n.end-n.order)/stringNodesPerStep)
 }
 
 // stringOf converts a value as string() does, through stringValue for a
@@ -141,6 +148,45 @@ func (s *Session) Constant(v Value) {
 	if ns, ok := v.(NodeSet); ok {
 		s.keep(ns)
 	}
+}
+
+// Scoped tells s that v, the value of a variable, stays the same until the
+// function it returns is called, as Constant does for the whole session:
+// the value of a let of a rule, bound anew for every node the rule checks.
+// Calling the function drops what the session collected for v, so that the
+// values of every node do not add up.
+func (s *Session) Scoped(v Value) (release func()) {
+	ns, ok := v.(NodeSet)
+	if !ok || len(ns) < minSetSize {
+		return func() {}
+	}
+	k := setKey{&ns[0], len(ns)}
+	if _, kept := s.sets[k]; kept {
+		return func() {} // kept for the session: a remembered path or a constant
+	}
+	s.keep(ns)
+	return func() {
+		if set := s.sets[k]; set != nil {
+			s.setBytes -= set.bytes
+			delete(s.sets, k)
+		}
+	}
+}
+
+// stringInSet reports whether str, a string, equals the string-value of a
+// node of ns, that is, whether ns = str, when ns is a kept node-set: one
+// lookup, a step, where comparing every node takes a step each. It returns
+// false for ok when op is not =, str is not a string, or ns was not kept.
+func (s *Session) stringInSet(op string, ns NodeSet, str Value) (found, ok bool, err error) {
+	text, isString := str.(string)
+	if op != "=" || !isString {
+		return false, false, nil
+	}
+	set, ok, err := s.stringSet(ns)
+	if !ok || err != nil {
+		return false, ok, err
+	}
+	return set[text], true, s.charge(1)
 }
 
 func (s *Session) keep(ns NodeSet) {
@@ -181,7 +227,7 @@ func (s *Session) stringSet(ns NodeSet) (map[string]bool, bool, error) {
 		if wasBuilt {
 			// Built for this node; other string-values are the document's.
 			built += len(v)
-			if err := s.charge(len(v) / stringBytesPerStep); err != nil {
+			if err := s.charge(len(v)/stringBytesPerStep + int(n.end-n.order)/stringNodesPerStep); err != nil {
 				return nil, true, err
 			}
 			if s.setBytes+built > maxSetBytes {
@@ -192,7 +238,7 @@ func (s *Session) stringSet(ns NodeSet) (map[string]bool, bool, error) {
 		values[v] = true
 	}
 	s.setBytes += built
-	set.values = values
+	set.values, set.bytes = values, built
 	return values, true, nil
 }
 
