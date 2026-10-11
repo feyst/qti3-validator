@@ -46,7 +46,17 @@ func TestConfigSpoolAndQueue(t *testing.T) {
 		t.Fatalf("set: %+v, %v", cfg, err)
 	}
 
-	for _, name := range []string{"MAX_SPOOL_SIZE", "MAX_QUEUE"} {
+	// MAX_VALIDATION_MEMORY is 0 by default (derived at startup) and takes an
+	// explicit positive value.
+	if Default().MaxValidationMemory != 0 {
+		t.Fatalf("default MaxValidationMemory %d, want 0", Default().MaxValidationMemory)
+	}
+	t.Setenv("MAX_VALIDATION_MEMORY", "134217728")
+	if cfg, err = FromEnv(); err != nil || cfg.MaxValidationMemory != 134217728 {
+		t.Fatalf("MAX_VALIDATION_MEMORY: %+v, %v", cfg, err)
+	}
+
+	for _, name := range []string{"MAX_SPOOL_SIZE", "MAX_QUEUE", "MAX_VALIDATION_MEMORY"} {
 		for _, bad := range []string{"0", "-1", "x"} {
 			t.Run(name+"="+bad, func(t *testing.T) {
 				t.Setenv(name, bad)

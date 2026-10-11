@@ -111,15 +111,23 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	defer os.Remove(f.Name())
 	defer f.Close()
 
-	release, ok := s.acquire(ctx, w)
+	// The memory a validation reserves depends on whether it is a package,
+	// whose entries are validated one at a time, or a single document.
+	isPackage := shape == shapePackage || shape != shapeDocument && isZIPFile(f)
+	estimate, pkgLimits, ok := s.reserveSize(w, size, isPackage)
+	if !ok {
+		return
+	}
+
+	release, ok := s.admit(ctx, estimate, w)
 	if !ok {
 		return
 	}
 	defer release()
 
-	if shape == shapePackage || shape != shapeDocument && isZIPFile(f) {
+	if isPackage {
 		res := s.validator.ValidatePackage(ctx, app.ValidatePackage{
-			Package: f, Size: size, Limits: s.opts.PackageLimits, Version: version,
+			Package: f, Size: size, Limits: pkgLimits, Version: version,
 		})
 		s.extendWriteDeadline(rc)
 		s.writePackageReport(w, res, newMeta(inputName(r, uploadName, defaultPackageName)))
@@ -162,6 +170,34 @@ func (s *Server) reserveBody(w http.ResponseWriter, r *http.Request, shape reque
 		}
 	}
 	return s.newSpoolReservation(), true
+}
+
+// reserveSize returns the heap a validation of this body should reserve from
+// MaxValidationMemory, and the package limits to validate it under. A single
+// document whose estimated peak heap exceeds the whole budget can never fit,
+// so it is refused with 413 rather than run alone and risk an out-of-memory
+// kill; a package instead has its per-entry size capped to what fits, so an
+// oversized entry is reported too large and the package is still validated.
+// With the budget disabled it reserves nothing and caps nothing.
+func (s *Server) reserveSize(w http.ResponseWriter, size int64, isPackage bool) (int64, qti.PackageLimits, bool) {
+	pkgLimits := s.opts.PackageLimits
+	if s.mem == nil {
+		return 0, pkgLimits, true
+	}
+	if isPackage {
+		if pkgLimits.MaxFileSize > s.maxItem {
+			pkgLimits.MaxFileSize = s.maxItem
+		}
+		return estimateMemory(0, pkgLimits.MaxFileSize, true), pkgLimits, true
+	}
+	if size > s.maxItem {
+		refuseUnread(w)
+		writeError(w, http.StatusRequestEntityTooLarge, string(qti.CodeTooLarge),
+			"document is too large to validate within the memory budget (MAX_VALIDATION_MEMORY); "+
+				"raise the container memory or lower MAX_REQUEST_SIZE")
+		return 0, pkgLimits, false
+	}
+	return estimateMemory(size, 0, false), pkgLimits, true
 }
 
 // writeSpoolTooLarge answers 413 for a body that does not fit in
