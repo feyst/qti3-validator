@@ -7,8 +7,9 @@ import "slices"
 // analysis: steps that stop at their first node (step.first), paths looked
 // up by an attribute (keyedPath), descendant steps by name from the index
 // of the document (step.fromIndex), descendant steps from nested nodes,
-// lookups in kept node-sets (Session.Constant) and descendant steps merged
-// with their predicates (mergeDescendantSteps).
+// lookups in kept node-sets (Session.Constant), descendant steps merged
+// with their predicates (mergeDescendantSteps) and paths asked only whether
+// they select a node (pathExpr.exists).
 var optimise = true
 
 // selectsFirst reports whether predicates end in [1] or [position() = 1]

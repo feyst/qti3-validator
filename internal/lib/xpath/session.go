@@ -28,6 +28,7 @@ type Session struct {
 	ctx        context.Context
 	limited    bool
 	remaining  int64
+	steps      int64 // counted so far, with or without a budget
 	untilCheck int
 	memo       map[memoKey]NodeSet
 	keys       map[memoKey]keyIndex
@@ -291,8 +292,13 @@ func NewSession(ctx context.Context, budget int64) *Session {
 // session's context.
 func (s *Session) Charge(n int) error { return s.charge(n) }
 
+// Steps returns the number of steps the session has counted so far: the
+// work of its evaluations, the same on every machine.
+func (s *Session) Steps() int64 { return s.steps }
+
 // charge counts n steps.
 func (s *Session) charge(n int) error {
+	s.steps += int64(n)
 	if s.limited {
 		if s.remaining -= int64(n); s.remaining < 0 {
 			return ErrTooComplex

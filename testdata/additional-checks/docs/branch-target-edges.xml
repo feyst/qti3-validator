@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The edges of branch-target-exists. The targets have names of their own,
+  so the findings in expected.json tell which rules failed: those whose
+  target starts with BAD, and the rules that name their own item (RULES), a
+  test part from an item (OTHER_PART) or an item of another part
+  (LATER_SIBLING, from the second part).
+-->
+<qti-assessment-test xmlns="http://www.imsglobal.org/xsd/imsqtiasi_v3p0" identifier="branch-target-edges" title="branch-target-edges">
+  <qti-test-part identifier="BAD_OWN_PART" navigation-mode="linear" submission-mode="individual">
+    <!-- A test part: another part or EXIT_TEST; not itself, nor a section or an item. -->
+    <qti-branch-rule target="OTHER_PART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+    <qti-branch-rule target="EXIT_TEST"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+    <qti-branch-rule target="BAD_OWN_PART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+    <qti-branch-rule target="BAD_SECTION_OF_PART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+    <qti-branch-rule target="BAD_NOWHERE_PART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+    <qti-assessment-section identifier="BAD_SECTION_OF_PART" title="s" visible="true">
+      <qti-assessment-item-ref identifier="BAD_EARLIER" href="i.xml"/>
+      <qti-assessment-item-ref identifier="DUP" href="i.xml"/>
+      <qti-assessment-item-ref identifier="RULES" href="i.xml">
+        <!-- The special targets. -->
+        <qti-branch-rule target="EXIT_SECTION"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="EXIT_TESTPART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="EXIT_TEST"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <!-- Later: a sibling, a section, an item inside a later section. -->
+        <qti-branch-rule target="LATER_SIBLING"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="LATER_SECTION"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="LATER_NESTED"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <!-- One copy of the identifier earlier and one later: the later one counts. -->
+        <qti-branch-rule target="DUP"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <!-- Not later: itself, earlier, the section it is in, another part, nowhere. -->
+        <qti-branch-rule target="RULES"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="BAD_EARLIER"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="BAD_SECTION_OF_PART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="BAD_ITEM_OF_OTHER_PART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="OTHER_PART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="BAD_NOWHERE"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      </qti-assessment-item-ref>
+      <qti-assessment-item-ref identifier="LATER_SIBLING" href="i.xml"/>
+      <qti-assessment-item-ref identifier="DUP" href="i.xml"/>
+    </qti-assessment-section>
+    <qti-assessment-section identifier="BAD_OUTER" title="s" visible="true">
+      <!-- A section: not itself, nor what is inside it; what comes after it. -->
+      <qti-branch-rule target="BAD_OUTER"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      <qti-branch-rule target="BAD_DESCENDANT"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      <qti-branch-rule target="BAD_INNER"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      <qti-branch-rule target="LATER_SECTION"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      <qti-assessment-section identifier="BAD_INNER" title="s" visible="true">
+        <!-- An ancestor is not later; a sibling of an ancestor that follows is. -->
+        <qti-branch-rule target="BAD_OUTER"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-branch-rule target="LATER_NESTED"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        <qti-assessment-item-ref identifier="BAD_DESCENDANT" href="i.xml">
+          <qti-branch-rule target="BAD_INNER"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+          <qti-branch-rule target="AFTER_INNER"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+        </qti-assessment-item-ref>
+      </qti-assessment-section>
+      <qti-assessment-item-ref identifier="AFTER_INNER" href="i.xml"/>
+    </qti-assessment-section>
+    <qti-assessment-section identifier="LATER_SECTION" title="s" visible="true">
+      <qti-assessment-item-ref identifier="LATER_NESTED" href="i.xml">
+        <qti-branch-rule target="BAD_LAST_HAS_NONE_AFTER"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      </qti-assessment-item-ref>
+    </qti-assessment-section>
+  </qti-test-part>
+  <qti-test-part identifier="OTHER_PART" navigation-mode="linear" submission-mode="individual">
+    <qti-branch-rule target="BAD_OWN_PART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+    <qti-branch-rule target="EXIT_TESTPART"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+    <qti-assessment-section identifier="S_OTHER" title="s" visible="true">
+      <qti-assessment-item-ref identifier="BAD_ITEM_OF_OTHER_PART" href="i.xml">
+        <!-- An item of the first part, which is not later in this one. -->
+        <qti-branch-rule target="LATER_SIBLING"><qti-base-value base-type="boolean">true</qti-base-value></qti-branch-rule>
+      </qti-assessment-item-ref>
+      <qti-assessment-item-ref identifier="BAD_LAST_HAS_NONE_AFTER" href="i.xml"/>
+    </qti-assessment-section>
+  </qti-test-part>
+</qti-assessment-test>

@@ -1,4 +1,24 @@
 {
+ "branch-target-edges.xml": [
+  "Branch rule target 'BAD_DESCENDANT' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_EARLIER' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_INNER' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_INNER' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_ITEM_OF_OTHER_PART' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_LAST_HAS_NONE_AFTER' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_NOWHERE' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_NOWHERE_PART' is not another test part of the test, nor EXIT_TEST.",
+  "Branch rule target 'BAD_OUTER' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_OUTER' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_OWN_PART' is not another test part of the test, nor EXIT_TEST.",
+  "Branch rule target 'BAD_SECTION_OF_PART' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'BAD_SECTION_OF_PART' is not another test part of the test, nor EXIT_TEST.",
+  "Branch rule target 'LATER_SIBLING' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'OTHER_PART' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Branch rule target 'RULES' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
+  "Identifier 'DUP' is used by more than one test part, section or item reference in the test.",
+  "Identifier 'DUP' is used by more than one test part, section or item reference in the test."
+ ],
  "branch-target-exists.xml": [
   "Branch rule target 'I1' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",
   "Branch rule target 'I4' is not an item or section later in the same test part, nor EXIT_SECTION, EXIT_TESTPART or EXIT_TEST.",

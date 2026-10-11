@@ -21,6 +21,19 @@ const minIndexedSubtree = 64
 // step, and one per node it returns. The node-set returned is
 // shared, so its capacity is clipped.
 func (s step) fromIndex(n *Node, c *evalCtx) (NodeSet, bool, error) {
+	list, ok, err := s.indexRange(n, c)
+	if !ok || err != nil {
+		return nil, ok, err
+	}
+	if err := c.s.charge(1 + len(list)); err != nil {
+		return nil, true, err
+	}
+	return list, true, nil
+}
+
+// indexRange is fromIndex without the charge for the lookup and the nodes:
+// a caller that stops at one of them charges for those it looked at.
+func (s step) indexRange(n *Node, c *evalCtx) (NodeSet, bool, error) {
 	if !optimise || s.test.kind != testName || s.test.anyLocal ||
 		(s.axis != axisDescendant && s.axis != axisDescendantOrSelf) ||
 		(n.Kind != ElementNode && n.Kind != RootNode) || n.end-n.order < minIndexedSubtree {
@@ -37,9 +50,6 @@ func (s step) fromIndex(n *Node, c *evalCtx) (NodeSet, bool, error) {
 	}
 	lo := sort.Search(len(list), func(i int) bool { return list[i].order >= first })
 	hi := lo + sort.Search(len(list)-lo, func(i int) bool { return list[lo+i].order >= n.end })
-	if err := c.s.charge(1 + hi - lo); err != nil {
-		return nil, true, err
-	}
 	return list[lo:hi:hi], true, nil
 }
 

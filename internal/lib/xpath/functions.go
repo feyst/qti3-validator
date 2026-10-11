@@ -32,6 +32,14 @@ type callExpr struct {
 }
 
 func (e *callExpr) eval(c *evalCtx) (Value, error) {
+	if e.name == "not" || e.name == "boolean" {
+		// The argument counts for its boolean value only.
+		b, err := evalBool(e.args[0], c)
+		if err != nil {
+			return nil, err
+		}
+		return b == (e.name == "boolean"), nil
+	}
 	args := make([]Value, len(e.args))
 	for i, a := range e.args {
 		v, err := a.eval(c)

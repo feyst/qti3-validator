@@ -75,6 +75,10 @@ func markIndependent(e expr) {
 			markKeyed(p)
 		}
 	}
+	if p, ok := e.(*pathExpr); ok && len(p.steps) > 0 {
+		last := p.steps[len(p.steps)-1]
+		p.existence = last.byNode && !slices.ContainsFunc(last.preds, mayFail)
+	}
 	for _, sub := range subexpressions(e) {
 		markIndependent(sub)
 	}

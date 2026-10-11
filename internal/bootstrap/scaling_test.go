@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"qti3-validator/internal/adapter/rules"
 	"qti3-validator/internal/app"
 	"qti3-validator/internal/app/report"
 	"qti3-validator/internal/domain/qti"
@@ -19,18 +21,28 @@ import (
 )
 
 // The scaling suite runs the real validator, end to end, on generated
-// documents and packages of size n and 4n, and holds the time of the larger
-// to less than seven times that of the smaller: four times when the work is
-// linear, sixteen when it is quadratic. Every generator multiplies one
+// documents and packages of size n and 4n, and holds the work for the
+// larger to that of a linear validator: four times the work of the smaller,
+// where quadratic work is sixteen times. Every generator multiplies one
 // thing an input can have many of — elements, attributes, values, errors of
 // one kind, violations of one rule, files — with a variant that is valid
 // and one that is not where both exist, so that every stage of a validation
 // and every check sees many of what it handles. A new check, or a new kind
 // of finding, belongs in the table below.
 //
+// Work is measured in two ways. The rules and the type checks count their
+// work in XPath steps, which are the same on every machine and under any
+// load: their steps for 4n may be at most stepFactor times those for n.
+// The other stages — reading and parsing, the schema, the references of a
+// package, the report — have no such count, so the suite measures the CPU
+// time of the process, which other processes on a busy machine do not add
+// to as they do to the time on the clock. It takes the least of some runs,
+// at a size large enough to stand out from the noise, and a case that is
+// over the limit is measured again: it fails only when every attempt is.
+//
 // Work that is not linear by design is bounded by the step budget of the
-// rules instead: such a case sets tooComplex, and must end with that
-// finding.
+// rules instead; rules.TestBudgetGrowsWithDocument covers that. A
+// generator of this table must not run out of steps.
 
 // scalingCase is a generator of the suite.
 type scalingCase struct {
@@ -44,6 +56,17 @@ type scalingCase struct {
 	// reaching the stage it is meant for: "valid", or the code of a finding
 	// it must give.
 	want string
+	// most is the largest n the input can have, as for the files of a
+	// package; zero sets none.
+	most int
+}
+
+// maxN is the largest size the case is measured at.
+func (c scalingCase) maxN() int {
+	if c.most > 0 {
+		return c.most
+	}
+	return 1 << 20
 }
 
 const scalingSize = 2000
@@ -178,16 +201,14 @@ func scalingCases() []scalingCase {
 			return item(response, rep(n/50, each(strings.Repeat("<div>", 50)+`<p>x</p>`+strings.Repeat("</div>", 50))), "")
 		}},
 		{name: "xml/attributes", doc: bodyOf(`<p id="p%d" class="a b c" dir="ltr" data-a="1" data-b="2" data-c="3" data-d="4" aria-label="x">x</p>`), want: "valid"},
-		{name: "xml/attributes on one element", n: 1000, doc: func(n int) string {
-			return item(response, `<p`+rep(n, each(` data-a%d="v"`))+`>x</p>`, "")
-		}},
+		// The schema library takes no more than some hundreds of attributes
+		// on an element: many elements with many each.
+		{name: "xml/elements of many attributes", n: 200, want: "valid", doc: bodyOf(`<p` + rep(100, each(` data-a%d="v"`)) + `>x</p>`)},
 		{name: "xml/namespace declarations", doc: bodyOf(`<p xmlns:n%d="urn:n%d">x</p>`), want: "valid"},
-		{name: "xml/namespace declarations on one element", n: 1000, doc: func(n int) string {
-			return item(response, `<p`+rep(n, each(` xmlns:n%d="urn:n%d"`))+`>x</p>`, "")
-		}},
+		{name: "xml/elements of many namespace declarations", n: 200, want: "valid", doc: bodyOf(`<p` + rep(100, each(` xmlns:n%d="urn:n%d"`)) + `>x</p>`)},
 		{name: "xml/cdata runs", n: 20000, doc: cdataItem, want: "valid"},
 		{name: "xml/comments and processing instructions", doc: bodyOf(`<!-- c %d --><?pi d%d?><p>x</p>`), want: "valid"},
-		{name: "xml/long names", doc: bodyOf(`<` + strings.Repeat("n", 200) + `%d/>`), want: string(qti.CodeValidation)},
+		{name: "xml/long names", doc: bodyOf(`<` + strings.Repeat("n", 60) + `%d/>`), want: string(qti.CodeValidation)},
 		{name: "xml/long attribute values", doc: bodyOf(`<p class="` + strings.Repeat("v ", 100) + `">x</p>`), want: "valid"},
 		{name: "xml/huge text", n: 20000, want: "valid", doc: func(n int) string {
 			return item(response, `<p>`+strings.Repeat("word and another ", n)+`</p>`, "")
@@ -274,6 +295,7 @@ func scalingCases() []scalingCase {
 		{name: "rules/branch-target-exists/targets earlier on", want: string(qti.CodeSchematron), doc: func(n int) string {
 			return test("", rep(n, each(`<qti-assessment-item-ref identifier="I%d" href="i.xml"><qti-branch-rule target="I0">`+baseValue("boolean", "true")+`</qti-branch-rule></qti-assessment-item-ref>`)), "")
 		}},
+		{name: "rules/branch-target-exists/section refs", want: "valid", doc: sectionRefsAndBranchRules},
 		{name: "rules/branch-target-exists/violations", want: string(qti.CodeSchematron), doc: func(n int) string {
 			return test("", rep(n, each(`<qti-assessment-item-ref identifier="I%d" href="i%d.xml"><qti-branch-rule target="NONE%d">`+baseValue("boolean", "true")+`</qti-branch-rule></qti-assessment-item-ref>`)), "")
 		}},
@@ -408,7 +430,7 @@ func scalingCases() []scalingCase {
 		{name: "1edtech/images and objects", doc: bodyOf(`<p><img src="a%d.png" alt="x"/><object data="o%d.svg" type="image/svg+xml">x</object></p>`), want: "valid"},
 
 		// ---- the report
-		{name: "report/package of invalid documents", n: 50, pkg: func(n int) []zipEntry {
+		{name: "report/package of invalid documents", most: 900, n: 50, pkg: func(n int) []zipEntry {
 			return packageOf(n, func(int) string {
 				return item(response, rep(120, each(`<p><qti-text-entry-interaction response-identifier="NONE%d"/></p>`)), "")
 			})
@@ -475,10 +497,10 @@ func scalingCases() []scalingCase {
 
 	// ---- packages
 	cases = append(cases,
-		scalingCase{name: "package/files", n: 200, want: "valid", pkg: func(n int) []zipEntry {
+		scalingCase{name: "package/files", most: 900, n: 200, want: "valid", pkg: func(n int) []zipEntry {
 			return packageOf(n, func(int) string { return item(response, `<p>x</p>`, "") })
 		}},
-		scalingCase{name: "package/files that are not listed", n: 200, pkg: func(n int) []zipEntry {
+		scalingCase{name: "package/files that are not listed", most: 900, n: 200, pkg: func(n int) []zipEntry {
 			entries := packageOf(1, func(int) string { return item(response, `<p>x</p>`, "") })
 			for i := range n {
 				entries = append(entries, zipEntry{fmt.Sprintf("extra/e%d.xml", i), item(response, `<p>x</p>`, "")})
@@ -528,7 +550,7 @@ func scalingCases() []scalingCase {
 				{"test.xml", test("", rep(n, each(`<qti-assessment-item-ref identifier="I%d" href="none%d.xml"/>`)), "")},
 			}
 		}},
-		scalingCase{name: "package/tests and sections", n: 100, pkg: func(n int) []zipEntry {
+		scalingCase{name: "package/tests and sections", most: 900, n: 100, pkg: func(n int) []zipEntry {
 			entries := []zipEntry{
 				{"imsmanifest.xml", manifestOf(rep(n, each(`<resource identifier="t%d" type="imsqti_test_xmlv3p0" href="t%d.xml"><file href="t%d.xml"/><dependency identifierref="r"/></resource>`))+
 					`<resource identifier="r" type="imsqti_item_xmlv3p0" href="item.xml"><file href="item.xml"/></resource>`, "")},
@@ -552,7 +574,7 @@ func scalingCases() []scalingCase {
 				{"frag.xml", `<div ` + asiNS + `><p>shared</p></div>`},
 			}
 		}},
-		scalingCase{name: "package/fragments", n: 100, pkg: func(n int) []zipEntry {
+		scalingCase{name: "package/fragments", most: 900, n: 100, pkg: func(n int) []zipEntry {
 			entries := []zipEntry{
 				{"imsmanifest.xml", manifestOf(`<resource identifier="r" type="imsqti_item_xmlv3p0" href="item.xml"><file href="item.xml"/></resource>`+
 					rep(n, each(`<resource identifier="f%d" type="imsqti_fragment_xmlv3p0" href="f%d.xml"><file href="f%d.xml"/></resource>`)), "")},
@@ -563,7 +585,7 @@ func scalingCases() []scalingCase {
 			}
 			return entries
 		}},
-		scalingCase{name: "package/fragments that include each other", n: 100, pkg: func(n int) []zipEntry {
+		scalingCase{name: "package/fragments that include each other", most: 900, n: 100, pkg: func(n int) []zipEntry {
 			entries := []zipEntry{
 				{"imsmanifest.xml", manifestOf(`<resource identifier="r" type="imsqti_item_xmlv3p0" href="item.xml"><file href="item.xml"/></resource>`, "")},
 				{"item.xml", item(response, `<div><xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="f0.xml"/></div>`, "")},
@@ -575,6 +597,46 @@ func scalingCases() []scalingCase {
 		}},
 	)
 	return cases
+}
+
+// sectionRefsAndBranchRules is a valid test of one section with n section
+// references and n item references, each of the latter with a branch rule
+// to the last item. The rule asks, for every branch rule, whether its test
+// part has a section reference at all.
+func sectionRefsAndBranchRules(n int) string {
+	return test("", rep(n, each(`<qti-assessment-section-ref identifier="R%d" href="s%d.xml"/>`))+rep(n, func(i int) string {
+		target := "I" + strconv.Itoa(n-1)
+		if i == n-1 {
+			target = "EXIT_TEST"
+		}
+		return `<qti-assessment-item-ref identifier="I` + strconv.Itoa(i) + `" href="i.xml"><qti-branch-rule target="` + target + `">` + baseValue("boolean", "true") + `</qti-branch-rule></qti-assessment-item-ref>`
+	}), "")
+}
+
+// A test with as many section references as branch rules is valid: asking
+// for every rule whether the part has a section reference used to select
+// them all each time, 20,000 times 20,000 steps, which ran out of the
+// budget of the rules and gave a valid test the finding too_complex.
+func TestSectionRefsAndBranchRulesStayWithinBudget(t *testing.T) {
+	v, err := NewValidator(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 20_000
+	if raceEnabled {
+		n = 5000
+	}
+	doc := sectionRefsAndBranchRules(n)
+	before := rules.StepsCharged()
+	res := v.ValidateDocument(t.Context(), app.ValidateDocument{Document: strings.NewReader(doc), Size: int64(len(doc))})
+	steps := rules.StepsCharged() - before
+	t.Logf("%d section references and branch rules, %d bytes: %d steps", n, len(doc), steps)
+	if !res.Valid || len(res.Errors) != 0 {
+		t.Fatalf("got %+v", res.Errors)
+	}
+	if steps > int64(200*n) {
+		t.Errorf("%d steps for %d branch rules, want some tens each", steps, n)
+	}
 }
 
 // manifestOf is a manifest with resources and metadata.
@@ -633,6 +695,30 @@ func (o outcome) String() string {
 	return fmt.Sprintf("%d errors, %d warnings (%s): %s", o.errors, o.warnings, strings.Join(o.codes, ", "), first)
 }
 
+// What the suite holds the larger input to, in units of the smaller.
+const (
+	// Steps are exact. Sorting what a lookup or a pattern selected costs
+	// n·log n of them, which is some 4.8 times for four times the nodes.
+	stepFactor = 5
+	// CPU time: linear work measures between three and five times, work
+	// with a quadratic part that matters, seven and more.
+	timeFactor = 7
+	// The CPU time the smaller input must take before the larger is
+	// measured, so that every case stands out from the noise.
+	timeFloor = 6 * time.Millisecond
+	// How often a case over the limit is measured again.
+	timeAttempts = 5
+)
+
+// measurement is what one size of a case took.
+type measurement struct {
+	n     int
+	bytes int
+	cpu   time.Duration // the least of the runs
+	steps int64         // of the rules and the type checks, the same every run
+	came  outcome
+}
+
 func TestValidationScalesLinearly(t *testing.T) {
 	if testing.Short() {
 		t.Skip("the scaling suite takes more than a minute")
@@ -642,34 +728,27 @@ func TestValidationScalesLinearly(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The race detector makes everything slow, not quadratic: smaller
-	// inputs, once, are enough to exercise the code under it.
-	// Linear work measures between three and five times; work with a
-	// quadratic part that matters at these sizes, seven and more.
-	runs, shrink, factor := 2, 1, time.Duration(7)
+	// inputs, once, exercise the code under it.
+	runs, shrink := 2, 1
 	if raceEnabled {
-		runs, shrink, factor = 1, 16, 9
+		runs, shrink = 1, 16
 	}
 	only := regexp.MustCompile(os.Getenv("SCALING")) // SCALING=^rules/ runs a part of the table
 	for _, tc := range scalingCases() {
 		if !only.MatchString(tc.name) {
 			continue
 		}
-		n := tc.n
-		if n == 0 {
-			n = scalingSize
-		}
-		n = max(n/shrink, 8)
-		measure := func(n int) (time.Duration, outcome, int) {
+		measure := func(n, runs int) measurement {
 			var data []byte
 			if tc.pkg != nil {
 				data = zipOf(t, tc.pkg(n))
 			} else {
 				data = []byte(tc.doc(n))
 			}
-			least := time.Duration(1<<63 - 1)
-			var came outcome
+			m := measurement{n: n, bytes: len(data), cpu: time.Duration(1<<63 - 1)}
 			for range runs {
-				start := time.Now()
+				runtime.GC() // what the last run left is not this run's work
+				steps, start := rules.StepsCharged(), cpuTime()
 				if tc.pkg != nil {
 					res := v.ValidatePackage(t.Context(), app.ValidatePackage{Package: bytes.NewReader(data), Size: int64(len(data))})
 					_ = report.ForPackage(res, report.Meta{})
@@ -677,36 +756,60 @@ func TestValidationScalesLinearly(t *testing.T) {
 					for _, f := range res.Files {
 						errs, warnings = append(errs, f.Errors...), append(warnings, f.Warnings...)
 					}
-					errs = append(errs, res.Errors...)
-					came = outcomeOf(res.Valid, errs, warnings)
+					m.came = outcomeOf(res.Valid, append(errs, res.Errors...), warnings)
 				} else {
 					res := v.ValidateDocument(t.Context(), app.ValidateDocument{Document: bytes.NewReader(data), Size: int64(len(data))})
 					_ = report.ForDocument(res, report.Meta{})
-					came = outcomeOf(res.Valid, res.Errors, res.Warnings)
+					m.came = outcomeOf(res.Valid, res.Errors, res.Warnings)
 				}
-				least = min(least, time.Since(start))
+				m.cpu = min(m.cpu, cpuTime()-start)
+				m.steps = rules.StepsCharged() - steps
 			}
-			return least, came, len(data)
+			return m
 		}
-		small, came, size := measure(n)
-		large, cameLarge, _ := measure(4 * n)
-		ratio := float64(large) / float64(max(small, 1))
-		t.Logf("%-58s n=%-6d %8d B %9v %9v  ×%4.1f  %s", tc.name, n, size, small.Round(10*time.Microsecond), large.Round(10*time.Microsecond), ratio, came)
-		if tc.want != "" && !came.is(tc.want) {
-			t.Errorf("%s: came to %s, want %s", tc.name, came, tc.want)
+		n := tc.n
+		if n == 0 {
+			n = scalingSize
 		}
-		// A generator of the table is not meant to run out of steps or to
-		// break the validator: what is bounded by the budget alone is
-		// tested where the budget is (rules.TestBudgetGrowsWithDocument).
-		if cameLarge.is(string(qti.CodeTooComplex)) || cameLarge.is(string(qti.CodeInternal)) {
-			t.Errorf("%s: at n=%d came to %s", tc.name, 4*n, cameLarge)
+		n = max(n/shrink, 8)
+		// Grow the input until the smaller size stands out from the noise.
+		small := measure(n, runs)
+		for small.cpu < timeFloor && n < tc.maxN()/2 && small.bytes < 1<<20 { // four times a megabyte is well within the limits on size
+			n *= 2
+			small = measure(n, runs)
 		}
-		// Too fast to tell: the noise of a few milliseconds is not a trend.
-		if large < 25*time.Millisecond {
-			continue
+		large := measure(4*n, runs)
+		ratio := func() float64 { return float64(large.cpu) / float64(max(small.cpu, 1)) }
+		within := func() bool { return large.cpu <= timeFactor*small.cpu+10*time.Millisecond }
+		attempts := 1
+		for ; !within() && attempts < timeAttempts; attempts++ {
+			// Over the limit: noise, or work that is not linear. Noise does
+			// not come back every time.
+			small, large = measure(n, runs+1), measure(4*n, runs+1)
 		}
-		if large > factor*small+20*time.Millisecond {
-			t.Errorf("%s: n=%d took %v and n=%d took %v (×%.1f): not linear", tc.name, n, small, 4*n, large, ratio)
+		stepRatio := 0.0
+		if small.steps > 0 {
+			stepRatio = float64(large.steps) / float64(small.steps)
+		}
+		t.Logf("%-58s n=%-6d %8d B  steps %9d ×%4.1f  cpu %9v %9v ×%4.1f  %s", tc.name, n, small.bytes,
+			small.steps, stepRatio, small.cpu.Round(10*time.Microsecond), large.cpu.Round(10*time.Microsecond), ratio(), small.came)
+		if tc.want != "" && !small.came.is(tc.want) {
+			t.Errorf("%s: came to %s, want %s", tc.name, small.came, tc.want)
+		}
+		// The larger input must be worked on as the smaller is, not turned
+		// away early for its size.
+		if !slices.Equal(small.came.codes, large.came.codes) {
+			t.Errorf("%s: came to %s at n=%d, and to %s at n=%d", tc.name, small.came, n, large.came, 4*n)
+		}
+		if large.came.is(string(qti.CodeTooComplex)) || large.came.is(string(qti.CodeInternal)) {
+			t.Errorf("%s: at n=%d came to %s", tc.name, 4*n, large.came)
+		}
+		if float64(large.steps) > stepFactor*float64(small.steps)+1000 {
+			t.Errorf("%s: n=%d took %d steps and n=%d took %d (×%.1f): not linear", tc.name, n, small.steps, 4*n, large.steps, stepRatio)
+		}
+		if !within() {
+			t.Errorf("%s: n=%d took %v of CPU time and n=%d took %v (×%.1f), in each of %d attempts: not linear",
+				tc.name, n, small.cpu, 4*n, large.cpu, ratio(), attempts)
 		}
 	}
 }

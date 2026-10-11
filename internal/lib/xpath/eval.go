@@ -45,11 +45,23 @@ func (e *Expr) Evaluate(ctx Context) (Value, error) {
 
 // EvaluateBool evaluates the expression and converts the result with boolean().
 func (e *Expr) EvaluateBool(ctx Context) (bool, error) {
-	v, err := e.Evaluate(ctx)
-	if err != nil {
-		return false, err
+	if _, isPath := e.root.(*pathExpr); !isPath {
+		v, err := e.Evaluate(ctx)
+		if err != nil {
+			return false, err
+		}
+		return toBool(v), nil
 	}
-	return toBool(v), nil
+	// A path: whether it selects a node, which needs not all of them.
+	s := ctx.Session
+	if s == nil {
+		s = NewSession(context.Background(), 0)
+	}
+	ok, err := evalBool(e.root, &evalCtx{node: ctx.Node, pos: 1, size: 1, current: ctx.Node, vars: ctx.Variables, s: s})
+	if err != nil {
+		return false, fmt.Errorf("xpath %q: %w", e.source, err)
+	}
+	return ok, nil
 }
 
 // EvaluateString evaluates the expression and converts the result with string().
@@ -156,23 +168,21 @@ type binaryExpr struct {
 }
 
 func (e *binaryExpr) eval(c *evalCtx) (Value, error) {
+	switch e.op {
+	case "or", "and":
+		// The operands count for their boolean values only.
+		l, err := evalBool(e.left, c)
+		if err != nil {
+			return nil, err
+		}
+		if l == (e.op == "or") {
+			return l, nil
+		}
+		return evalBool(e.right, c)
+	}
 	l, err := e.left.eval(c)
 	if err != nil {
 		return nil, err
-	}
-	switch e.op {
-	case "or":
-		if toBool(l) {
-			return true, nil
-		}
-		r, err := e.right.eval(c)
-		return err == nil && toBool(r), err
-	case "and":
-		if !toBool(l) {
-			return false, nil
-		}
-		r, err := e.right.eval(c)
-		return err == nil && toBool(r), err
 	}
 	r, err := e.right.eval(c)
 	if err != nil {
@@ -332,6 +342,11 @@ type pathExpr struct {
 	// keyed is set for a path that a session looks up in an index of the
 	// nodes of its prefix; see keyedPath.
 	keyed *keyedPath
+	// existence marks a path whose last step selects a node whatever the
+	// other nodes on its axis (byNode), with predicates that cannot raise a
+	// type error: whether it selects any node is known at the first that
+	// passes. See exists.
+	existence bool
 }
 
 func (e *pathExpr) eval(c *evalCtx) (Value, error) {
@@ -359,7 +374,12 @@ func (e *pathExpr) eval(c *evalCtx) (Value, error) {
 
 // walk applies the steps of the path to nodes.
 func (e *pathExpr) walk(nodes NodeSet, c *evalCtx) (NodeSet, error) {
-	for _, s := range e.steps {
+	return walkSteps(e.steps, nodes, c)
+}
+
+// walkSteps applies steps to nodes, one after the other.
+func walkSteps(steps []step, nodes NodeSet, c *evalCtx) (NodeSet, error) {
+	for _, s := range steps {
 		if len(nodes) > 1 && s.byNode && (s.axis == axisDescendant || s.axis == axisDescendantOrSelf) && optimise {
 			// What such a step selects from a node inside the subtree of
 			// another it selects from that other node as well. Finding the
@@ -540,13 +560,31 @@ func (s step) apply(n *Node, c *evalCtx) (NodeSet, error) {
 
 // applyFirst applies a step marked first. The predicates before the [1]
 // filter without regard to position, so the node at position 1 after them
-// is the first node in axis order that passes them all; it evaluates them
-// on each node in turn and stops there. They cannot raise a type error
-// (selectsFirst), so the nodes it does not visit could not have failed the
-// step. It charges what apply would for the
-// nodes it visits, plus a step for the [1].
+// is the first node in axis order that passes them all. They cannot raise
+// a type error (selectsFirst), so the nodes it does not visit could not
+// have failed the step. It charges what firstMatch does, plus a step for
+// the [1].
 func (s step) applyFirst(n *Node, c *evalCtx) (NodeSet, error) {
-	preds := s.preds[:len(s.preds)-1]
+	found, err := s.firstMatch(n, c, s.preds[:len(s.preds)-1])
+	if err != nil {
+		return nil, err
+	}
+	if err := c.s.charge(1); err != nil {
+		return nil, err
+	}
+	if found == nil {
+		return nil, nil
+	}
+	return NodeSet{found}, nil
+}
+
+// firstMatch returns the first node on the axis from n, in axis order,
+// that passes the node test and preds, which must depend neither on
+// position nor on size; nil when there is none. It evaluates the predicates
+// on each node in turn and stops at the first that passes: it charges the
+// step and the nodes it visits, not those after the one it found, whether
+// they come from the axis or from the index of the document.
+func (s step) firstMatch(n *Node, c *evalCtx, preds []expr) (*Node, error) {
 	var found *Node
 	var err error
 	visit := func(m *Node) bool { // false: stop
@@ -559,13 +597,14 @@ func (s step) applyFirst(n *Node, c *evalCtx) (NodeSet, error) {
 		}
 		return !ok && err == nil
 	}
-	candidates, indexed, err := s.fromIndex(n, c)
-	if err != nil {
-		return nil, err
+	candidates, indexed, indexErr := s.indexRange(n, c)
+	if indexErr != nil {
+		return nil, indexErr
 	}
-	steps := 1 // the [1]
+	steps := 1 // the step
 	if indexed {
 		for _, m := range candidates {
+			steps++
 			if !visit(m) {
 				break
 			}
@@ -575,7 +614,6 @@ func (s step) applyFirst(n *Node, c *evalCtx) (NodeSet, error) {
 			steps++
 			return visit(m)
 		})
-		steps++ // the step
 	}
 	if err != nil {
 		return nil, err
@@ -583,10 +621,63 @@ func (s step) applyFirst(n *Node, c *evalCtx) (NodeSet, error) {
 	if err := c.s.charge(steps); err != nil {
 		return nil, err
 	}
-	if found == nil {
-		return nil, nil
+	return found, nil
+}
+
+// evalBool evaluates e for its boolean value: boolean(e). For a path that
+// is whether it selects a node, which exists answers without selecting
+// them all.
+func evalBool(e expr, c *evalCtx) (bool, error) {
+	if p, ok := e.(*pathExpr); ok {
+		return p.exists(c)
 	}
-	return NodeSet{found}, nil
+	v, err := e.eval(c)
+	return err == nil && toBool(v), err
+}
+
+// exists reports whether the path selects a node. When its last step
+// selects a node whatever the others on the axis (existence), it applies
+// the steps before as eval does, and the last only until a node passes: a
+// rule that asks at each of n elements whether a subtree holds any of m
+// others takes n steps for it, not n × m. Paths that a session remembers or
+// looks up are evaluated as they are.
+func (e *pathExpr) exists(c *evalCtx) (bool, error) {
+	if !optimise || !e.existence || e.independent || e.keyed != nil {
+		ns, err := evalNodeSet(e, c)
+		return len(ns) > 0, err
+	}
+	var nodes NodeSet
+	switch {
+	case e.filter != nil:
+		var err error
+		if nodes, err = evalNodeSet(e.filter, c); err != nil {
+			return false, err
+		}
+	case e.absolute:
+		nodes = NodeSet{c.node.documentRoot()}
+	default:
+		nodes = NodeSet{c.node}
+	}
+	last := len(e.steps) - 1
+	nodes, err := walkSteps(e.steps[:last], nodes, c)
+	if err != nil {
+		return false, err
+	}
+	s := e.steps[last]
+	if len(nodes) > 1 && (s.axis == axisDescendant || s.axis == axisDescendantOrSelf) {
+		// As in walkSteps: a nested node adds nothing to the outermost.
+		if err := c.s.charge(len(nodes)); err != nil {
+			return false, err
+		}
+		nodes = outermost(nodes)
+	}
+	for _, n := range nodes {
+		found, err := s.firstMatch(n, c, s.preds)
+		if found != nil || err != nil {
+			return found != nil, err
+		}
+	}
+	return false, nil
 }
 
 // passes reports whether m passes predicates that depend neither on
@@ -596,8 +687,9 @@ func passes(preds []expr, m *Node, c *evalCtx) (bool, error) {
 		if err := c.s.charge(1); err != nil {
 			return false, err
 		}
-		v, err := pred.eval(c.with(m, 1, 1))
-		if err != nil || !toBool(v) {
+		// Not a number, so the predicate counts for its boolean value.
+		ok, err := evalBool(pred, c.with(m, 1, 1))
+		if err != nil || !ok {
 			return false, err
 		}
 	}
@@ -737,21 +829,34 @@ func applyPredicates(nodes NodeSet, preds []expr, c *evalCtx) (NodeSet, error) {
 			if err := c.s.charge(1); err != nil {
 				return nil, err
 			}
-			v, err := pred.eval(c.with(n, i+1, len(nodes)))
+			ok, err := predicateHolds(pred, c.with(n, i+1, len(nodes)))
 			if err != nil {
 				return nil, err
 			}
-			if num, ok := v.(float64); ok {
-				if num == float64(i+1) {
-					kept = append(kept, n)
-				}
-			} else if toBool(v) {
+			if ok {
 				kept = append(kept, n)
 			}
 		}
 		nodes = kept
 	}
 	return nodes, nil
+}
+
+// predicateHolds evaluates a predicate in c: a number holds at the node of
+// that position, anything else by its boolean value, which for a path is
+// whether it selects a node.
+func predicateHolds(pred expr, c *evalCtx) (bool, error) {
+	if path, isPath := pred.(*pathExpr); isPath {
+		return path.exists(c)
+	}
+	v, err := pred.eval(c)
+	if err != nil {
+		return false, err
+	}
+	if num, ok := v.(float64); ok {
+		return num == float64(c.pos), nil
+	}
+	return toBool(v), nil
 }
 
 func sortUnique(ns NodeSet) NodeSet {

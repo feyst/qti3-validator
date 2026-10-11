@@ -17,6 +17,9 @@ import (
 type Paths struct {
 	counted map[*Node]*siblingCount
 	paths   map[*Node]string // of the elements asked for, and their ancestors
+	// visited is the number of siblings counted so far: the work done, for
+	// the tests.
+	visited int
 }
 
 // siblingCount is how many element children of each name a parent has
@@ -67,6 +70,7 @@ func (p *Paths) position(n *Node) int {
 	if index < sc.next {
 		// Before where the count stands: count again up to n.
 		pos := 1
+		p.visited += index
 		for _, s := range parent.Children[:index] {
 			if s.Kind == ElementNode && s.Local == n.Local && s.Space == n.Space {
 				pos++
@@ -74,6 +78,7 @@ func (p *Paths) position(n *Node) int {
 		}
 		return pos
 	}
+	p.visited += index + 1 - sc.next
 	for _, s := range parent.Children[sc.next : index+1] {
 		if s.Kind == ElementNode {
 			sc.counts[clarkName{s.Space, s.Local}]++

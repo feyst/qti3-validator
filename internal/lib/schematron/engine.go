@@ -258,6 +258,16 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 	index := &elementIndex{root: doc.Root}
 	var res Result
 	errorCount, warningCount := 0, 0
+	// What the session keeps for the lets of a rule on one node is released
+	// after that node, and on every way out of Check.
+	var scoped []func()
+	release := func() {
+		for _, done := range scoped {
+			done()
+		}
+		scoped = scoped[:0]
+	}
+	defer release()
 	for _, es := range e.sets {
 		vars, err := bindLets(s, es.lets, doc.Root, map[string]xpath.Value{})
 		if err != nil {
@@ -280,7 +290,6 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 			for _, m := range matches {
 				n, r := m.node, m.rule
 				rvars := pvars
-				var release []func()
 				if len(r.lets) > 0 {
 					// The lets of a rule keep their values while its later
 					// lets and its assertions are evaluated on this node.
@@ -289,7 +298,7 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 						if _, err = bindLets(s, r.lets[i:i+1], n, rvars); err != nil {
 							return res, err
 						}
-						release = append(release, s.Scoped(rvars[r.lets[i].name]))
+						scoped = append(scoped, s.Scoped(rvars[r.lets[i].name]))
 					}
 				}
 				for _, a := range r.assertions {
@@ -327,9 +336,7 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 						return res, nil
 					}
 				}
-				for _, done := range release {
-					done()
-				}
+				release()
 			}
 			if contextErr != nil {
 				return res, contextErr

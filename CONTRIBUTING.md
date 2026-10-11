@@ -215,7 +215,9 @@ How the engine is checked:
   axis), unless a predicate before the `[1]` could raise a type error on a
   later node, such as `$v/x` with a variable that may not be a node-set;
   `//a[@id = current()/@ref]` looks the value up in an index of
-  `//a` by attribute; descendant steps by name use an index of the document,
+  `//a` by attribute; a path that is only asked whether it selects a node,
+  as an operand of `or`, `and`, `not()` or `boolean()` or as a predicate,
+  stops at the first; descendant steps by name use an index of the document,
   and skip context nodes nested in others; `//a[@x]` is one descendant step;
   `=` between a node-set or a string and a remembered path or a variable of
   a schema, a pattern or a rule uses a hash set, as long as the
@@ -227,11 +229,16 @@ How the engine is checked:
   ./internal/lib/xpath` for a longer run).
 - **Scaling suite:** `TestValidationScalesLinearly` in `internal/bootstrap`
   runs the whole validator on generated documents and packages of size n
-  and 4n, and fails when the larger takes more than seven times as long: a
-  table of generators with many of one thing each — elements, attributes,
-  values of every base type, operands of every operator, violations and
-  non-violations of every one of the own rules, files and references of a
-  package. A new check, or a new kind of finding, gets a generator there.
+  and 4n: a table of generators with many of one thing each — elements,
+  attributes, values of every base type, operands of every operator,
+  violations and non-violations of every one of the own rules, files and
+  references of a package. The rules and the type checks count their work
+  in XPath steps (`rules.StepsCharged`), which do not depend on the machine
+  or its load: the larger input may take five times the steps of the
+  smaller. For the other stages the suite measures the CPU time of the
+  process, the least of some runs at a size that stands out from the noise,
+  and fails a case only when it is over seven times in each of five
+  attempts. A new check, or a new kind of finding, gets a generator there.
   `SCALING='^rules/' go test -v -run ValidationScalesLinearly
   ./internal/bootstrap` runs a part of it and prints the table.
 - **Own rules:** `rules/qti3-additional-checks.sch` is compiled with the

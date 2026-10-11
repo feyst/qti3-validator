@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync/atomic"
 
 	"qti3-validator/internal/app"
 	"qti3-validator/internal/domain/qti"
@@ -59,6 +60,15 @@ const (
 	StepsPerNode = 1_000
 	MaxSteps     = 400_000_000
 )
+
+// stepsCharged counts the steps of every CheckRules of the process.
+var stepsCharged atomic.Int64
+
+// StepsCharged returns the XPath steps that the rules and the type checks
+// of all documents checked so far have taken together. Steps count work,
+// not time: a test that validates one document at a time reads the work of
+// each from the difference, the same on every machine and under any load.
+func StepsCharged() int64 { return stepsCharged.Load() }
 
 // budget is how many steps the rules may take on a document of n nodes:
 // base plus perNode for every node, up to max unless max is zero.
@@ -159,6 +169,7 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 		b = budget{base: BaseSteps, perNode: StepsPerNode, max: MaxSteps}
 	}
 	session := xpath.NewSession(ctx, b.steps(tree.Nodes))
+	defer func() { stepsCharged.Add(session.Steps()) }()
 	paths := &xpath.Paths{} // the locations of the findings, in one pass over their siblings
 	var out []app.RuleFinding
 	errorCount, warningCount, omitted := 0, 0, 0
