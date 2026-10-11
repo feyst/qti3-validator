@@ -193,10 +193,12 @@ How the engine is checked:
   `count(SCOPE//qti:*[self::… or …][@identifier = current()/@identifier])`.
   As XPath that walks the scope again for every element, so 20,000 choices in
   one interaction took minutes. The build rewrites counts of this form into
-  `qtiv:count-by-attribute`, an XPath extension that answers from counts per
-  identifier, built once per scope and document; the `.sch` file stays plain
-  XPath. Tests check that the rules give the same findings both ways on
-  generated documents, and that the uniqueness checks are rewritten.
+  `count-by-attribute`, an XPath extension in a reserved namespace that
+  mounted rules cannot call. It answers by binary search in one index per
+  document, so nesting does not multiply the work, and charges its steps to
+  the step budget; the `.sch` file stays plain XPath. Tests check that the
+  rules give the same findings both ways on generated documents, and that the
+  uniqueness checks are rewritten.
 - **Own rules:** `rules/qti3-additional-checks.sch` is compiled with the
   embedded rules. On the 4528 well-formed documents of the public corpora the
   engine gives the same 2339 messages as the reference implementation. The

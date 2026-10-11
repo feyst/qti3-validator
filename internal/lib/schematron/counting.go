@@ -1,7 +1,10 @@
 package schematron
 
 import (
+	"maps"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"qti3-validator/internal/lib/xpath"
@@ -29,10 +32,11 @@ var (
 )
 
 // indexCounts rewrites each such count in test into a call of
-// qtiv:count-by-attribute, which returns the same number from an index
-// built once per scope; see xpath.CountByAttribute. Anything else in the
-// test, and a count in any other form, is left as it is.
-func indexCounts(test string, ns map[string]string) string {
+// count-by-attribute with prefix ext, bound to xpath.ExtensionNamespace,
+// which returns the same number from an index of the document; see
+// xpath.CountByAttribute. Anything else in the test, and a count in any
+// other form, is left as it is.
+func indexCounts(test string, ns map[string]string, ext string) string {
 	if !indexedCounts {
 		return test
 	}
@@ -45,7 +49,7 @@ func indexCounts(test string, ns map[string]string) string {
 	for _, m := range matches {
 		group := func(i int) string { return test[m[2*i]:m[2*i+1]] }
 		start := m[0] + len(group(1)) // keep the character before count
-		call, ok := countByAttributeCall(group(2), group(3), group(4), group(5), group(6), group(7), ns)
+		call, ok := countByAttributeCall(ext, group(2), group(3), group(4), group(5), group(6), group(7), ns)
 		if !ok || inLiteral(test[:start]) {
 			continue
 		}
@@ -60,7 +64,7 @@ func indexCounts(test string, ns map[string]string) string {
 // countByAttributeCall builds the call for the parts of a match, or returns
 // false when it cannot: a prefix is not bound, the attribute names differ,
 // or a name would not survive the string literal.
-func countByAttributeCall(scope, step, nameTest, selfTests, attr, currentAttr string, ns map[string]string) (string, bool) {
+func countByAttributeCall(ext, scope, step, nameTest, selfTests, attr, currentAttr string, ns map[string]string) (string, bool) {
 	if attr != currentAttr {
 		return "", false
 	}
@@ -98,7 +102,30 @@ func countByAttributeCall(scope, step, nameTest, selfTests, attr, currentAttr st
 	if scope == "" {
 		scope = "/"
 	}
-	return xpath.CountByAttribute + "(" + scope + ", '" + axis + "', '" + strings.Join(names, " ") + "', '" + attr + "', current()/@" + attr + ")", true
+	return ext + ":" + xpath.CountByAttribute + "(" + scope + ", '" + axis + "', '" + strings.Join(names, " ") + "', '" + attr + "', current()/@" + attr + ")", true
+}
+
+// extensionPrefix returns the namespaces with a prefix bound to
+// xpath.ExtensionNamespace, and that prefix: one the namespaces bind to it
+// already, or else qtiv or, when that is taken, the first of qtiv2, qtiv3,
+// ... that is free. The namespaces are not changed.
+func extensionPrefix(ns map[string]string) (map[string]string, string) {
+	for _, p := range slices.Sorted(maps.Keys(ns)) {
+		if ns[p] == xpath.ExtensionNamespace {
+			return ns, p
+		}
+	}
+	prefix := "qtiv"
+	for i := 2; ; i++ {
+		if _, taken := ns[prefix]; !taken {
+			break
+		}
+		prefix = "qtiv" + strconv.Itoa(i)
+	}
+	out := make(map[string]string, len(ns)+1)
+	maps.Copy(out, ns)
+	out[prefix] = xpath.ExtensionNamespace
+	return out, prefix
 }
 
 // inLiteral reports whether s, the start of an expression, ends inside a

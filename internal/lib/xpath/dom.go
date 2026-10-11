@@ -1,7 +1,7 @@
 // Package xpath implements XPath 1.0 (W3C Recommendation, 16 November 1999)
 // over a small read-only DOM, plus the XSLT 1.0 functions current() and
 // generate-id() that Schematron rules commonly use, and one extension
-// function, qtiv:count-by-attribute (see CountByAttribute).
+// function, count-by-attribute in ExtensionNamespace (see CountByAttribute).
 //
 // Compiled expressions are immutable and safe for concurrent use; a Document
 // is not, and belongs to one goroutine.
@@ -53,11 +53,12 @@ type Node struct {
 
 	index   int // position in the parent's Children or Attrs
 	order   int // document order; attributes follow their element
+	end     int // roots and elements: the order after their last descendant
 	nsOrder int // namespace nodes: 1-based position among the owner's
 	nsDecls []nsBinding
 	nsNodes []*Node // built on first use of the namespace axis
-	// The root only: indexes of qtiv:count-by-attribute, built on first use.
-	attrIndexes map[attrIndexKey]map[string]int
+	// The root only: indexes of count-by-attribute, built on first use.
+	attrIndexes map[attrIndexKey]*attrIndex
 }
 
 type nsBinding struct{ prefix, uri string }
@@ -253,6 +254,7 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 				return nil, fmt.Errorf("line %d: unexpected end element %s", line, t.Name.Local)
 			}
 			scopes = scopes[:len(scopes)-1]
+			cur.end = order
 			cur = cur.Parent
 		case xml.CharData:
 			if cur.Kind == RootNode {
@@ -280,5 +282,6 @@ func Parse(r io.Reader) (*Document, error) { //nolint:gocognit // one streaming 
 	if cur != root {
 		return nil, errors.New("unexpected end of document")
 	}
+	root.end = order
 	return &Document{Root: root, Nodes: order - 1}, nil
 }

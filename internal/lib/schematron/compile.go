@@ -44,7 +44,7 @@ func (c *Compiled) Subset(sources ...string) (*Compiled, error) {
 }
 
 // CompiledVersion changes when the Compiled format does.
-const CompiledVersion = 1
+const CompiledVersion = 2
 
 // CompiledSet is a compiled rule set: one schema's patterns.
 type CompiledSet struct {
@@ -76,7 +76,7 @@ type CompiledAssertion struct {
 	Flag   string `json:"flag,omitempty"`
 	// Exactly one of Test and AttributeName is set. Test is the rule's
 	// test, with counts of elements by identifier rewritten into
-	// qtiv:count-by-attribute (see indexCounts).
+	// calls of the extension function count-by-attribute (see indexCounts).
 	Test          string         `json:"test,omitempty"`
 	AttributeName *AttributeName `json:"attribute_name,omitempty"`
 	Message       []MessagePart  `json:"message"` // diagnostics appended
@@ -114,7 +114,10 @@ func Precompile(sets ...RuleSet) (*Compiled, error) {
 }
 
 func precompileSet(rs RuleSet, c *Compiled, lists map[string]int) (CompiledSet, error) { //nolint:gocognit // one pass over the ISO constructs; tested against the reference implementation
-	cs := CompiledSet{Source: rs.Source, Namespaces: rs.Namespaces, Lets: rs.Lets}
+	// The set's namespaces bind a prefix for the indexed counts as well;
+	// the schema's own expressions are checked without it.
+	extNS, ext := extensionPrefix(rs.Namespaces)
+	cs := CompiledSet{Source: rs.Source, Namespaces: extNS, Lets: rs.Lets}
 	switch strings.ToLower(rs.QueryBinding) {
 	case "", "xslt", "xslt1", "xpath":
 	default:
@@ -136,7 +139,7 @@ func precompileSet(rs RuleSet, c *Compiled, lists map[string]int) (CompiledSet, 
 		}
 	}
 
-	check := checker{ns: rs.Namespaces}
+	check := checker{ns: rs.Namespaces, extNS: extNS, ext: ext}
 	vars := map[string]bool{}
 	if err := check.lets(rs.Lets, vars); err != nil {
 		return cs, err
@@ -216,15 +219,23 @@ func precompileTest(ca *CompiledAssertion, test string, vars map[string]bool, ch
 	if err := check.expr(test, vars); err != nil {
 		return err
 	}
-	ca.Test = indexCounts(test, check.ns)
-	if err := check.expr(ca.Test, vars); err != nil {
+	ca.Test = indexCounts(test, check.ns, check.ext)
+	if ca.Test == test {
+		return nil
+	}
+	if _, err := xpath.Compile(ca.Test, xpath.Options{Namespaces: check.extNS, Variables: vars}); err != nil {
 		return fmt.Errorf("indexed count: %w", err)
 	}
 	return nil
 }
 
 // checker compiles expressions only to check them; the result is dropped.
-type checker struct{ ns map[string]string }
+// Expressions are checked with the schema's namespaces ns; the rewritten
+// tests with extNS, which binds prefix ext to xpath.ExtensionNamespace.
+type checker struct {
+	ns, extNS map[string]string
+	ext       string
+}
 
 func (k checker) expr(src string, vars map[string]bool) error {
 	_, err := xpath.Compile(src, xpath.Options{Namespaces: k.ns, Variables: vars})

@@ -2,44 +2,63 @@ package xpath
 
 import (
 	"errors"
+	"slices"
+	"sort"
 	"strings"
 )
 
-// CountByAttribute is the name of an extension function that counts
-// elements by the value of an attribute, using an index built once per
-// document:
+// ExtensionNamespace is the namespace of the extension functions. Only a
+// prefix bound to it calls them, so an expression from elsewhere cannot
+// call one by accident, whatever prefixes it uses.
+const ExtensionNamespace = "urn:x-qti3-validator:xpath-extensions"
+
+// CountByAttribute is the local name of an extension function that counts
+// elements by the value of an attribute, using an index of the document:
 //
-//	qtiv:count-by-attribute(scope, axis, names, attribute, value)
+//	ext:count-by-attribute(scope, axis, names, attribute, value)
 //
-// returns the same number as
+// with ext bound to ExtensionNamespace, returns the same number as
 //
 //	count(scope/axis::*[self::n1 or self::n2 or ...][@attribute = value])
 //
 // where axis is 'child' or 'descendant', names lists the element names
 // n1, n2, ... in Clark notation ({namespace-uri}local-name), separated by
 // spaces, attribute is the local name of an attribute without namespace,
-// and value is a node-set that does not depend on the context node, such
-// as current()/@identifier. Counting this way is linear in the size of the
-// scope once, where the XPath expression is linear for every call: rules
-// that count, for each of n elements, the others with the same identifier
-// would take time n². The schematron package substitutes it for such
-// expressions. The prefix needs no namespace binding.
-const CountByAttribute = "qtiv:count-by-attribute"
+// and value is a node-set.
+//
+// The XPath expression walks the subtrees of the scope on every call, so
+// rules that count, for each of n elements, the others with the same
+// identifier take time n². The function instead indexes the whole document
+// once per axis, names and attribute, in a step per node, keeping a few
+// words per matching element. A call then costs a step per scope node and
+// per value, plus binary searches, however large the subtrees of the scope
+// are and however deeply scopes nest. The schematron package substitutes
+// it for such expressions.
+const CountByAttribute = "count-by-attribute"
 
-// attrIndexKey identifies an index: the counts per attribute value of the
-// elements with the given names on the axis from the scope node.
+// attrIndexKey identifies an index of a document: the elements with the
+// given names on the axis, by the value of their attribute.
 type attrIndexKey struct {
-	scope             *Node
 	axis, names, attr string
 }
 
-func countByAttribute(_ *evalCtx, a []Value) (Value, error) {
+// attrIndex is an index of a document for one attrIndexKey: per attribute
+// value, a position for each matching element, ascending. On the
+// descendant axis the position is the element's document order, and the
+// descendants of a node are the elements whose order lies in a span of
+// the node. On the child axis it is the order of the element's parent, and
+// the span of a node holds only its own order.
+type attrIndex struct {
+	positions map[string][]int
+}
+
+func countByAttribute(c *evalCtx, a []Value) (Value, error) {
 	scope, err := nodeSetArg(a[0])
 	if err != nil {
 		return nil, err
 	}
-	axis, names, attr := toString(a[1]), toString(a[2]), toString(a[3])
-	if axis != "child" && axis != "descendant" {
+	key := attrIndexKey{axis: toString(a[1]), names: toString(a[2]), attr: toString(a[3])}
+	if key.axis != "child" && key.axis != "descendant" {
 		return nil, errors.New("axis must be 'child' or 'descendant'")
 	}
 	values, err := nodeSetArg(a[4])
@@ -49,41 +68,115 @@ func countByAttribute(_ *evalCtx, a []Value) (Value, error) {
 	if len(scope) == 0 || len(values) == 0 {
 		return 0.0, nil
 	}
-	var counts map[string]int
-	if len(scope) == 1 {
-		counts = cachedAttributeCounts(attrIndexKey{scope: scope[0], axis: axis, names: names, attr: attr})
-	} else {
-		counts = attributeCounts(scope, axis, parseClarkNames(names), attr)
+	idx, err := documentIndex(c.s, scope[0], key)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.s.charge(len(scope) + len(values)); err != nil {
+		return nil, err
 	}
 	// Each element has one value, so the counts of distinct values add up.
-	total := 0
+	distinct := make([]string, 0, len(values))
 	seen := make(map[string]bool, len(values))
 	for _, v := range values {
-		s := v.StringValue()
-		if !seen[s] {
+		if s := v.StringValue(); !seen[s] {
 			seen[s] = true
-			total += counts[s]
+			distinct = append(distinct, s)
 		}
+	}
+	var spans []span
+	if key.axis == "child" {
+		spans = ownSpans(scope)
+	} else {
+		spans = descendantSpans(scope)
+	}
+	total := 0
+	for _, v := range distinct {
+		n, work := countInSpans(idx.positions[v], spans)
+		if err := c.s.charge(work); err != nil {
+			return nil, err
+		}
+		total += n
 	}
 	return float64(total), nil
 }
 
-// cachedAttributeCounts returns the counts for key, built on first use and
-// kept on the root of the document.
-func cachedAttributeCounts(key attrIndexKey) map[string]int {
-	root := key.scope
+// documentIndex returns the index for key of the document of n, built in
+// session s on first use and kept on the root of the document.
+func documentIndex(s *Session, n *Node, key attrIndexKey) (*attrIndex, error) {
+	root, hops := n, 0
 	for root.Parent != nil {
 		root = root.Parent
+		hops++
 	}
-	if counts, ok := root.attrIndexes[key]; ok {
-		return counts
+	if err := s.charge(hops); err != nil {
+		return nil, err
 	}
-	counts := attributeCounts(NodeSet{key.scope}, key.axis, parseClarkNames(key.names), key.attr)
+	if idx, ok := root.attrIndexes[key]; ok {
+		return idx, nil
+	}
+	idx, err := buildIndex(s, root, key)
+	if err != nil {
+		return nil, err // nothing is kept, the session is stopped
+	}
 	if root.attrIndexes == nil {
-		root.attrIndexes = map[attrIndexKey]map[string]int{}
+		root.attrIndexes = map[attrIndexKey]*attrIndex{}
 	}
-	root.attrIndexes[key] = counts
-	return counts
+	root.attrIndexes[key] = idx
+	return idx, nil
+}
+
+// buildIndex visits every node of the document of root once, in document
+// order, and charges a step for each node and each attribute it reads.
+// Elements without the attribute are not indexed.
+func buildIndex(s *Session, root *Node, key attrIndexKey) (*attrIndex, error) {
+	names := parseClarkNames(key.names)
+	idx := &attrIndex{positions: map[string][]int{}}
+	stack := []*Node{root}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if err := s.charge(1); err != nil {
+			return nil, err
+		}
+		for i := len(n.Children) - 1; i >= 0; i-- {
+			stack = append(stack, n.Children[i])
+		}
+		if n.Kind != ElementNode || !names[clarkName{n.Space, n.Local}] {
+			continue
+		}
+		if err := s.charge(len(n.Attrs)); err != nil {
+			return nil, err
+		}
+		if value, ok := plainAttribute(n, key.attr); ok {
+			pos := n.order
+			if key.axis == "child" {
+				pos = n.Parent.order
+			}
+			idx.positions[value] = append(idx.positions[value], pos)
+		}
+	}
+	if key.axis == "child" {
+		// Children come in document order, their parents not always.
+		for _, ps := range idx.positions {
+			if err := s.charge(len(ps)); err != nil {
+				return nil, err
+			}
+			slices.Sort(ps)
+		}
+	}
+	return idx, nil
+}
+
+// plainAttribute returns the value of the attribute of n with the given
+// local name and no namespace.
+func plainAttribute(n *Node, local string) (string, bool) {
+	for _, at := range n.Attrs {
+		if at.Space == "" && at.Local == local {
+			return at.Data, true
+		}
+	}
+	return "", false
 }
 
 type clarkName struct{ space, local string }
@@ -104,62 +197,72 @@ func parseClarkNames(s string) map[clarkName]bool {
 	return names
 }
 
-// attributeCounts counts the elements with the given names on the axis from
-// the scope nodes by the value of their attribute. Elements without the
-// attribute are not counted. An element is counted once, even when the
-// subtrees of the scope nodes overlap.
-func attributeCounts(scope NodeSet, axis string, names map[clarkName]bool, attr string) map[string]int {
-	k := attrCounter{names: names, attr: attr, counts: map[string]int{}}
-	if axis == "child" {
-		for _, s := range scope {
-			for _, ch := range s.Children {
-				k.add(ch)
+// span is a range [lo, hi) of document order.
+type span struct{ lo, hi int }
+
+// ownSpans returns the spans of the orders of the nodes that can have
+// children, ascending; they are apart, as each node has an order of its own.
+func ownSpans(nodes NodeSet) []span {
+	spans := make([]span, 0, len(nodes))
+	for _, n := range nodes {
+		if n.Kind == RootNode || n.Kind == ElementNode {
+			spans = append(spans, span{n.order, n.order + 1})
+		}
+	}
+	sortSpans(spans)
+	return spans
+}
+
+// sortSpans sorts spans by their start. A node-set is in document order
+// already, so this only checks, in case one is not.
+func sortSpans(spans []span) {
+	byStart := func(a, b span) int { return a.lo - b.lo }
+	if !slices.IsSortedFunc(spans, byStart) {
+		slices.SortFunc(spans, byStart)
+	}
+}
+
+// descendantSpans returns the spans of the descendants of the nodes,
+// ascending and without overlap: a node inside the subtree of another adds
+// nothing. Only roots and elements have descendants.
+func descendantSpans(nodes NodeSet) []span {
+	spans := make([]span, 0, len(nodes))
+	for _, n := range nodes {
+		if (n.Kind == RootNode || n.Kind == ElementNode) && n.end > n.order+1 {
+			spans = append(spans, span{n.order + 1, n.end})
+		}
+	}
+	sortSpans(spans)
+	// Subtrees nest or are apart, so a span either lies within the last one
+	// kept or after it.
+	merged := spans[:0]
+	for _, sp := range spans {
+		if last := len(merged) - 1; last >= 0 && sp.lo < merged[last].hi {
+			merged[last].hi = max(merged[last].hi, sp.hi)
+			continue
+		}
+		merged = append(merged, sp)
+	}
+	return merged
+}
+
+// countInSpans counts the positions, ascending, that lie in one of the
+// spans, which are ascending and apart. It searches the shorter list in
+// the longer and also returns that length, the number of searches.
+func countInSpans(positions []int, spans []span) (count, searches int) {
+	if len(positions) <= len(spans) {
+		for _, p := range positions {
+			// The first span that ends after p contains p if it starts
+			// at or before it.
+			i := sort.Search(len(spans), func(i int) bool { return spans[i].hi > p })
+			if i < len(spans) && spans[i].lo <= p {
+				count++
 			}
 		}
-		return k.counts
+		return count, len(positions)
 	}
-	in := make(map[*Node]bool, len(scope))
-	for _, s := range scope {
-		in[s] = true
+	for _, sp := range spans {
+		count += sort.SearchInts(positions, sp.hi) - sort.SearchInts(positions, sp.lo)
 	}
-	for _, s := range scope {
-		if !hasAncestorIn(s, in) { // otherwise its subtree is counted already
-			k.addDescendants(s)
-		}
-	}
-	return k.counts
-}
-
-func hasAncestorIn(n *Node, set map[*Node]bool) bool {
-	for p := n.Parent; p != nil; p = p.Parent {
-		if set[p] {
-			return true
-		}
-	}
-	return false
-}
-
-type attrCounter struct {
-	names  map[clarkName]bool
-	attr   string
-	counts map[string]int
-}
-
-func (k *attrCounter) add(n *Node) {
-	if n.Kind != ElementNode || !k.names[clarkName{n.Space, n.Local}] {
-		return
-	}
-	for _, at := range n.Attrs {
-		if at.Space == "" && at.Local == k.attr {
-			k.counts[at.Data]++
-			return
-		}
-	}
-}
-
-func (k *attrCounter) addDescendants(n *Node) {
-	for _, ch := range n.Children {
-		k.add(ch)
-		k.addDescendants(ch)
-	}
+	return count, len(spans)
 }
