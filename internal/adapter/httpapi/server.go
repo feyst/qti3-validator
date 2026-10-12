@@ -117,6 +117,10 @@ func (s *Server) Handler() http.Handler {
 // HTTPServer returns an http.Server with timeouts derived from the options.
 // POST /api/validate sets its own deadlines; WriteTimeout covers the
 // longest it allows, a response written writeGrace after REQUEST_TIMEOUT.
+//
+// What net/http itself reports, such as a connection it could not accept or
+// a panic outside the handlers, goes to the log of the service as a warning
+// with source "net/http", not as bare text on stderr.
 func (s *Server) HTTPServer() *http.Server {
 	return &http.Server{
 		Addr:              s.opts.Addr,
@@ -126,6 +130,7 @@ func (s *Server) HTTPServer() *http.Server {
 		WriteTimeout:      s.opts.RequestTimeout + s.writeGrace,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
+		ErrorLog:          slog.NewLogLogger(s.log.With("source", "net/http").Handler(), slog.LevelWarn),
 	}
 }
 
@@ -143,10 +148,10 @@ func (s *Server) version(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// smallRequestSize is the size of a request body below which a request is
-// small: a typical item, validated in milliseconds. A small body is kept in
-// memory rather than in a temporary file, and a small request may take the
-// express slot.
+// smallRequestSize is the size of a request body below which a body is
+// small, as that of a typical item is. A small body is kept in memory
+// rather than in a temporary file, and a document with a small body is a
+// small request, which may take the express slot; a package never is.
 const smallRequestSize = 256 << 10
 
 // BodyMemory is the room for the request bodies that are kept in memory,
@@ -163,14 +168,21 @@ func BodyMemory(budget int64) int64 {
 
 // A slot lets one validation run. There are MaxConcurrent regular slots,
 // which any request may take, and one express slot more, which only a small
-// request may take: one with a body under smallRequestSize whose validation
-// reserves no more than smallReservation. So a typical item is not kept
-// waiting for seconds by large documents that take every regular slot, and
-// those run MaxConcurrent at a time. A small validation takes about a
-// millisecond of CPU, so the one that runs beside MaxConcurrent others
-// costs them little. It has no CPU of its own, though: while MaxConcurrent
-// validations keep every CPU busy, it waits for the runtime to hand one
-// over, which takes milliseconds.
+// request may take: one document with a body under smallRequestSize whose
+// validation reserves no more than smallReservation. So a typical item is
+// not kept waiting for seconds by large documents that take every regular
+// slot, and those run MaxConcurrent at a time.
+//
+// The express slot is for single documents validated in milliseconds. A
+// package is a large request whatever its size, and takes a regular slot:
+// a ZIP under smallRequestSize can hold hundreds of documents that compress
+// well and take seconds together, and on the express slot one client that
+// sends such packages would keep every typical item waiting behind them.
+//
+// A small validation takes about a millisecond of CPU, so the one that runs
+// beside MaxConcurrent others costs them little. It has no CPU of its own,
+// though: while MaxConcurrent validations keep every CPU busy, it waits for
+// the runtime to hand one over, which takes milliseconds.
 type slotKind int
 
 const (

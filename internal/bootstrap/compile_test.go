@@ -72,6 +72,32 @@ func TestElementsAreLoadedAndVerified(t *testing.T) {
 			t.Errorf("got %v, want an error that names the schema and says to run fetchschemas", err)
 		}
 	})
+	// The names are right, but the file says it was made from another
+	// schema: a file left from before the schemas changed, whose names
+	// happen to be the same, or one that was tampered with.
+	t.Run("checksum of another schema", func(t *testing.T) {
+		store, fsys := embeddedCopy(t)
+		c, err := store.Elements()
+		if err != nil {
+			t.Fatal(err)
+		}
+		schema := c.Schemas[asi]
+		pinned := schema.SHA256
+		schema.SHA256 = strings.Repeat("0", 64)
+		c.Schemas[asi] = schema
+		write(fsys, c)
+		// Hashing the schemas would add 60 ms to every start, so here too
+		// it is the check that finds it.
+		if _, err := NewValidator(Options{Store: &store}); err != nil {
+			t.Errorf("the start hashed the schemas: %v", err)
+		}
+		_, err = NewValidator(Options{Store: &store, VerifyElements: true})
+		for _, want := range []string{asi, schema.SHA256, pinned, "run `go run ./cmd/fetchschemas` again"} {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("got %v, want an error with %q", err, want)
+			}
+		}
+	})
 	t.Run("a version without elements", func(t *testing.T) {
 		store, fsys := embeddedCopy(t)
 		c, err := store.Elements()

@@ -221,13 +221,29 @@ func CompiledElements(c *xsdelements.Compiled, schemaURL string) (app.SchemaElem
 	return schemaElements(schema.Elements), nil
 }
 
-// VerifyElements reads the elements of the schema at schemaURL and fails
-// when the ones compiled in at build time differ: they were then read from
-// another schema, or by another version of the code.
+// VerifyElements fails when the elements compiled in at build time are not
+// those of the schema at schemaURL as it is stored: when the checksum they
+// were compiled with is not that of the schema, or when reading the schema
+// gives other elements. They were then read from another schema, or by
+// another version of the code.
+//
+// It reads the schema twice, which takes longer than compiling it: for the
+// check of the image build (qti-validator -check). The service itself
+// starts without it; the checksum alone would add 60 ms to a start, for
+// the two QTI versions.
 func VerifyElements(r Resolver, c *xsdelements.Compiled, schemaURL string) error {
 	compiled, err := CompiledElements(c, schemaURL)
 	if err != nil {
 		return err
+	}
+	sum, err := r.Store.SHA256(schemaURL)
+	if err != nil {
+		return err
+	}
+	if from := c.Schemas[schemaURL].SHA256; from != sum {
+		return fmt.Errorf(
+			"the compiled elements of %s were read from a schema with checksum %q, and the schema has %s: run `go run ./cmd/fetchschemas` again",
+			schemaURL, from, sum)
 	}
 	declared, err := DeclaredElements(r, schemaURL)
 	if err != nil {

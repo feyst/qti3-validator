@@ -27,11 +27,17 @@ type Options struct {
 	// ValidatorsDir is a directory with extra validators, .xsd and .sch
 	// files; empty adds none.
 	ValidatorsDir string
-	// VerifyElements also reads the element names from the QTI schemas, as
-	// the build did, and fails when the ones compiled in differ. It takes
-	// about half as long again as the compilation: for the check of the
+	// VerifyElements also checks that the element names compiled in are
+	// those of the QTI schemas: that they carry the SHA-256 of the embedded
+	// schema, and that reading the names from the schemas, as the build
+	// did, gives the same. It takes about half as long again as the
+	// compilation, and the checksums alone 60 ms: for the check of the
 	// image build, not for the start of the service.
 	VerifyElements bool
+	// CPUs is the number of CPUs to compile the schemas with; 0 selects
+	// the GOMAXPROCS of the runtime. The service runs with a thread more
+	// than it has CPUs, and passes the CPUs.
+	CPUs int
 	// OnSchemaLoaded is called once for every schema file that is loaded.
 	OnSchemaLoaded func(url string)
 	// OnValidatorLoaded is called for every file loaded from ValidatorsDir,
@@ -83,7 +89,11 @@ func NewValidator(opts Options) (*app.Validator, error) {
 		References:  qtirefs.Reader{},
 	}
 	versions := qti.Versions()
-	schemas, err := compileVersions(resolver, versions, roomToCompileTogether(runtime.GOMAXPROCS(0), debug.SetMemoryLimit(-1)))
+	cpus := opts.CPUs
+	if cpus <= 0 {
+		cpus = runtime.GOMAXPROCS(0)
+	}
+	schemas, err := compileVersions(resolver, versions, roomToCompileTogether(cpus, debug.SetMemoryLimit(-1)))
 	if err != nil {
 		return nil, err
 	}

@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"math/rand"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -391,6 +393,95 @@ func TestExpressSlotForSmallRequests(t *testing.T) {
 	}
 }
 
+// packagesWait validates a document at once, and a package when released.
+type packagesWait struct {
+	release chan struct{}
+	running atomic.Int64 // packages being validated
+}
+
+func (v *packagesWait) ValidateDocument(context.Context, app.ValidateDocument) qti.DocumentResult {
+	return qti.DocumentResult{Valid: true, Schema: "qti-assessment-item", Outcome: qti.OutcomeValid}
+}
+
+func (v *packagesWait) ValidatePackage(context.Context, app.ValidatePackage) qti.PackageResult {
+	v.running.Add(1)
+	<-v.release
+	v.running.Add(-1)
+	return qti.PackageResult{Valid: true, Outcome: qti.OutcomeValid}
+}
+
+// The express slot is for single documents validated in milliseconds: a
+// package never runs on it, however small its ZIP is and however it is
+// sent. A ZIP under smallRequestSize may hold hundreds of documents and take
+// seconds; on the express slot one client sending those kept every typical
+// item waiting behind them (median 1.2 s instead of 1.5 ms, measured with a
+// 181 KiB ZIP of 600 items). Packages wait for a regular slot, among the
+// large requests, and typical items go on beside them.
+func TestExpressSlotIsNotForPackages(t *testing.T) {
+	v := &packagesWait{release: make(chan struct{})}
+	srv, s := newFakeServer(t, Options{MaxPackageSize: 1 << 20, MaxConcurrent: 1, MaxQueue: 2}, v)
+	// Also when the test fails: the server closes once its requests end.
+	release := sync.OnceFunc(func() { close(v.release) })
+	t.Cleanup(release)
+	url := srv.URL + "/api/validate"
+	pkg := zipOf(t, map[string][]byte{"imsmanifest.xml": []byte("<manifest/>")})
+	var form bytes.Buffer
+	mw := multipart.NewWriter(&form)
+	part, err := mw.CreateFormFile("file", "package.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write(pkg)
+	mw.Close()
+	if len(form.Bytes()) >= smallRequestSize {
+		t.Fatal("the packages of this test are to be small")
+	}
+
+	// One package runs, on the regular slot; the others wait for it.
+	done := make(chan int, 3)
+	for i, send := range []struct {
+		how, contentType string
+		body             []byte
+	}{
+		{"as application/zip", "application/zip", pkg},
+		{"sniffed", "application/octet-stream", pkg},
+		{"in a multipart upload", mw.FormDataContentType(), form.Bytes()},
+	} {
+		go func() { done <- postStatus(t, url, send.contentType, send.body) }()
+		waitFor(t, "the package sent "+send.how+" on a regular slot or waiting for one", func() bool {
+			return v.running.Load() == 1 && s.waiting.Load() == int64(i)
+		})
+		if len(s.slots) != 1 || len(s.express) != 0 || s.waitingSmall.Load() != 0 {
+			t.Fatalf("package sent %s: regular slots %d, express %d, small requests waiting %d: a package takes a regular slot only",
+				send.how, len(s.slots), len(s.express), s.waitingSmall.Load())
+		}
+	}
+
+	// Typical items are validated beside them, on the express slot.
+	for _, contentType := range []string{"application/xml", "application/octet-stream"} {
+		if status := postStatus(t, url, contentType, []byte("<x/>")); status != http.StatusOK {
+			t.Fatalf("a small document sent as %s beside the packages: status %d", contentType, status)
+		}
+	}
+	// The packages that wait fill the queue of the large requests, not that
+	// of the small ones.
+	postBusy(t, url, "application/zip", pkg)
+	if status := postStatus(t, url, "application/xml", []byte("<x/>")); status != http.StatusOK {
+		t.Fatalf("a small document with the queue of the large requests full: status %d", status)
+	}
+	if v.running.Load() != 1 || s.waiting.Load() != 2 || len(s.express) != 0 {
+		t.Fatalf("packages running %d, waiting %d, express %d", v.running.Load(), s.waiting.Load(), len(s.express))
+	}
+
+	release()
+	for range 3 {
+		if status := <-done; status != http.StatusOK {
+			t.Fatalf("package: status %d", status)
+		}
+	}
+	waitFor(t, "everything released", func() bool { return idle(s) })
+}
+
 // A small request whose validation reserves more than a small one may is a
 // large one from then on: it leaves the express slot for a regular one, and
 // when there is none free it waits for one, holding neither. So what runs
@@ -428,6 +519,102 @@ func TestExpressSlotIsLeftByAValidationThatGrowsLarge(t *testing.T) {
 		t.Fatalf("after the first released: %v, slot %v, express %d", err, h2.slot, len(s.express))
 	}
 	h2.release()
+	if !idle(s) {
+		t.Fatal("not idle in the end")
+	}
+}
+
+// What a request reserves from the small share it holds only while it has a
+// slot. A package, or a document of 256 KiB and more, takes regular slots
+// only; one that got its room in the small share and then waited for a
+// regular slot with it, behind large documents that take seconds, kept
+// typical items waiting for memory that long (up to 3.5 s, measured with
+// four clients sending small packages beside four sending large documents).
+func TestSmallShareIsNotHeldWhileWaitingForASlot(t *testing.T) {
+	s := memServer(108*mib, 1, 4)
+	if s.mem.small != 4*mib {
+		t.Fatalf("small share %d MiB: this test needs one that holds one 3 MiB reservation", s.mem.small/mib)
+	}
+	ctx := context.Background()
+	take := func(large bool, want slotKind) *memoryHold {
+		t.Helper()
+		slot := s.tryTakeSlot(large)
+		if slot != want {
+			t.Fatalf("got slot %v, want %v", slot, want)
+		}
+		return s.newMemoryHold(slot, large)
+	}
+	// A package has the regular slot, a typical item the express slot and
+	// the small share.
+	pkg, item := take(true, regularSlot), take(false, expressSlot)
+	if !item.TryReserve(3 * mib) {
+		t.Fatal("the item got no room")
+	}
+	// A document of the package finds no room, and waits without its slot,
+	// which a large document takes.
+	got := make(chan error, 1)
+	go func() { got <- pkg.Reserve(ctx, 3*mib) }()
+	waitFor(t, "the package waiting for memory without its slot", func() bool { return s.waitingSmall.Load() == 1 && len(s.slots) == 0 })
+	doc := take(true, regularSlot)
+	if !doc.TryReserve(20 * mib) {
+		t.Fatal("the large document got no room")
+	}
+	// The item finishes: the room is the package's, but there is no slot
+	// for it. The next item gets the room.
+	item.release()
+	time.Sleep(50 * time.Millisecond) // time for the package to take the room
+	next := take(false, expressSlot)
+	waitFor(t, "room in the small share for the next item, while the package waits for a slot", func() bool { return next.TryReserve(3 * mib) })
+	select {
+	case err := <-got:
+		t.Fatalf("the package went on without a slot: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	// The slot comes free while the item holds the room: the package does
+	// not keep the slot to wait with.
+	doc.release()
+	waitFor(t, "the package waiting for memory again, without a slot", func() bool {
+		return len(s.slots) == 0 && usedOf(s.mem) == 3*mib
+	})
+	select {
+	case err := <-got:
+		t.Fatalf("the package went on without room: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	if s.waitingSmall.Load() != 1 {
+		t.Fatalf("waiting %d: the package counts as waiting all along", s.waitingSmall.Load())
+	}
+	next.release()
+	if err := <-got; err != nil || pkg.slot != regularSlot || pkg.held.n != 3*mib || !pkg.held.small {
+		t.Fatalf("the package in the end: %v, slot %v, reservation %+v", err, pkg.slot, pkg.held)
+	}
+	pkg.release()
+	if !idle(s) {
+		t.Fatal("not idle in the end")
+	}
+
+	// A large reservation is kept while its request waits for a slot, as
+	// before: it waited its turn for that room.
+	first, second := take(true, regularSlot), take(false, expressSlot)
+	if !first.TryReserve(90*mib) || !second.TryReserve(mib) {
+		t.Fatal("no room")
+	}
+	go func() { got <- second.Reserve(ctx, 60*mib) }()
+	waitFor(t, "the second waiting for memory", func() bool { return s.waiting.Load() == 1 && len(s.express) == 0 })
+	if !first.TryReserve(mib) {
+		t.Fatal("the first could not shrink")
+	}
+	waitFor(t, "the second holding its room while it waits for the regular slot", func() bool { return usedOf(s.mem) == 61*mib })
+	select {
+	case err := <-got:
+		t.Fatalf("the second went on without a regular slot: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	first.release()
+	if err := <-got; err != nil || second.slot != regularSlot || second.held.n != 60*mib {
+		t.Fatalf("the second in the end: %v, slot %v, reservation %+v", err, second.slot, second.held)
+	}
+	second.release()
 	if !idle(s) {
 		t.Fatal("not idle in the end")
 	}

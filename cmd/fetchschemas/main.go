@@ -107,11 +107,26 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 // run fetches the schemas of the lock file, removes the files the lock file
 // no longer lists, compiles the Schematron rules, and reads the element
 // names of the schemas elementSchemas names, which the lock file must list.
+//
+// A run that fails leaves no element names behind: those of an earlier run
+// would be the names of other schemas than the ones this run stored before
+// it failed, and the validator would start with them.
 func run(f fetcher, lockPath, extraRules string, elementSchemas []string) error {
 	pins, err := readLock(lockPath)
 	if err != nil {
 		return err
 	}
+	err = fetchAndCompile(f, pins, lockPath, extraRules, elementSchemas)
+	if err != nil {
+		if rmErr := os.Remove(filepath.Join(f.outDir, elementsFile)); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			err = errors.Join(err, rmErr)
+		}
+	}
+	return err
+}
+
+// fetchAndCompile is run for the schemas the lock file pins.
+func fetchAndCompile(f fetcher, pins []pin, lockPath, extraRules string, elementSchemas []string) error {
 	var ruleSets []schematron.RuleSet
 	elements := &xsdelements.Compiled{Version: xsdelements.CompiledVersion, Schemas: map[string]xsdelements.Schema{}}
 	for _, p := range pins {

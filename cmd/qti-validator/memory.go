@@ -13,10 +13,18 @@ import (
 const (
 	// validationHeadroom is the memory the process takes beside what the
 	// validations reserve: some 35 MiB when idle, a few for the connections
-	// and the stacks, and gomemlimitHeadroom. The budget, of which the
-	// reservations are never less than what the validations take, and the
-	// idle process then stay within the soft limit of the runtime: in a
-	// container of 256 MiB, 184 + 35 + 5 = 224 MiB.
+	// and the stacks, and gomemlimitHeadroom. In a container of 256 MiB the
+	// budget, the idle process and those few make 184 + 35 + 5 = 224 MiB,
+	// which is the soft limit of the runtime.
+	//
+	// The request bodies kept in memory come on top of that: up to
+	// httpapi.BodyMemory, 5.75 MiB there, which makes 230 MiB when every
+	// reservation is used in full. They are not: a validation reserves at
+	// least 1.1 times what it takes (docs/deployment.md), so validations
+	// that reserve all 184 MiB take 167 MiB at most, and with the bodies the
+	// process stays at 213 MiB, within the soft limit. The headroom is not
+	// raised for them: that would take the 6 MiB off what one document may
+	// take.
 	validationHeadroom = 72 << 20
 	// defaultValidationMemory is the budget when no memory limit can be
 	// read: enough for any document up to the default MAX_REQUEST_SIZE,
@@ -31,7 +39,10 @@ const (
 	// and the stacks, and the limit of the container counts the rest too,
 	// the binary and the buffers of the kernel. Measured with documents made
 	// to fill the budget, the process peaked some 10 MiB above its soft
-	// limit; this leaves twice as much again.
+	// limit. The container counts one process more: the HEALTHCHECK of the
+	// image runs this binary with -healthcheck every 30 s, which peaks at
+	// 10 MiB for 10 ms (measured; it reads the configuration and makes one
+	// request, without the schemas). Together 20 MiB, which leaves 12 MiB.
 	gomemlimitHeadroom = 32 << 20
 	// minGoMemLimit floors a derived soft limit so a very small container
 	// does not set an unusable one.

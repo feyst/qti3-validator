@@ -13,8 +13,10 @@ package schemastore
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"embed"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -80,6 +82,30 @@ func (s Store) Open(schemaURL string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	return openUTF8(s.fsys, name+".gz")
+}
+
+// SHA256 returns the checksum of the schema at schemaURL as it is stored, in
+// hexadecimal: that of the file upstream serves, which schemas.lock pins.
+// It reads the whole file, 30 ms for one of the QTI schemas.
+func (s Store) SHA256(schemaURL string) (string, error) {
+	name, err := localPath(schemaURL)
+	if err != nil {
+		return "", err
+	}
+	f, err := s.fsys.Open(name + ".gz")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", name, err)
+	}
+	sum := sha256.New()
+	if _, err := io.Copy(sum, zr); err != nil { //nolint:gosec // hashed as it is read, not kept
+		return "", fmt.Errorf("%s: %w", name, err)
+	}
+	return hex.EncodeToString(sum.Sum(nil)), nil
 }
 
 // Rules returns the Schematron rules compiled at build time.

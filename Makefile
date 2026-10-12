@@ -23,10 +23,13 @@ SCHEMAS_DIR           := internal/adapter/schemastore/schemas
 SCHEMAS               := $(SCHEMAS_DIR)/schematron.json.gz
 SCHEMAS_DEPS          := $(SCHEMAS_DIR)/schemas.lock $(wildcard rules/*.sch) \
                          $(filter-out %_test.go,$(wildcard cmd/fetchschemas/*.go internal/lib/schematron/*.go internal/lib/xpath/*.go internal/lib/xmlenc/*.go internal/lib/xsdelements/*.go internal/domain/qti/version.go))
-# The files the lock file pins, as `fetchschemas` stores them. When one is
-# missing, as after removing their directory, the compiled rules are made
-# again whatever their age, which fetches what is missing.
-SCHEMA_FILES          := $(shell awk '!/^\#/ && NF == 2 { sub("^https://", "", $$2); print "$(SCHEMAS_DIR)/" $$2 ".gz" }' $(SCHEMAS_DIR)/schemas.lock)
+# The files the lock file pins, as `fetchschemas` stores them, and the
+# element names it writes beside the rules. When one is missing, as after
+# removing their directory, or the element names alone, the compiled rules
+# are made again whatever their age, which fetches and writes what is
+# missing.
+SCHEMA_FILES          := $(shell awk '!/^\#/ && NF == 2 { sub("^https://", "", $$2); print "$(SCHEMAS_DIR)/" $$2 ".gz" }' $(SCHEMAS_DIR)/schemas.lock) \
+                         $(SCHEMAS_DIR)/elements.json.gz
 ifneq ($(words $(wildcard $(SCHEMA_FILES))),$(words $(SCHEMA_FILES)))
 SCHEMAS_DEPS          += FORCE
 endif

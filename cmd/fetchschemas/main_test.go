@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -695,6 +697,83 @@ func TestRun(t *testing.T) {
 				tc.lock = lock
 			}
 			wantError(t, run(up.fetcher(out), tc.lock, tc.rules, []string{up.URL + schemaPath}), tc.want)
+		})
+	}
+}
+
+// A run that fails after it stored a changed schema leaves no element names
+// of the schema before the change: the validator would start with them
+// beside the new schema, and only its check would tell.
+func TestFailedRunLeavesNoStaleElements(t *testing.T) {
+	const changed = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="new"/></xs:schema>`
+	const doesNotCompile = `<sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+<sch:pattern id="p"><sch:rule context="a"><sch:assert test="no-such-function(@b)">b</sch:assert></sch:rule></sch:pattern>
+</sch:schema>`
+	for name, tc := range map[string]struct {
+		rules, lockMore, want string
+	}{
+		// The step after all schemas are stored, and before anything is written.
+		"rules that do not compile": {rules: doesNotCompile, want: "no-such-function"},
+		"a later schema fails its checksum": {
+			rules: rules, lockMore: sum("other") + " %s/spec/y/second.xsd\n", want: "checksum mismatch",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var served atomic.Value
+			served.Store(schema)
+			up := newUpstream(t, map[string]string{"/spec/y/second.xsd": "<second/>"}, func(mux *http.ServeMux) {
+				mux.HandleFunc(schemaPath, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, served.Load().(string)) })
+			})
+			dir := t.TempDir()
+			out := filepath.Join(dir, "schemas")
+			lock := filepath.Join(out, "schemas.lock")
+			rulesPath := filepath.Join(dir, "rules.sch")
+			elementSchemas := []string{up.URL + schemaPath}
+			writeFile(t, rulesPath, rules)
+			writeFile(t, lock, sum(schema)+" "+up.URL+schemaPath+"\n")
+			if err := run(up.fetcher(out), lock, rulesPath, elementSchemas); err != nil {
+				t.Fatal(err)
+			}
+			elements := filepath.Join(out, elementsFile)
+			if _, err := os.Stat(elements); err != nil {
+				t.Fatal(err)
+			}
+
+			// Upstream and the lock file change, and the run fails after it
+			// stored the changed schema.
+			served.Store(changed)
+			more := ""
+			if tc.lockMore != "" {
+				more = fmt.Sprintf(tc.lockMore, up.URL)
+			}
+			writeFile(t, lock, sum(changed)+" "+up.URL+schemaPath+"\n"+more)
+			writeFile(t, rulesPath, tc.rules)
+			wantError(t, run(up.fetcher(out), lock, rulesPath, elementSchemas), tc.want)
+			if got := readGzip(t, stored(t, out, up.pin(t, schemaPath, sum(changed)))); got != changed {
+				t.Fatalf("the stored schema is %q: this test is about a run that fails after it stored the changed one", got)
+			}
+			if _, err := os.Stat(elements); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("the element names of the schema before the change are still there (%v)", err)
+			}
+
+			// The next run that succeeds writes those of the changed schema.
+			writeFile(t, lock, sum(changed)+" "+up.URL+schemaPath+"\n")
+			writeFile(t, rulesPath, rules)
+			if err := run(up.fetcher(out), lock, rulesPath, elementSchemas); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Open(elements)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			compiled, err := xsdelements.Decode(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := compiled.Schemas[up.URL+schemaPath]; got.SHA256 != sum(changed) || !slices.Equal(got.Global, []string{"new"}) {
+				t.Fatalf("got the elements %+v, want those of the changed schema", got)
+			}
 		})
 	}
 }

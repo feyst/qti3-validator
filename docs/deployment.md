@@ -7,11 +7,14 @@ docker run -d -p 8080:8080 \
   --mount type=volume,target=/tmp \
   --memory 256m \
   --stop-timeout 65 \
+  --restart unless-stopped \
   ghcr.io/feyst/qti3-validator
 ```
 
 The volume holds the uploads of 256 KiB and more while they are validated
-(see [Temporary files](#temporary-files)).
+(see [Temporary files](#temporary-files)). `--restart unless-stopped` starts
+the service again if it ever ends by itself; why it ended is in its log (see
+[Logging](#logging)).
 
 On SIGTERM the service stops accepting requests and waits up to
 `REQUEST_TIMEOUT` for the running ones. Give it that long before it is
@@ -75,20 +78,39 @@ number:
 
 - **`MAX_CONCURRENT`** (default: the number of CPUs) bounds how many
   validations run at once: the CPU bound. Any request may take one of these
-  slots. Beside them there is one express slot, which only a request under
-  256 KiB may take, as a typical item is: large documents that take seconds
-  each run `MAX_CONCURRENT` at a time, and do not keep small requests
-  waiting for a slot. A typical item takes about a millisecond of CPU, so
-  the one that runs beside `MAX_CONCURRENT` others costs them little. With
-  `MAX_CONCURRENT=1` there are two slots as well: one for any request and
-  the express slot.
+  slots. Beside them there is one express slot, which only a single
+  document under 256 KiB may take, as a typical item is: large documents
+  that take seconds each run `MAX_CONCURRENT` at a time, and do not keep
+  small requests waiting for a slot. A typical item takes about a
+  millisecond of CPU, so the one that runs beside `MAX_CONCURRENT` others
+  costs them little. With `MAX_CONCURRENT=1` there are two slots as well:
+  one for any request and the express slot.
+
+  A package never takes the express slot, however small its ZIP is and
+  however it is sent (as `application/zip`, in a multipart upload, or with
+  no Content-Type that says so): it waits for one of the `MAX_CONCURRENT`
+  slots, as a large document does. A ZIP under 256 KiB can hold hundreds of
+  documents that compress well: one of 181 KiB with 600 valid items takes
+  1.3 s. On the express slot, one client sending those kept typical items
+  waiting 1.2 s (median) while large documents had the other slots; now
+  they take 1 ms beside four such clients (6 ms at most).
 
   The express slot is no CPU of its own. While large documents keep every
-  CPU busy, a small request shares the CPUs with them and takes longer: with
-  2 CPUs and 8 clients sending 1 MiB documents, 27 of those are validated a
-  second, and a typical item beside them takes 15 ms (median; 29 ms for 9 in
-  10) instead of 1 ms. Without the express slot it would wait for a slot
-  behind them, 240 ms in that test.
+  CPU busy, a small request shares the CPUs with them. So that it does not
+  wait for one of them to pause, the service runs with one thread more than
+  it has CPUs (`GOMAXPROCS` is the number of CPUs plus one), and the kernel
+  shares the CPUs between them: with 2 CPUs and 8 clients sending 1 MiB
+  documents, a typical item beside them takes 2 ms (median; 7 ms for 9 in
+  10) instead of 1 ms, and the large documents are 4% slower than with as
+  many threads as CPUs, with which the item took 13 ms (32 ms). Without the
+  express slot it would wait for a slot behind them, 240 ms in that test.
+
+  The number of CPUs is what the Go runtime derives from the CPU limit of
+  the container (`--cpus`), or else the CPUs of the machine. The default of
+  `MAX_CONCURRENT`, and what follows from it, is that number, not the
+  number of threads. A `GOMAXPROCS` you set with `-e` is kept as it is, and
+  is then the default of `MAX_CONCURRENT` too. The service logs both
+  numbers at startup.
 - **`MAX_VALIDATION_MEMORY`** bounds what they hold in memory together: the
   memory bound.
 
@@ -130,7 +152,7 @@ and with 8 CPUs 23 MiB in a 256 MiB container, 32 MiB in a larger one. A
 validation that reserves no more than 4 MiB takes
 it from that share whenever there is room in it, whatever waits for the
 rest; a typical item reserves 2 to 3 MiB. Together with the express slot for
-requests under 256 KiB, and a queue of their own of `MAX_QUEUE` places, this
+documents under 256 KiB, and a queue of their own of `MAX_QUEUE` places, this
 keeps small requests served while large documents queue up: in the test
 with 40 clients above, a typical item sent five times a second was validated
 every time, in 2 ms. The rest of the budget is what one document may take.
@@ -140,6 +162,14 @@ for one of the `MAX_CONCURRENT` slots, waiting for one if need be, and takes
 its memory from the rest of the budget. So what runs on the express slot
 takes its memory from the share of the typical items only, and the memory
 bound is the same with the express slot as without it.
+
+The documents of a package, and documents of 256 KiB to about 500 KiB,
+reserve no more than 4 MiB either, and take it from that share too, on one
+of the `MAX_CONCURRENT` slots. They hold it only while they have their slot:
+one that waited for room there and then finds its slot taken gives the room
+back, waits for a slot, and takes room again when it has one. So nothing
+that waits for a slot behind large documents keeps a typical item waiting
+for memory.
 
 Only a document that could never fit, with nothing else running, is refused.
 The answer is 413 with code `too_large` and the numbers:
@@ -198,8 +228,10 @@ below it the garbage collector runs as usual; near it the collector works
 harder, which keeps the process within the container. The budget of the
 validations and the idle process together stay below it: 184 + 35 MiB, with
 a soft limit of 224 MiB in a 256 MiB container. With documents made to fill
-that budget the process peaked at 233 MiB. The image sets no `GOMEMLIMIT` of
-its own. (It used to set 90 MiB, which large documents exceed anyway: the
+that budget the process peaked at 233 MiB. The `HEALTHCHECK` of the image
+is a second process in the container, for 10 ms every 30 s: it peaks at
+10 MiB, which fits in what is left of the 256 MiB. The image sets no
+`GOMEMLIMIT` of its own. (It used to set 90 MiB, which large documents exceed anyway: the
 collector then ran without pause, and a 10 MiB document took 2.6 s instead
 of 1.7 s, for the same peak.) A `GOMEMLIMIT` you set with `-e` is kept; it
 never makes the service fail, only collect sooner. After large documents the
@@ -208,8 +240,14 @@ the system over time.
 
 These figures exclude uploads. Those under 256 KiB are kept in memory, at
 most a thirty-second of `MAX_VALIDATION_MEMORY` of them (5.75 MiB in a
-256 MiB container), and the others in `/tmp` (see
-[Temporary files](#temporary-files)). If `/tmp` is a tmpfs, its files count
+256 MiB container, which the service logs at startup as
+`bodies_in_memory`), and the others in `/tmp` (see
+[Temporary files](#temporary-files)). The bodies in memory come on top of
+the budget of the validations: 184 + 35 + 5 MiB for connections + 5.75 MiB
+is 230 MiB, above the soft limit of 224 MiB, if every validation took all it
+reserved. A validation reserves at least 1.1 times what it takes, so
+validations that reserve all 184 MiB take 167 MiB at most, and the process
+stays at 213 MiB. If `/tmp` is a tmpfs, its files count
 against the container's memory limit too, and the service takes them off the
 budget of the validations.
 
@@ -324,11 +362,14 @@ held by the proxy, and the service receives each body at once.
 
 Some risk remains: `MAX_CONCURRENT` requests whose documents take the most
 work can hold every slot but the express slot for up to `REQUEST_TIMEOUT`,
-and validation of other requests of 256 KiB and more waits until then; so
-does that of smaller ones, when a small package made to take long holds the
-express slot as well. Rate limits per client (`limit_req`) make that
-harder; a lower `REQUEST_TIMEOUT`, such as `15s`, shortens it, at the cost of
-`too_complex` for the largest legitimate packages.
+and validation of packages, and of documents of 256 KiB and more, waits
+until then. Documents under 256 KiB go on, on the express slot: a package
+cannot take it, whatever its size. What can still hold it is a single
+document under 256 KiB made to take long; the work one document may take
+grows with its size, so that is bounded more tightly than for a large one.
+Rate limits per client (`limit_req`) make all of that harder; a lower
+`REQUEST_TIMEOUT`, such as `15s`, shortens it, at the cost of `too_complex`
+for the largest legitimate packages.
 
 ## Hardening
 
@@ -410,3 +451,19 @@ volumes:
 The service logs one JSON line per request to standard output, with method,
 path, status, size and duration. Document contents are never logged. An
 upload is deleted as soon as its request finishes.
+
+How the service ends is in the log too:
+
+- A request that fails inside the service is answered with 500
+  `internal error` and logged at level `ERROR` with message `panic`, the
+  method and path, what failed and the stack. The service goes on.
+- What the HTTP server itself reports, such as a connection it could not
+  accept, is logged at level `WARN` with `"source":"net/http"`.
+- On SIGTERM or SIGINT it logs `shutting down` with the signal, and
+  `shutdown complete` when the running requests finished in time. If they
+  did not, or if the server stops by itself, it logs `fatal` at level
+  `ERROR` with the reason and exits with status 1.
+
+A container that is killed for using more memory than its limit logs
+nothing: `docker inspect` shows `OOMKilled`, and Kubernetes the reason
+`OOMKilled`.

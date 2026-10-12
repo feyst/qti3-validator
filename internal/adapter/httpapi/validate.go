@@ -118,7 +118,10 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer u.close()
 
-	large := u.size >= smallRequestSize
+	// A package is never a small request, however few bytes it is: see
+	// slotKind.
+	isPackage := shape == shapePackage || shape != shapeDocument && isZIP(u)
+	large := isPackage || u.size >= smallRequestSize
 	slot := s.acquire(ctx, w, large)
 	if slot == noSlot {
 		return
@@ -129,7 +132,6 @@ func (s *Server) apiValidate(w http.ResponseWriter, r *http.Request) {
 	defer hold.release()
 	ctx = hold.context(ctx)
 
-	isPackage := shape == shapePackage || shape != shapeDocument && isZIP(u)
 	if isPackage {
 		res := s.validator.ValidatePackage(ctx, app.ValidatePackage{
 			Package: u, Size: u.size, Limits: s.opts.PackageLimits, Version: version,

@@ -193,9 +193,12 @@ func (m *memSem) forget(id uint64) {
 // validation changes through app.Memory. It belongs to the request's
 // goroutine.
 //
-// A request is small when its body is under smallRequestSize and its
-// validation reserves no more than smallReservation: it takes any slot, the
-// express one too, and its memory from the small share. A small request
+// A request is small when it is one document with a body under
+// smallRequestSize and its validation reserves no more than
+// smallReservation: it takes any slot, the express one too, and its memory
+// from the small share. A package is a large request from the start: it
+// takes a regular slot only, while each of its documents takes its memory
+// from the small share or from the rest, by what it reserves. A small request
 // whose document turns out to need more, one of many nodes in few bytes,
 // becomes a large one when it reserves that: it then needs a regular slot,
 // and room in the large part. So what runs on the express slot, beside the
@@ -297,7 +300,8 @@ func (h *memoryHold) TryReserve(n int64) bool {
 // 503, also when part of its validation is done. While it waits the request
 // gives up what it reserved and its slot, so the validations that do fit go
 // on beside the ones that run; it takes a slot again once it has its
-// memory.
+// memory. What is reserved from the small share is held only by validations
+// that have a slot.
 func (h *memoryHold) Reserve(ctx context.Context, n int64) error {
 	m := h.s.mem
 	if n > m.large {
@@ -330,25 +334,42 @@ func (h *memoryHold) Reserve(ctx context.Context, n int64) error {
 	defer timer.Stop()
 	for {
 		ok, changed := m.admit(h.id, &h.held, n)
-		if ok {
-			break
-		}
-		select {
-		case <-changed:
-		case <-timer.C:
-			if large {
-				m.setUrgent(h.id)
+		if !ok {
+			select {
+			case <-changed:
+			case <-timer.C:
+				if large {
+					m.setUrgent(h.id)
+				}
+			case <-ctx.Done():
+				m.leave(h.id)
+				h.busy = "no memory to validate in came free in time (MAX_VALIDATION_MEMORY)"
+				return app.ErrMemoryBusy
 			}
-		case <-ctx.Done():
-			m.leave(h.id)
-			h.busy = "no memory to validate in came free in time (MAX_VALIDATION_MEMORY)"
+			continue
+		}
+		if h.slot = s.tryTakeSlot(h.large); h.slot != noSlot {
+			return nil
+		}
+		// No slot is free. A large reservation is kept while the request
+		// waits for one: it waited its turn for that room. A small one is
+		// given back: the small share is for validations that run, and what
+		// a request held of it while it waits for a regular slot, behind
+		// large documents that take seconds, would keep typical items
+		// waiting for memory that long.
+		if !large {
+			m.resize(&h.held, 0)
+		}
+		if h.slot = s.takeSlot(ctx, h.large); h.slot == noSlot {
+			h.TryReserve(0)
+			h.busy = "no validation slot available in time"
 			return app.ErrMemoryBusy
 		}
+		if large || m.resize(&h.held, n) {
+			return nil
+		}
+		// The room went to another in the meantime: wait for it again,
+		// without the slot.
+		h.freeSlot()
 	}
-	if h.slot = s.takeSlot(ctx, h.large); h.slot == noSlot {
-		h.TryReserve(0)
-		h.busy = "no validation slot available in time"
-		return app.ErrMemoryBusy
-	}
-	return nil
 }

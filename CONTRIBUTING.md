@@ -106,8 +106,13 @@ runtime.
   `fetchschemas` again.
 - **Build-time check:** the image build runs `qti-validator -check`, so a
   schema or rule that does not compile fails the build, not the deployment.
-  The check also reads the element names from the embedded schemas again and
-  fails when the stored ones differ.
+  The check also verifies the stored element names: it fails when their
+  checksum is not the SHA-256 of the embedded schema, and when reading the
+  names from the embedded schemas again gives other ones. The service does
+  not do this when it starts: hashing the two schemas, 18 MB each
+  uncompressed, takes 60 ms, and reading the names longer. A `fetchschemas`
+  run that fails removes `elements.json.gz`, so a failed run cannot leave
+  the names of the schemas before a change beside the changed schemas.
 
 Accepted root elements. Both the namespace and the local name must match:
 

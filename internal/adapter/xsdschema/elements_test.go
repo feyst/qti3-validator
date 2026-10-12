@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"maps"
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -114,9 +117,29 @@ func TestVerifyElementsFindsStaleElements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled := &xsdelements.Compiled{Version: xsdelements.CompiledVersion, Schemas: map[string]xsdelements.Schema{asi: {Elements: read}}}
+	sum := sha256.Sum256([]byte(schema))
+	checksum := hex.EncodeToString(sum[:])
+	compiled := &xsdelements.Compiled{Version: xsdelements.CompiledVersion, Schemas: map[string]xsdelements.Schema{
+		asi: {SHA256: checksum, Elements: read},
+	}}
 	if err := VerifyElements(resolver, compiled, asi); err != nil {
 		t.Fatalf("the elements as they were read: %v", err)
+	}
+	// The right elements with the checksum of another schema, or none: the
+	// file was not made from this schema.
+	for name, from := range map[string]string{
+		"zeroed checksum": strings.Repeat("0", 64), "no checksum": "",
+		"the checksum of another schema": hex.EncodeToString(sha256.New().Sum(nil)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			other := &xsdelements.Compiled{Version: compiled.Version, Schemas: map[string]xsdelements.Schema{asi: {SHA256: from, Elements: read}}}
+			err := VerifyElements(resolver, other, asi)
+			for _, want := range []string{asi, "checksum " + strconv.Quote(from), checksum, "run `go run ./cmd/fetchschemas` again"} {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Errorf("got %v, want an error with %q", err, want)
+				}
+			}
+		})
 	}
 	if want := (xsdelements.Elements{Namespace: "urn:x", Global: []string{"a", "d"}, Local: []string{"b", "c"}, ManyTyped: []string{"b", "c"}}); !reflect.DeepEqual(read, want) {
 		t.Fatalf("read %+v, want %+v", read, want)
