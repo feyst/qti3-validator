@@ -2,33 +2,18 @@ package bootstrap
 
 import (
 	"bufio"
-	"io/fs"
 	"os"
 	"strings"
 	"testing"
-	"testing/fstest"
 
-	"qti3-validator/internal/adapter/schemastore"
 	"qti3-validator/internal/testutil"
 )
 
 func TestMissingSchemaDependencyFailsAtStartup(t *testing.T) {
 	const missing = "purl.imsglobal.org/spec/mathml/v3p0/schema/xsd/mathml3-common.xsd.gz"
-	embedded := schemastore.Embedded().FS()
-	fsys := fstest.MapFS{}
-	err := fs.WalkDir(embedded, ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || p == missing {
-			return err
-		}
-		data, err := fs.ReadFile(embedded, p)
-		fsys[p] = &fstest.MapFile{Data: data}
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := schemastore.New(fsys)
-	_, err = NewValidator(Options{Store: &store})
+	store, fsys := embeddedCopy(t)
+	delete(fsys, missing)
+	_, err := NewValidator(Options{Store: &store})
 	if err == nil || !strings.Contains(err.Error(), "mathml3-common.xsd") {
 		t.Fatalf("want an error naming the missing schema, got %v", err)
 	}

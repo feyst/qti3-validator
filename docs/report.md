@@ -278,7 +278,7 @@ A report is valid when its outcome is `VALID` or `WARNING`.
 | `unsupported_version` | ERROR | A manifest declares a `<schemaversion>` the service does not support; it was validated against the latest version instead |
 | `missing_manifest` | ERROR | There is no `imsmanifest.xml` in the root of the package |
 | `unsafe_path` | ERROR | An entry name in the package is absolute or contains `..` |
-| `too_large` | ERROR | A file inside the package is larger than `MAX_FILE_SIZE` |
+| `too_large` | ERROR | A file inside the package is larger than `MAX_FILE_SIZE`, or has more nodes than the service has memory to check: the message gives the numbers (see [Memory and CPU](deployment.md#memory-and-cpu)) |
 | `limit_exceeded` | ERROR | The document is nested deeper than `MAX_DEPTH`, or exceeds another parser limit |
 | `warnings_omitted` | WARNING | The note that the rules gave more warnings than `MAX_ERRORS`, and how many were left out (see [Limits](#limits)) |
 | `invalid_zip` | FATAL | The body is not a readable ZIP (ERROR when one entry is corrupt) |

@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"sync/atomic"
 
 	"qti3-validator/internal/app"
 	"qti3-validator/internal/domain/qti"
@@ -28,8 +30,9 @@ const AdditionalChecks = "qti3-additional-checks.sch"
 // too, and only work that grows faster than the document runs out of it.
 //
 // Measured with the built-in rules of QTI 3.0.1: the QTI documents of
-// testdata, examples and the 1EdTech corpus take at most 32,000 steps and
-// at most 208 steps a node; plain content at the 10 MiB of
+// testdata, examples and the 1EdTech corpus take at most 18,000 steps and
+// at most 209 steps a node, the type checks included, which take a step
+// for every element they look at; plain content at the 10 MiB of
 // MAX_REQUEST_SIZE — 2.6 million nodes of empty paragraphs, 1.3 million of
 // p, div and span, 1.8 million of table cells, 1.2 million of images, 1.2
 // million of attributes, 570,000 of choices, 1.7 million of MathML — takes
@@ -57,6 +60,15 @@ const (
 	StepsPerNode = 1_000
 	MaxSteps     = 400_000_000
 )
+
+// stepsCharged counts the steps of every CheckRules of the process.
+var stepsCharged atomic.Int64
+
+// StepsCharged returns the XPath steps that the rules and the type checks
+// of all documents checked so far have taken together. Steps count work,
+// not time: a test that validates one document at a time reads the work of
+// each from the difference, the same on every machine and under any load.
+func StepsCharged() int64 { return stepsCharged.Load() }
 
 // budget is how many steps the rules may take on a document of n nodes:
 // base plus perNode for every node, up to max unless max is zero.
@@ -142,8 +154,14 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 	if c == nil {
 		return nil, nil
 	}
-	tree, err := xpath.Parse(bytes.NewReader(data))
+	tree, err := xpath.ParseContext(ctx, bytes.NewReader(data))
+	if errors.Is(err, xpath.ErrTooManyNodes) {
+		return nil, fmt.Errorf("%w: %w", app.ErrTooLarge, err)
+	}
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err() // stopped, not a document that does not parse
+		}
 		return nil, errors.New("parse for Schematron: " + err.Error())
 	}
 	b := c.budget
@@ -151,6 +169,8 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 		b = budget{base: BaseSteps, perNode: StepsPerNode, max: MaxSteps}
 	}
 	session := xpath.NewSession(ctx, b.steps(tree.Nodes))
+	defer func() { stepsCharged.Add(session.Steps()) }()
+	paths := &xpath.Paths{} // the locations of the findings, in one pass over their siblings
 	var out []app.RuleFinding
 	errorCount, warningCount, omitted := 0, 0, 0
 	for _, set := range c.sets {
@@ -161,7 +181,7 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 		res, err := set.engine.Check(session, tree, room)
 		omitted += res.OmittedWarnings
 		for _, f := range res.Failures {
-			rf := finding(f, set.mounted)
+			rf := finding(f, set.mounted, paths)
 			if rf.Warning {
 				warningCount++
 			} else {
@@ -178,13 +198,16 @@ func (c *Checker) CheckRules(ctx context.Context, data []byte, limits app.RuleLi
 			return withOmitted(out, omitted, limits), errors.New("Schematron: " + err.Error())
 		}
 	}
-	if c.types {
-		for _, f := range checkTypes(tree) { // errors only
-			if limits.Errors > 0 && errorCount >= limits.Errors {
-				break
-			}
-			errorCount++
-			out = append(out, f)
+	if room, ok := roomLeft(limits, errorCount, warningCount); ok && c.types {
+		// Errors only, and no more than there is room for. The checks
+		// share the budget and the context of the rule sets.
+		found, err := checkTypes(session, tree, room.Errors, paths)
+		out = append(out, found...)
+		switch {
+		case errors.Is(err, xpath.ErrTooComplex):
+			return withOmitted(out, omitted, limits), fmt.Errorf("%w: %w", app.ErrTooComplex, err)
+		case err != nil:
+			return withOmitted(out, omitted, limits), err
 		}
 	}
 	return withOmitted(out, omitted, limits), nil
@@ -222,13 +245,13 @@ func roomLeft(limits app.RuleLimits, errorCount, warningCount int) (schematron.L
 	return room, true
 }
 
-func finding(f schematron.Failure, mounted bool) app.RuleFinding {
+func finding(f schematron.Failure, mounted bool, paths *xpath.Paths) app.RuleFinding {
 	e := qti.Finding{
 		Code:    qti.CodeSchematron,
 		Rule:    f.Pattern,
-		Line:    f.Node.Line,
-		Column:  f.Node.Column,
-		Path:    f.Node.Path(),
+		Line:    int(f.Node.Line),
+		Column:  int(f.Node.Column),
+		Path:    paths.Path(f.Node),
 		Message: f.Message,
 	}
 	if f.Assertion != "" {
@@ -243,4 +266,45 @@ func finding(f schematron.Failure, mounted bool) app.RuleFinding {
 		e.Rule = AdditionalChecks + "#" + e.Rule
 	}
 	return app.RuleFinding{Finding: e, Warning: f.Warning}
+}
+
+// What CheckRules takes in memory for a document, beside the document
+// itself and its tree (xpath.Size.DOMBytes): the indexes and remembered
+// node-sets of the session and of the engine. They hold a few pointers for
+// every element, at most some 75 bytes an element with the built-in rules,
+// for documents of nothing but empty HTML elements; and the indexes of
+// identifiers hold a string and a position for every attribute they index,
+// at most some 45 bytes an attribute, for documents of nothing but choices
+// with an identifier. Rules with a step on the namespace axis build the
+// namespace nodes of the elements as well. bootstrap's TestMemoryEstimate
+// holds the estimate to what validation really takes.
+const (
+	memoryBase         = 2 << 20
+	memoryPerElement   = 80
+	memoryPerAttribute = 64
+)
+
+var _ app.MemoryEstimator = (*Checker)(nil)
+
+// EstimateMemory implements app.MemoryEstimator: what CheckRules takes for
+// data, counted from its markup in one pass without building anything. The
+// nodes of the document decide it, not its size: a megabyte of prose is some
+// 30,000 nodes, a megabyte of empty elements 260,000.
+func (c *Checker) EstimateMemory(data []byte) app.MemoryEstimate {
+	if c == nil {
+		return app.MemoryEstimate{}
+	}
+	size := xpath.Measure(data)
+	// The document as read, its tree, the buffer of the parser for the
+	// largest piece of content, and the indexes.
+	total := memoryBase + int64(len(data))*5/4 + size.DOMBytes() + size.Largest*3/2 +
+		int64(size.Elements)*memoryPerElement + int64(size.Attributes)*memoryPerAttribute
+	if c.usesNamespaceAxis() {
+		total += size.NamespaceAxisBytes()
+	}
+	return app.MemoryEstimate{Bytes: total, Nodes: size.Nodes()}
+}
+
+func (c *Checker) usesNamespaceAxis() bool {
+	return slices.ContainsFunc(c.sets, func(s ruleSet) bool { return s.engine.UsesNamespaceAxis() })
 }

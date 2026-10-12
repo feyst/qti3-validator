@@ -37,10 +37,16 @@ type Options struct {
 	MaxPackageSize  int64 // request body of /api/validate, bytes
 	MaxDocumentSize int64 // one XML document sent as such, bytes; 0 selects the default
 	PackageLimits   qti.PackageLimits
-	MaxConcurrent   int   // validations running at once
+	MaxConcurrent   int   // validations running at once, beside one small one on the express slot
 	MaxQueue        int   // requests waiting for a slot; 0 selects 4 × MaxConcurrent
-	MaxSpoolSize    int64 // request bodies in temporary files at once, bytes; 0 selects 4 × MaxPackageSize
-	RequestTimeout  time.Duration
+	MaxSpoolSize    int64 // request bodies held at once, in memory and in temporary files, bytes; 0 selects 4 × MaxPackageSize
+	// MaxValidationMemory is the memory the validations in progress may
+	// reserve together, in bytes: each reserves what its document takes
+	// (app.Memory), and waits for room when there is none. A share of it is
+	// kept for small validations (SmallMemoryShare). 0 sets no bound: only
+	// MaxConcurrent then limits them.
+	MaxValidationMemory int64
+	RequestTimeout      time.Duration
 }
 
 // writeGrace is the time a response gets to be written once validation has
@@ -56,12 +62,26 @@ const retryAfter = "5"
 type Server struct {
 	opts      Options
 	validator Validator
-	slots     chan struct{}
-	waiting   atomic.Int64 // requests waiting for a slot
-	log       *slog.Logger
+	// slots are the MaxConcurrent slots any request may take; express is
+	// one more, for small requests only. See takeSlot.
+	slots   chan struct{}
+	express chan struct{}
+	// The requests that wait, for a slot or for memory: the large ones and
+	// the small ones apart, each at most MaxQueue, so that large documents
+	// that queue up do not turn typical items away. See queue.
+	waiting      atomic.Int64
+	waitingSmall atomic.Int64
+	log          *slog.Logger
 
 	spoolMu   sync.Mutex
-	spoolUsed int64 // bytes reserved by requests for their temporary files
+	spoolUsed int64 // bytes reserved by requests for their bodies, wherever those are kept
+	// bodyMemory is the room for the bodies that are kept in memory, of all
+	// requests together, and bodyMemoryUsed what is reserved of it. A body
+	// that finds no room there goes to a temporary file.
+	bodyMemory     int64
+	bodyMemoryUsed int64
+
+	mem *memSem // the memory of the validations in progress; nil without a bound
 
 	writeGrace time.Duration
 }
@@ -76,7 +96,10 @@ func New(opts Options, v Validator, log *slog.Logger) *Server {
 		opts.MaxSpoolSize = 4 * opts.MaxPackageSize
 	}
 	return &Server{
-		opts: opts, validator: v, slots: make(chan struct{}, opts.MaxConcurrent), log: log,
+		opts: opts, validator: v, log: log,
+		slots: make(chan struct{}, opts.MaxConcurrent), express: make(chan struct{}, 1),
+		bodyMemory: BodyMemory(opts.MaxValidationMemory),
+		mem:        newMemSem(opts.MaxValidationMemory, opts.MaxConcurrent),
 		writeGrace: writeGrace,
 	}
 }
@@ -94,6 +117,10 @@ func (s *Server) Handler() http.Handler {
 // HTTPServer returns an http.Server with timeouts derived from the options.
 // POST /api/validate sets its own deadlines; WriteTimeout covers the
 // longest it allows, a response written writeGrace after REQUEST_TIMEOUT.
+//
+// What net/http itself reports, such as a connection it could not accept or
+// a panic outside the handlers, goes to the log of the service as a warning
+// with source "net/http", not as bare text on stderr.
 func (s *Server) HTTPServer() *http.Server {
 	return &http.Server{
 		Addr:              s.opts.Addr,
@@ -103,6 +130,7 @@ func (s *Server) HTTPServer() *http.Server {
 		WriteTimeout:      s.opts.RequestTimeout + s.writeGrace,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
+		ErrorLog:          slog.NewLogLogger(s.log.With("source", "net/http").Handler(), slog.LevelWarn),
 	}
 }
 
@@ -120,29 +148,131 @@ func (s *Server) version(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// acquire waits for a validation slot, bounding concurrent work and with it
-// peak memory. At most MaxQueue requests wait, in about the order they
-// came; beyond that, and for requests that cannot get a slot before ctx is
-// done, the answer is 503.
-func (s *Server) acquire(ctx context.Context, w http.ResponseWriter) (func(), bool) {
-	release := func() { <-s.slots }
-	select {
-	case s.slots <- struct{}{}:
-		return release, true
-	default:
+// smallRequestSize is the size of a request body below which a body is
+// small, as that of a typical item is. A small body is kept in memory
+// rather than in a temporary file, and a document with a small body is a
+// small request, which may take the express slot; a package never is.
+const smallRequestSize = 256 << 10
+
+// BodyMemory is the room for the request bodies that are kept in memory,
+// with a budget of MaxValidationMemory: a thirty-second of it, at least
+// 4 MiB and at most 32 MiB, and 32 MiB without a budget. It comes on top of
+// that budget, out of what the process has to spare.
+func BodyMemory(budget int64) int64 {
+	const least, most = 4 << 20, 32 << 20
+	if budget <= 0 {
+		return most
 	}
-	if s.waiting.Add(1) > int64(s.opts.MaxQueue) {
-		s.waiting.Add(-1)
+	return min(max(budget/32, least), most)
+}
+
+// A slot lets one validation run. There are MaxConcurrent regular slots,
+// which any request may take, and one express slot more, which only a small
+// request may take: one document with a body under smallRequestSize whose
+// validation reserves no more than smallReservation. So a typical item is
+// not kept waiting for seconds by large documents that take every regular
+// slot, and those run MaxConcurrent at a time.
+//
+// The express slot is for single documents validated in milliseconds. A
+// package is a large request whatever its size, and takes a regular slot:
+// a ZIP under smallRequestSize can hold hundreds of documents that compress
+// well and take seconds together, and on the express slot one client that
+// sends such packages would keep every typical item waiting behind them.
+//
+// A small validation takes about a millisecond of CPU, so the one that runs
+// beside MaxConcurrent others costs them little. It has no CPU of its own,
+// though: while MaxConcurrent validations keep every CPU busy, it waits for
+// the runtime to hand one over, which takes milliseconds.
+type slotKind int
+
+const (
+	noSlot slotKind = iota
+	regularSlot
+	expressSlot
+)
+
+// acquire waits for a validation slot, bounding concurrent work. At most
+// MaxQueue requests of a kind wait, in about the order they came; beyond
+// that, and for requests that cannot get a slot before ctx is done, the
+// answer is 503 and the result noSlot.
+func (s *Server) acquire(ctx context.Context, w http.ResponseWriter, large bool) slotKind {
+	if slot := s.tryTakeSlot(large); slot != noSlot {
+		return slot
+	}
+	waiting := s.queue(large)
+	if waiting.Add(1) > int64(s.opts.MaxQueue) {
+		waiting.Add(-1)
 		writeBusy(w, "too many requests are waiting for a validation slot")
-		return nil, false
+		return noSlot
 	}
-	defer s.waiting.Add(-1)
+	defer waiting.Add(-1)
+	slot := s.takeSlot(ctx, large)
+	if slot == noSlot {
+		writeBusy(w, "no validation slot available in time")
+	}
+	return slot
+}
+
+// queue is the count of the requests of a kind that wait.
+func (s *Server) queue(large bool) *atomic.Int64 {
+	if large {
+		return &s.waiting
+	}
+	return &s.waitingSmall
+}
+
+// tryTakeRegular takes a regular slot if one is free.
+func (s *Server) tryTakeRegular() bool {
 	select {
 	case s.slots <- struct{}{}:
-		return release, true
+		return true
+	default:
+		return false
+	}
+}
+
+// tryTakeSlot takes a slot if one is free. A small request takes the
+// express slot first, which leaves the regular ones to the requests that
+// have no other.
+func (s *Server) tryTakeSlot(large bool) slotKind {
+	if !large {
+		select {
+		case s.express <- struct{}{}:
+			return expressSlot
+		default:
+		}
+	}
+	if s.tryTakeRegular() {
+		return regularSlot
+	}
+	return noSlot
+}
+
+// takeSlot waits for a slot until ctx is done: a large request for a
+// regular one, a small request for whichever comes free first.
+func (s *Server) takeSlot(ctx context.Context, large bool) slotKind {
+	express := s.express
+	if large {
+		express = nil // never ready
+	}
+	select {
+	case express <- struct{}{}:
+		return expressSlot
+	case s.slots <- struct{}{}:
+		return regularSlot
 	case <-ctx.Done():
-		writeBusy(w, "no validation slot available in time")
-		return nil, false
+		return noSlot
+	}
+}
+
+// freeSlot gives a slot back.
+func (s *Server) freeSlot(slot slotKind) {
+	switch slot {
+	case regularSlot:
+		<-s.slots
+	case expressSlot:
+		<-s.express
+	case noSlot:
 	}
 }
 
@@ -153,12 +283,14 @@ var (
 )
 
 // spoolReservation is the room in MaxSpoolSize one request holds for its
-// temporary file. It grows with the bytes that arrive, so a stalled upload
-// holds only what it has sent, and filling the budget takes sending that
-// much; release frees it.
+// body, in memory or in a temporary file. It grows with the bytes that
+// arrive, so a stalled upload holds only what it has sent, and filling the
+// budget takes sending that much. A body in memory also holds room in
+// bodyMemory, for the memory it is read into. release frees both.
 type spoolReservation struct {
-	s *Server
-	n int64 // bytes reserved
+	s   *Server
+	n   int64 // bytes reserved in MaxSpoolSize
+	mem int64 // bytes reserved in bodyMemory
 }
 
 func (s *Server) newSpoolReservation() *spoolReservation {
@@ -197,8 +329,35 @@ func (r *spoolReservation) shrink(n int64) {
 	r.n = n
 }
 
+// growMemory reserves n bytes more in bodyMemory, if there is room.
+func (r *spoolReservation) growMemory(n int64) bool {
+	s := r.s
+	s.spoolMu.Lock()
+	defer s.spoolMu.Unlock()
+	if n > s.bodyMemory-s.bodyMemoryUsed {
+		return false
+	}
+	s.bodyMemoryUsed += n
+	r.mem += n
+	return true
+}
+
+// releaseMemory gives back what is reserved in bodyMemory.
+func (r *spoolReservation) releaseMemory() {
+	if r.mem == 0 {
+		return
+	}
+	r.s.spoolMu.Lock()
+	r.s.bodyMemoryUsed -= r.mem
+	r.s.spoolMu.Unlock()
+	r.mem = 0
+}
+
 // release frees the reservation.
-func (r *spoolReservation) release() { r.shrink(0) }
+func (r *spoolReservation) release() {
+	r.shrink(0)
+	r.releaseMemory()
+}
 
 // refuseUnread closes the connection after a response written before the
 // body was read. Otherwise the server reads up to 256 KiB of the body before

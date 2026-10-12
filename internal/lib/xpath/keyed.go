@@ -1,6 +1,9 @@
 package xpath
 
-import "slices"
+import (
+	"math/bits"
+	"slices"
+)
 
 // keyedPath is an absolute path whose last predicate compares an attribute
 // with a value that does not depend on the predicate's context, such as
@@ -133,7 +136,9 @@ func (k *keyedPath) lookup(p *pathExpr, root *Node, c *evalCtx) (NodeSet, error)
 		}
 		keys = make([]string, len(x))
 		for i, n := range x {
-			keys[i] = n.StringValue()
+			if keys[i], err = c.s.stringValue(n); err != nil {
+				return nil, err
+			}
 		}
 	default:
 		return p.walk(NodeSet{root}, c)
@@ -161,6 +166,11 @@ func (k *keyedPath) lookup(p *pathExpr, root *Node, c *evalCtx) (NodeSet, error)
 		return nil, nil
 	case 1:
 		return lists[0], nil // shared: its capacity is clipped
+	}
+	// Sorting the lists into one compares each node about log2(size) times,
+	// which the step per node above does not cover.
+	if err := c.s.charge(size * bits.Len(uint(size))); err != nil {
+		return nil, err
 	}
 	out := make(NodeSet, 0, size)
 	for _, l := range lists {

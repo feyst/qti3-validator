@@ -23,6 +23,7 @@ type Config struct {
 	MaxConcurrent       int           // MAX_CONCURRENT: validations running at once
 	MaxQueue            int           // MAX_QUEUE: requests waiting for a validation slot
 	MaxSpoolSize        int64         // MAX_SPOOL_SIZE: all request bodies being received or validated, bytes
+	MaxValidationMemory int64         // MAX_VALIDATION_MEMORY: memory the validations in progress may reserve together, bytes; 0 derives it at startup from the memory limit
 	RequestTimeout      time.Duration // REQUEST_TIMEOUT
 	ValidatorsDir       string        // VALIDATORS_DIR: extra .xsd and .sch files
 	// ValidatorsDirSet reports that VALIDATORS_DIR was set explicitly. Then
@@ -34,8 +35,12 @@ type Config struct {
 // extra validators, so mounting a directory there is all it takes.
 const DefaultValidatorsDir = "/validators"
 
-// Default returns the defaults.
-func Default() Config {
+// Default returns the defaults, for the CPUs the Go runtime uses.
+func Default() Config { return DefaultFor(runtime.GOMAXPROCS(0)) }
+
+// DefaultFor returns the defaults for a number of CPUs: MAX_CONCURRENT is
+// one validation per CPU.
+func DefaultFor(cpus int) Config {
 	c := Config{
 		Addr:                ":8080",
 		MaxRequestSize:      10 << 20,
@@ -45,7 +50,7 @@ func Default() Config {
 		MaxUncompressedSize: 256 << 20,
 		MaxErrors:           100,
 		MaxDepth:            256,
-		MaxConcurrent:       runtime.GOMAXPROCS(0),
+		MaxConcurrent:       max(cpus, 1),
 		RequestTimeout:      60 * time.Second,
 		ValidatorsDir:       DefaultValidatorsDir,
 	}
@@ -62,8 +67,13 @@ func (c *Config) deriveDefaults() {
 }
 
 // FromEnv returns the defaults overridden by environment variables.
-func FromEnv() (Config, error) {
-	c := Default()
+func FromEnv() (Config, error) { return FromEnvFor(runtime.GOMAXPROCS(0)) }
+
+// FromEnvFor returns the defaults for a number of CPUs, overridden by
+// environment variables. The service passes the CPUs it counted before it
+// gave the runtime a thread more.
+func FromEnvFor(cpus int) (Config, error) {
+	c := DefaultFor(cpus)
 	if v := os.Getenv("ADDR"); v != "" {
 		c.Addr = v
 	}
@@ -105,6 +115,11 @@ func FromEnv() (Config, error) {
 		return c, err
 	}
 	c.MaxQueue = int(queue)
+	// MAX_VALIDATION_MEMORY stays 0 when unset: the composition root then
+	// derives it from the container's memory limit at startup.
+	if err := positiveEnv("MAX_VALIDATION_MEMORY", &c.MaxValidationMemory); err != nil {
+		return c, err
+	}
 	if v, ok := os.LookupEnv("VALIDATORS_DIR"); ok {
 		c.ValidatorsDir, c.ValidatorsDirSet = v, true
 	}

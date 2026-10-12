@@ -15,11 +15,15 @@ const processHeadroom = 160 << 20
 type spoolEnv struct {
 	TmpfsSize   int64 // size of the tmpfs holding the temporary directory; 0 when it is not one
 	MemoryLimit int64 // the container's memory limit; 0 when unknown or unlimited
+	// PhysicalMemory is the memory of the machine; 0 when unknown. A
+	// MemoryLimit is never more.
+	PhysicalMemory int64
 }
 
 // probeSpoolEnv inspects the temporary directory and the cgroup.
 func probeSpoolEnv() spoolEnv {
-	return spoolEnv{TmpfsSize: tmpfsSize(os.TempDir()), MemoryLimit: memoryLimit()}
+	limit, physical := memoryLimit()
+	return spoolEnv{TmpfsSize: tmpfsSize(os.TempDir()), MemoryLimit: limit, PhysicalMemory: physical}
 }
 
 // spoolBudget is the MaxSpoolSize the server uses. Request bodies in a tmpfs
@@ -38,12 +42,20 @@ func spoolBudget(log *slog.Logger, cfg config.Config, env spoolEnv) int64 {
 	}
 	// 0 would select the default; 1 byte refuses every body.
 	budget = max(budget, 1)
-	if budget == cfg.MaxSpoolSize {
-		return budget
-	}
 	attrs := []any{
 		"dir", os.TempDir(), "max_spool_size", cfg.MaxSpoolSize, "tmpfs_size", env.TmpfsSize,
 		"memory_limit", env.MemoryLimit, "process_headroom", processHeadroom, "spool_budget", budget,
+	}
+	if env.MemoryLimit <= 0 {
+		// The spool cannot be clamped to the container's memory, so uploads
+		// kept in the tmpfs could exhaust it. Warn even when the budget still
+		// equals MAX_SPOOL_SIZE: the risk is the tmpfs, not the number.
+		log.Warn("the temporary directory is a tmpfs but no container memory limit was detected, so the upload spool cannot be clamped to it; "+
+			"uploads kept in the tmpfs count against memory and may exhaust it. Mount a size-limited tmpfs or a disk volume on it, or set a memory limit", attrs...)
+		return budget
+	}
+	if budget == cfg.MaxSpoolSize {
+		return budget
 	}
 	if budget < cfg.MaxRequestSize {
 		log.Error("the temporary directory is a tmpfs without room for uploads; requests larger than the budget will be refused with 413. "+

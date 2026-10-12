@@ -19,9 +19,11 @@ on:
         options: [patch, minor, major]
         default: patch
 
-# A new push to a pull request cancels its running build; builds of main and
-# of tags always finish, one after the other, so two releases never pick the
-# same version.
+# A new push to a pull request cancels its running build. Runs of main and of
+# tags are never cancelled while running and run one after the other, so two
+# releases never pick the same version. GitHub keeps only one waiting run per
+# group, so a waiting run (for example a manual release) is replaced when
+# another one is queued behind it: start it again if that happens.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -33,13 +35,13 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Test with the Go of the image, which Dependabot keeps up to date, so
       # govulncheck sees the standard library the image is built with.
       - name: Go version
         id: go
         run: echo "version=$(sed -n 's/^FROM .*golang:\([0-9.]*\).*/\1/p' Dockerfile)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ steps.go.outputs.version }}
       - name: Fetch schemas
@@ -62,7 +64,7 @@ jobs:
     outputs:
       tag: ${{ steps.next.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: next
@@ -78,13 +80,16 @@ jobs:
           # sits outside main.
           last=$(git tag --list 'v*' | releases | sort -V | tail -n 1)
           # Whether anything changed is asked of the nearest release in
-          # main's history.
+          # main's history. Tests, their data and their helpers are not in
+          # the image.
           base=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' 2>/dev/null || true)
           if [ -z "$last" ]; then
             next=v0.1.0
           else
             if [ -z "$BUMP" ] && [ -n "$base" ] && git diff --quiet "$base" HEAD -- \
-                go.mod go.sum Dockerfile cmd internal rules third_party ':!*_test.go'; then
+                go.mod go.sum Dockerfile cmd internal rules third_party \
+                ':(exclude)*_test.go' ':(exclude)internal/testutil' \
+                ':(exclude,glob)internal/**/testdata/**' ':(exclude,glob)cmd/**/testdata/**'; then
               echo "Nothing in the image changed since $base"
               exit 0
             fi
@@ -117,6 +122,9 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+    outputs:
+      # Whether the image went to Docker Hub too, for the release notes.
+      dockerhub: ${{ steps.names.outputs.dockerhub }}
     env:
       PUSH: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]') }}
       DOCKERHUB: ${{ github.event_name != 'pull_request' && secrets.DOCKERHUB_TOKEN != '' }}
@@ -126,13 +134,14 @@ jobs:
       # registries read the description and source from.
       DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Image names and release tags
         id: names
         run: |
-          echo "ghcr=ghcr.io/$IMAGE" >> "$GITHUB_OUTPUT"
           {
+            echo "ghcr=ghcr.io/$IMAGE"
+            echo "dockerhub=$DOCKERHUB"
             echo 'images<<EOF'
             echo "ghcr.io/$IMAGE"
             if [ "$DOCKERHUB" = true ]; then echo "docker.io/$IMAGE"; fi
@@ -148,7 +157,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.names.outputs.images }}
           flavor: latest=false
@@ -161,11 +170,11 @@ jobs:
             type=sha
             ${{ steps.names.outputs.release }}
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to ghcr.io
         if: env.PUSH == 'true'
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -173,14 +182,14 @@ jobs:
 
       - name: Log in to Docker Hub
         if: env.DOCKERHUB == 'true'
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # The Dockerfile cross-compiles, so arm64 needs no emulation.
       - id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -199,7 +208,7 @@ jobs:
       # Attestations need a public repository, or GitHub Enterprise.
       - name: Attest
         if: env.PUSH == 'true' && github.event_name != 'pull_request' && !github.event.repository.private
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.names.outputs.ghcr }}
           subject-digest: ${{ steps.build.outputs.digest }}
@@ -215,9 +224,9 @@ jobs:
     env:
       DOCKERHUB: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.DOCKERHUB == 'true'
-      - uses: peter-evans/dockerhub-description@v5
+      - uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         if: env.DOCKERHUB == 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -238,10 +247,16 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.version.outputs.tag }}
+      IMAGE: feyst/qti3-validator
+      DOCKERHUB: ${{ needs.image.outputs.dockerhub }}
     steps:
       - run: |
           v=${TAG#v}
-          notes="    docker pull ghcr.io/feyst/qti3-validator:$v
-              docker pull feyst/qti3-validator:$v"
+          # Indented: a code block in the notes. Docker Hub is named only
+          # when the image was pushed there.
+          notes="    docker pull ghcr.io/$IMAGE:$v"
+          if [ "$DOCKERHUB" = true ]; then
+            notes=$(printf '%s\n    docker pull %s:%s' "$notes" "$IMAGE" "$v")
+          fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "$TAG" --generate-notes --notes "$notes"

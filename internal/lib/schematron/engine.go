@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math/bits"
 	"regexp"
+	"slices"
 	"strings"
 
 	"qti3-validator/internal/lib/xpath"
@@ -13,7 +15,14 @@ import (
 // Engine runs compiled rules. It is immutable and safe for concurrent use.
 type Engine struct {
 	sets []*engineSet
+	// namespaceAxis reports that a rule has a step on the namespace axis.
+	namespaceAxis bool
 }
+
+// UsesNamespaceAxis reports whether an expression of the rules has a step
+// on the namespace axis, which takes memory beside the document's: see
+// xpath.Expr.UsesNamespaceAxis.
+func (e *Engine) UsesNamespaceAxis() bool { return e.namespaceAxis }
 
 // Failure is a failed assert or a fired report.
 type Failure struct {
@@ -93,7 +102,7 @@ func New(c *Compiled) (*Engine, error) {
 	}
 	e := &Engine{}
 	for _, cs := range c.Sets {
-		l := loader{ns: cs.Namespaces, cache: map[string]*xpath.Expr{}, vars: map[string]bool{}}
+		l := loader{ns: cs.Namespaces, cache: map[string]*xpath.Expr{}, vars: map[string]bool{}, namespaceAxis: &e.namespaceAxis}
 		es := &engineSet{source: cs.Source}
 		var err error
 		if es.lets, err = l.lets(cs.Lets, l.vars); err != nil {
@@ -123,6 +132,8 @@ type loader struct {
 	ns    map[string]string
 	cache map[string]*xpath.Expr
 	vars  map[string]bool
+	// namespaceAxis is set when an expression uses the namespace axis.
+	namespaceAxis *bool
 }
 
 // compile parses an expression, reusing an earlier parse of the same
@@ -134,6 +145,9 @@ func (l loader) compile(src string, vars map[string]bool) (*xpath.Expr, error) {
 	e, err := xpath.Compile(src, xpath.Options{Namespaces: l.ns, Variables: vars})
 	if err != nil {
 		return nil, err
+	}
+	if e.UsesNamespaceAxis() {
+		*l.namespaceAxis = true
 	}
 	if !strings.Contains(src, "$") {
 		l.cache[src] = e
@@ -213,7 +227,8 @@ type Limits struct {
 // Result is what Check found.
 type Result struct {
 	// Failures are the failures within the limits, in pattern order and
-	// then document order.
+	// then document order of their nodes; those of one node are in the
+	// order of the assertions of its rule.
 	Failures []Failure
 	// OmittedWarnings is the number of warnings that fired after
 	// Limits.Warnings were kept, until the validation ended. They are
@@ -240,9 +255,19 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 	if s == nil {
 		s = xpath.NewSession(context.Background(), 0)
 	}
-	var index map[expandedName][]*xpath.Node
+	index := &elementIndex{root: doc.Root}
 	var res Result
 	errorCount, warningCount := 0, 0
+	// What the session keeps for the lets of a rule on one node is released
+	// after that node, and on every way out of Check.
+	var scoped []func()
+	release := func() {
+		for _, done := range scoped {
+			done()
+		}
+		scoped = scoped[:0]
+	}
+	defer release()
 	for _, es := range e.sets {
 		vars, err := bindLets(s, es.lets, doc.Root, map[string]xpath.Value{})
 		if err != nil {
@@ -257,72 +282,140 @@ func (e *Engine) Check(s *xpath.Session, doc *xpath.Document, limits Limits) (Re
 				}
 				constant(s, pvars)
 			}
-			// First-match bookkeeping is only needed with several rules.
-			var seen map[*xpath.Node]bool
-			if len(p.rules) > 1 {
-				seen = map[*xpath.Node]bool{}
+			// A context that fails, as when the session runs out of steps,
+			// still leaves the nodes of the rules before it: they are
+			// checked, so their failures are among those found so far, and
+			// the error is returned after them.
+			matches, contextErr := p.matches(s, doc, pvars, index)
+			for _, m := range matches {
+				n, r := m.node, m.rule
+				rvars := pvars
+				if len(r.lets) > 0 {
+					// The lets of a rule keep their values while its later
+					// lets and its assertions are evaluated on this node.
+					rvars = maps.Clone(pvars)
+					for i := range r.lets {
+						if _, err = bindLets(s, r.lets[i:i+1], n, rvars); err != nil {
+							return res, err
+						}
+						scoped = append(scoped, s.Scoped(rvars[r.lets[i].name]))
+					}
+				}
+				for _, a := range r.assertions {
+					fired, err := a.fires(s, n, rvars)
+					if err != nil {
+						return res, err
+					}
+					if !fired {
+						continue
+					}
+					warning := warningRoles[strings.ToLower(a.role)]
+					if warning && (limits.Warnings < 0 || limits.Warnings > 0 && warningCount >= limits.Warnings) {
+						res.OmittedWarnings++
+						continue // no room for more warnings; errors are still looked for
+					}
+					msg, err := a.render(s, n, rvars)
+					if err != nil {
+						return res, err
+					}
+					if warning {
+						warningCount++
+					}
+					res.Failures = append(res.Failures, Failure{
+						Source: es.source, Pattern: p.id, Assertion: a.id, Report: a.report,
+						Role: a.role, Flag: a.flag, Warning: warning,
+						Message: msg, Node: n,
+					})
+					if warning {
+						continue
+					}
+					errorCount++
+					if limits.Errors > 0 && errorCount >= limits.Errors {
+						// The limit ends the validation whether or not the
+						// context of a later rule failed.
+						return res, nil
+					}
+				}
+				release()
 			}
-			for _, r := range p.rules {
-				var nodes []*xpath.Node
-				if r.byName != nil {
-					if index == nil {
-						index = indexElements(doc.Root)
-					}
-					nodes = index[*r.byName]
-				} else if nodes, err = r.context.Select(xpath.Context{Node: doc.Root, Variables: pvars, Session: s}); err != nil {
-					return res, err
-				}
-				for _, n := range nodes {
-					if seen != nil {
-						if seen[n] {
-							continue // within a pattern only the first matching rule applies
-						}
-						seen[n] = true
-					}
-					rvars := pvars
-					if len(r.lets) > 0 {
-						if rvars, err = bindLets(s, r.lets, n, maps.Clone(pvars)); err != nil {
-							return res, err
-						}
-					}
-					for _, a := range r.assertions {
-						fired, err := a.fires(s, n, rvars)
-						if err != nil {
-							return res, err
-						}
-						if !fired {
-							continue
-						}
-						warning := warningRoles[strings.ToLower(a.role)]
-						if warning && (limits.Warnings < 0 || limits.Warnings > 0 && warningCount >= limits.Warnings) {
-							res.OmittedWarnings++
-							continue // no room for more warnings; errors are still looked for
-						}
-						msg, err := a.render(s, n, rvars)
-						if err != nil {
-							return res, err
-						}
-						if warning {
-							warningCount++
-						}
-						res.Failures = append(res.Failures, Failure{
-							Source: es.source, Pattern: p.id, Assertion: a.id, Report: a.report,
-							Role: a.role, Flag: a.flag, Warning: warning,
-							Message: msg, Node: n,
-						})
-						if warning {
-							continue
-						}
-						errorCount++
-						if limits.Errors > 0 && errorCount >= limits.Errors {
-							return res, nil
-						}
-					}
-				}
+			if contextErr != nil {
+				return res, contextErr
 			}
 		}
 	}
 	return res, nil
+}
+
+// match is a node and the rule of a pattern that applies to it.
+type match struct {
+	node *xpath.Node
+	rule *engineRule
+}
+
+// matches returns the nodes that the rules of the pattern apply to, in
+// document order, each with the first rule whose context matches it: within
+// a pattern a node is checked by one rule only (ISO Schematron, 6.5). The
+// contexts are evaluated in rule order, all of them before the first node
+// is checked. When a context fails, the matches of the rules before it are
+// returned with the error. Merging the nodes of several rules is charged to
+// the session, a step per comparison.
+func (p *enginePattern) matches(s *xpath.Session, doc *xpath.Document, vars map[string]xpath.Value, index *elementIndex) ([]match, error) {
+	var out []match
+	// First-match bookkeeping is only needed with several rules.
+	var seen map[*xpath.Node]bool
+	if len(p.rules) > 1 {
+		seen = map[*xpath.Node]bool{}
+	}
+	for i := range p.rules {
+		r := &p.rules[i]
+		var nodes []*xpath.Node
+		if r.byName != nil {
+			nodes = index.named(*r.byName)
+		} else {
+			var err error
+			if nodes, err = r.context.Select(xpath.Context{Node: doc.Root, Variables: vars, Session: s}); err != nil {
+				sorted, _ := inDocumentOrder(s, out) // the context's error comes first
+				return sorted, err
+			}
+		}
+		for _, n := range nodes {
+			if seen != nil {
+				if seen[n] {
+					continue
+				}
+				seen[n] = true
+			}
+			out = append(out, match{node: n, rule: r})
+		}
+	}
+	return inDocumentOrder(s, out)
+}
+
+// inDocumentOrder sorts matches, the nodes of each rule in document order
+// one after the other, into document order. A node occurs once, so the
+// order is total. Sorting m matches that are not in order already takes
+// about m·log2(m) comparisons, which are charged to the session before it
+// starts; when the session stops there, it returns the session's error and
+// the longest prefix that is in order, matches of the first rule.
+func inDocumentOrder(s *xpath.Session, matches []match) ([]match, error) {
+	byDocumentOrder := func(a, b match) int {
+		if a.node.Before(b.node) {
+			return -1
+		}
+		return 1
+	}
+	if slices.IsSortedFunc(matches, byDocumentOrder) {
+		return matches, nil
+	}
+	if err := s.Charge(len(matches) * bits.Len(uint(len(matches)))); err != nil {
+		ordered := 1
+		for ordered < len(matches) && matches[ordered-1].node.Before(matches[ordered].node) {
+			ordered++
+		}
+		return matches[:ordered], err
+	}
+	slices.SortFunc(matches, byDocumentOrder)
+	return matches, nil
 }
 
 func (a engineAssertion) fires(sess *xpath.Session, n *xpath.Node, vars map[string]xpath.Value) (bool, error) {
@@ -371,6 +464,21 @@ func constant(s *xpath.Session, vars map[string]xpath.Value) {
 	for _, v := range vars {
 		s.Constant(v)
 	}
+}
+
+// elementIndex is the index of the elements of a document, built on first
+// use.
+type elementIndex struct {
+	root   *xpath.Node
+	byName map[expandedName][]*xpath.Node
+}
+
+// named returns the elements with the name, in document order.
+func (x *elementIndex) named(name expandedName) []*xpath.Node {
+	if x.byName == nil {
+		x.byName = indexElements(x.root)
+	}
+	return x.byName[name]
 }
 
 // indexElements lists the elements of a document by expanded name, in

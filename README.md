@@ -15,8 +15,9 @@ wrong and where.
   [additional checks](docs/additional-checks.md) on how the parts of an item fit
   together.
 - **Precise errors:** line, column and element path for every problem.
-- **Small and fast:** a ~13 MB image that uses about 40 MB of memory and
-  validates a typical item in well under a millisecond.
+- **Small and fast:** a ~21 MB image that uses about 30 MB of memory when
+  idle, is ready in just over a second and validates a typical item
+  in well under a millisecond.
 - **Self-contained:** the schemas are built in. The service never contacts the
   internet and never stores or logs the documents you send.
 
@@ -188,10 +189,10 @@ JSON body:
 | 400 | `unknown_validator` | `validatorId` is not listed by `GET /api/validators` |
 | 400 | `invalid_request` | The body could not be read |
 | 408 | `request_timeout` | The body did not arrive within `REQUEST_TIMEOUT` |
-| 413 | `too_large`, `too_many_files` | The request, package, or the XML in a package exceeds a limit, or the request is larger than all of `MAX_SPOOL_SIZE` |
+| 413 | `too_large`, `too_many_files` | The request, package, or the XML in a package exceeds a limit, the request is larger than all of `MAX_SPOOL_SIZE`, or a document has more nodes than can be checked in `MAX_VALIDATION_MEMORY`; the message gives the numbers |
 | 422 | `too_complex` | Validation stopped before the end: a document's rules need more work than one document may take (a budget of XPath steps that grows with the size of the document, up to a fixed maximum), or validation took longer than `REQUEST_TIMEOUT`; the body is a report with outcome `EXCEPTION` and the findings so far |
 | 500 | `internal` | The service failed; the body is a report with outcome `EXCEPTION` |
-| 503 | `busy` | No room for the request now: no validation slot came free within `REQUEST_TIMEOUT`, `MAX_QUEUE` requests are already waiting for one, or the uploads in progress fill `MAX_SPOOL_SIZE` and leave no room for the next bytes of this one; retry after the seconds in `Retry-After` |
+| 503 | `busy` | No room for the request now: no validation slot or validation memory came free within `REQUEST_TIMEOUT`, `MAX_QUEUE` requests are already waiting, or the uploads in progress fill `MAX_SPOOL_SIZE` and leave no room for the next bytes of this one; retry after the seconds in `Retry-After` |
 
 ## Configuration
 
@@ -207,10 +208,11 @@ All settings are environment variables. Sizes are in bytes.
 | `MAX_UNCOMPRESSED_SIZE` | `268435456` (256 MiB) | Largest total of uncompressed XML in one package |
 | `MAX_ERRORS` | `100` | Most errors per document from the XML Schema and the rules; the rules' warnings have a limit of the same size. See [what is limited](docs/report.md#limits) |
 | `MAX_DEPTH` | `256` | Deepest element nesting accepted |
-| `MAX_CONCURRENT` | number of CPUs | Validations that run at the same time; further requests wait |
-| `MAX_QUEUE` | 4 × `MAX_CONCURRENT` | Requests that may wait for a validation slot; further requests get 503 at once |
-| `MAX_SPOOL_SIZE` | 4 × `MAX_PACKAGE_SIZE` | Request bodies kept in `/tmp` at once, counted by the bytes received; an upload that does not fit gets 503 at once, one larger than all of it 413. Lowered automatically when `/tmp` is a tmpfs; see [Temporary files](docs/deployment.md#temporary-files) |
-| `REQUEST_TIMEOUT` | `60s` | Time limit per request: receiving the body, waiting for a free slot and validating. Running out while the body arrives gives 408; a validation still running then stops with `too_complex`, 422 (the XML Schema check of the current document finishes first) |
+| `MAX_CONCURRENT` | number of CPUs | Validations that run at the same time; further requests wait. The CPUs are those of the container's CPU limit, or `GOMAXPROCS` if you set it; the service itself runs with one thread more. One document under 256 KiB more runs beside them, on an express slot of its own, so large documents do not keep typical items waiting. A package never takes that slot, however small it is |
+| `MAX_QUEUE` | 4 × `MAX_CONCURRENT` | Requests that may wait for a validation slot or for validation memory, as many small ones (under 256 KiB, taking up to 4 MiB) as large ones; further requests get 503 at once |
+| `MAX_SPOOL_SIZE` | 4 × `MAX_PACKAGE_SIZE` | Request bodies held at once, counted by the bytes received: in `/tmp`, or in memory for a body under 256 KiB; an upload that does not fit gets 503 at once, one larger than all of it 413. Lowered automatically when `/tmp` is a tmpfs; see [Temporary files](docs/deployment.md#temporary-files) |
+| `MAX_VALIDATION_MEMORY` | the memory limit less 72 MiB | Memory the validations in progress may reserve together, in bytes. A validation reserves what its document takes, which its number of nodes decides rather than its size, and waits for room like for a slot, holding nothing while it waits; so the documents being validated fit in the container whatever `MAX_CONCURRENT` and `MAX_QUEUE` are. A share of it, 4 MiB per slot, is kept for typical items. Only a document that could never fit gets 413, with the numbers. Derived at startup from the memory limit of the container, or of a group above it; 1 GiB when there is none. See [Memory and CPU](docs/deployment.md#memory-and-cpu) |
+| `REQUEST_TIMEOUT` | `60s` | Time limit per request: receiving the body, waiting for a free slot and for validation memory, and validating. Running out while the body arrives gives 408; while waiting for a slot or memory, 503; a validation still running then stops with `too_complex`, 422 (the XML Schema check of the current document finishes first) |
 | `VALIDATORS_DIR` | `/validators` | Directory with extra validators; see [Custom validators](docs/custom-validators.md) |
 
 For example:

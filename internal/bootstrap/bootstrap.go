@@ -3,6 +3,8 @@
 package bootstrap
 
 import (
+	"runtime"
+	"runtime/debug"
 	"sync"
 
 	"qti3-validator/internal/adapter/qtirefs"
@@ -25,6 +27,17 @@ type Options struct {
 	// ValidatorsDir is a directory with extra validators, .xsd and .sch
 	// files; empty adds none.
 	ValidatorsDir string
+	// VerifyElements also checks that the element names compiled in are
+	// those of the QTI schemas: that they carry the SHA-256 of the embedded
+	// schema, and that reading the names from the schemas, as the build
+	// did, gives the same. It takes about half as long again as the
+	// compilation, and the checksums alone 60 ms: for the check of the
+	// image build, not for the start of the service.
+	VerifyElements bool
+	// CPUs is the number of CPUs to compile the schemas with; 0 selects
+	// the GOMAXPROCS of the runtime. The service runs with a thread more
+	// than it has CPUs, and passes the CPUs.
+	CPUs int
 	// OnSchemaLoaded is called once for every schema file that is loaded.
 	OnSchemaLoaded func(url string)
 	// OnValidatorLoaded is called for every file loaded from ValidatorsDir,
@@ -45,6 +58,12 @@ func NewValidator(opts Options) (*app.Validator, error) {
 	}
 	resolver := xsdschema.Resolver{Store: store, Loaded: once(opts.OnSchemaLoaded)}
 	compiled, err := store.Rules()
+	if err != nil {
+		return nil, err
+	}
+	// The element names of the QTI schemas were read at build time: reading
+	// them here would parse each schema a second time.
+	declared, err := store.Elements()
 	if err != nil {
 		return nil, err
 	}
@@ -69,18 +88,29 @@ func NewValidator(opts Options) (*app.Validator, error) {
 		OpenArchive: ziparchive.Open,
 		References:  qtirefs.Reader{},
 	}
-	for _, v := range qti.Versions() {
-		schema, err := xsdschema.CompileVersion(resolver, v)
-		if err != nil {
-			return nil, err
-		}
+	versions := qti.Versions()
+	cpus := opts.CPUs
+	if cpus <= 0 {
+		cpus = runtime.GOMAXPROCS(0)
+	}
+	schemas, err := compileVersions(resolver, versions, roomToCompileTogether(cpus, debug.SetMemoryLimit(-1)))
+	if err != nil {
+		return nil, err
+	}
+	for i, v := range versions {
+		schema := schemas[i]
 		builtin, err := rules.ForVersion(compiled, v)
 		if err != nil {
 			return nil, err
 		}
-		elements, err := xsdschema.DeclaredElements(resolver, v.ASI)
+		elements, err := xsdschema.CompiledElements(declared, v.ASI)
 		if err != nil {
 			return nil, err
+		}
+		if opts.VerifyElements {
+			if err := xsdschema.VerifyElements(resolver, declared, v.ASI); err != nil {
+				return nil, err
+			}
 		}
 		cfg.Versions[v.Name] = app.Profile{Schema: schema, Rules: rules.Chain(builtin, mounted.Rules), Elements: &elements}
 	}
@@ -91,6 +121,52 @@ func NewValidator(opts Options) (*app.Validator, error) {
 		})
 	}
 	return app.New(cfg)
+}
+
+// minMemoryToCompileTogether is the soft memory limit of the Go runtime
+// below which the QTI versions are compiled one after the other. Two
+// compilations at once hold twice the working memory: measured with two
+// CPUs, they still finish sooner than one after the other with a limit of
+// 60 MiB (0.88 s against 1.03 s), and later with 50 MiB (1.26 s against
+// 1.12 s) and less, where the collector runs all the time to keep both
+// within the limit, and does not manage: the process then takes more
+// memory than with one compilation at a time.
+const minMemoryToCompileTogether = 64 << 20
+
+// roomToCompileTogether reports whether compiling the QTI versions at the
+// same time is the faster way: with a CPU for each and memory for both. On
+// one CPU they would only take turns, and hold the memory of both.
+func roomToCompileTogether(cpus int, softMemoryLimit int64) bool {
+	return cpus > 1 && softMemoryLimit >= minMemoryToCompileTogether
+}
+
+// compileVersions compiles the schemas of the QTI versions, at the same
+// time or one after the other, and returns them in the order of versions.
+// The compilation is nearly all of what starting the service takes, and the
+// versions share nothing but the read-only schema store. The error is that
+// of the first version that fails, either way.
+func compileVersions(resolver xsdschema.Resolver, versions []qti.Version, together bool) ([]*xsdschema.Checker, error) {
+	schemas := make([]*xsdschema.Checker, len(versions))
+	errs := make([]error, len(versions))
+	var wg sync.WaitGroup
+	for i, v := range versions {
+		compile := func() { schemas[i], errs[i] = xsdschema.CompileVersion(resolver, v) }
+		if together {
+			wg.Go(compile)
+			continue
+		}
+		compile()
+		if errs[i] != nil {
+			return nil, errs[i]
+		}
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return schemas, nil
 }
 
 // once wraps f so it is called at most once per URL, from any goroutine.

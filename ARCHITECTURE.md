@@ -70,6 +70,8 @@ this package owns:
 | `SchemaChecker` | Validate a document against an XML Schema | `adapter/xsdschema` |
 | `RuleChecker` | Run Schematron rules on a document | `adapter/rules` |
 | `Archive`, `ArchiveOpener` | Read a package's entries | `adapter/ziparchive` |
+| `Memory` | Reserve the memory a validation is about to take, out of what the service allows them all | `adapter/httpapi` |
+| `MemoryEstimator` | Tell what the rules take in memory for a document, from its nodes | `adapter/rules` |
 
 A `Profile` pairs a schema with its rules: one per QTI version, and one per
 document type a mounted XSD adds. The application does not know where they
@@ -84,7 +86,7 @@ read, the public 1EdTech report model.
   into reports. It depends on a small `Validator` interface, not on the
   concrete application.
 - **Outbound:** `xsdschema`, `rules` and `ziparchive` implement the ports.
-  `schemastore` serves the embedded schemas and compiled rules;
+  `schemastore` serves the embedded schemas, compiled rules and element names;
   `validatorsdir` turns a mounted directory into extra profiles and rules.
 
 ## Composition: `internal/bootstrap`

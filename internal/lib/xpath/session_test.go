@@ -169,9 +169,8 @@ func TestSessionBudget(t *testing.T) {
 
 func TestSessionStopsWhenContextEnds(t *testing.T) {
 	doc := cubicDoc(t, 2000)
-	// 4000 × 2000 comparisons: compared as a string, @id is not looked up
-	// in the string-values of the remembered //*/@ref.
-	e, err := Compile("count(//*[string(@id) = //*/@ref])", Options{})
+	// 4000 × 4000 nodes visited: the following axis of every element.
+	e, err := Compile("count(//*[count(following::*) >= 0])", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

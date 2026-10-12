@@ -8,7 +8,7 @@ type nameIndex map[clarkName]NodeSet
 
 // minIndexedSubtree is the least number of nodes in the subtree of a node
 // for which a descendant step by name uses the index of the document rather
-// than walking the subtree. Finding the index takes a step per ancestor.
+// than walking the subtree, which is cheaper for a small one.
 const minIndexedSubtree = 64
 
 // fromIndex returns the nodes a descendant or descendant-or-self step with
@@ -18,20 +18,28 @@ const minIndexedSubtree = 64
 // the nodes must then be collected from the axis.
 //
 // The index is built in a step per node the first time; a lookup costs a
-// step per ancestor of n and per node it returns. The node-set returned is
+// step, and one per node it returns. The node-set returned is
 // shared, so its capacity is clipped.
 func (s step) fromIndex(n *Node, c *evalCtx) (NodeSet, bool, error) {
+	list, ok, err := s.indexRange(n, c)
+	if !ok || err != nil {
+		return nil, ok, err
+	}
+	if err := c.s.charge(1 + len(list)); err != nil {
+		return nil, true, err
+	}
+	return list, true, nil
+}
+
+// indexRange is fromIndex without the charge for the lookup and the nodes:
+// a caller that stops at one of them charges for those it looked at.
+func (s step) indexRange(n *Node, c *evalCtx) (NodeSet, bool, error) {
 	if !optimise || s.test.kind != testName || s.test.anyLocal ||
 		(s.axis != axisDescendant && s.axis != axisDescendantOrSelf) ||
 		(n.Kind != ElementNode && n.Kind != RootNode) || n.end-n.order < minIndexedSubtree {
 		return nil, false, nil
 	}
-	root, hops := n, 0
-	for root.Parent != nil {
-		root = root.Parent
-		hops++
-	}
-	idx, err := c.s.nameIndex(root)
+	idx, err := c.s.nameIndex(n.documentRoot())
 	if err != nil {
 		return nil, true, err
 	}
@@ -42,9 +50,6 @@ func (s step) fromIndex(n *Node, c *evalCtx) (NodeSet, bool, error) {
 	}
 	lo := sort.Search(len(list), func(i int) bool { return list[i].order >= first })
 	hi := lo + sort.Search(len(list)-lo, func(i int) bool { return list[lo+i].order >= n.end })
-	if err := c.s.charge(1 + hops + hi - lo); err != nil {
-		return nil, true, err
-	}
 	return list[lo:hi:hi], true, nil
 }
 

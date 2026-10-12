@@ -14,15 +14,18 @@ RUN go mod download
 COPY . .
 
 # Download the QTI schemas pinned in internal/adapter/schemastore/schemas/schemas.lock,
-# and compile the Schematron rules embedded in them together with the
-# validator's own rules in rules/qti3-additional-checks.sch.
+# compile the Schematron rules embedded in them together with the
+# validator's own rules in rules/qti3-additional-checks.sch, and read the
+# names of the elements the QTI schemas declare, so the service does not
+# parse those schemas a second time when it starts.
 # The QTI version is fixed by the URLs in that file (spec/qti/v3p0, binding
 # v1p0) and every file is checked against its SHA-256, so a changed upstream
 # file fails the build instead of silently changing validation.
 RUN go run ./cmd/fetchschemas
 
 # Compile the schemas once at build time, so a schema the validator cannot
-# compile fails the build rather than the container start. This runs a binary
+# compile fails the build rather than the container start, and check that the
+# element names read above are those of these schemas. This runs a binary
 # for the builder's platform: the target's binary may not run here.
 RUN CGO_ENABLED=0 go run ./cmd/qti-validator -check
 
@@ -34,22 +37,28 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
     -ldflags="-s -w -X qti3-validator/internal/adapter/httpapi.Version=${VERSION}" \
     -o /out/qti-validator \
     ./cmd/qti-validator \
- && mkdir /out/tmp /out/validators
+ && mkdir -p /out/root/validators \
+ && mkdir -m 1777 /out/root/tmp
 
 FROM scratch
 
-# Package uploads are spooled to /tmp instead of being held in memory.
-COPY --from=build --chmod=1777 /out/tmp /tmp
+# The directories of the image, copied as entries of one tree so that each
+# keeps its mode: COPY --chmod=1777 drops the sticky bit, and copying a
+# directory onto /tmp gives it mode 0755.
+#   /tmp          mode 1777; package uploads are spooled here instead of
+#                 being held in memory.
+#   /validators   empty by default: mount a directory with .xsd and .sch
+#                 files here to add validators.
+COPY --from=build /out/root/ /
 COPY --from=build /out/qti-validator /qti-validator
-# Empty by default: mount a directory with .xsd and .sch files here to add
-# validators.
-COPY --from=build /out/validators /validators
 
 USER 65534:65534
-# A soft memory limit for the Go runtime: the garbage collector works harder
-# as the heap nears it, which keeps the peak under load at about 100 MiB
-# instead of 110-130 MiB, at no measurable cost in speed. Override it with -e.
-ENV GOMEMLIMIT=90MiB
+# No GOMEMLIMIT here: the service derives the soft memory limit of the Go
+# runtime at startup from the container's memory limit (the limit less
+# 32 MiB), so the garbage collector works harder only as the process nears
+# what the container has. While the schemas compile at startup the limit is
+# 80 MiB, which holds the highest memory use of the start at about 88 MiB.
+# Set GOMEMLIMIT with -e to choose the limit of the running service yourself.
 EXPOSE 8080
 # The binary checks /health itself: the image has no shell or curl. It reads
 # ADDR like the service, so a changed port is followed.

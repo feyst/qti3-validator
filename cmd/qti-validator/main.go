@@ -48,12 +48,20 @@ func main() {
 }
 
 // runCheck compiles the schemas, rules and validators directory and exits.
+// It also verifies the element names, which the service takes from the
+// file the build made of them: it fails when that file does not carry the
+// SHA-256 of the embedded QTI schemas, or when reading the names from those
+// schemas again gives other ones. A start of the service does neither.
 func runCheck(log *slog.Logger) error {
 	cfg, err := config.FromEnv()
 	if err != nil {
 		return err
 	}
-	if _, err := bootstrap.NewValidator(validatorOptions(log, cfg)); err != nil {
+	// As the service starts, so that the check also shows what a start takes.
+	limitStartupMemory(log, probeSpoolEnv(), os.Getenv("GOMEMLIMIT"), debug.SetMemoryLimit)
+	opts := validatorOptions(log, cfg)
+	opts.VerifyElements = true
+	if _, err := bootstrap.NewValidator(opts); err != nil {
 		return err
 	}
 	log.Info("schemas compile", "qti_versions", qti.SupportedVersions())
@@ -105,14 +113,34 @@ func httpOptions(cfg config.Config) httpapi.Options {
 	}
 }
 
+// sizeToContainer sizes the memory settings to the container, from the same
+// cgroup and tmpfs probes as the Go soft memory limit: the upload spool
+// budget and the validation-memory budget. It logs what it chose, and the
+// room for the request bodies kept in memory, which comes on top of the
+// budget of the validations.
+func sizeToContainer(log *slog.Logger, cfg config.Config, env spoolEnv, hopts *httpapi.Options) {
+	hopts.MaxSpoolSize = spoolBudget(log, cfg, env)
+	hopts.MaxValidationMemory = validationMemoryBudget(log, cfg, env, hopts.MaxSpoolSize)
+	small := httpapi.SmallMemoryShare(hopts.MaxValidationMemory, hopts.MaxConcurrent)
+	log.Info("memory of the validations", "max_validation_memory", hopts.MaxValidationMemory,
+		"for_small_documents", small, "most_for_one_document", hopts.MaxValidationMemory-small,
+		"bodies_in_memory", httpapi.BodyMemory(hopts.MaxValidationMemory))
+}
+
 func run(log *slog.Logger) error {
-	cfg, err := config.FromEnv()
+	// What follows from the number of CPUs follows from cpus, not from the
+	// GOMAXPROCS of the runtime, which is one more from here on.
+	cpus := addThread(log, os.Getenv("GOMAXPROCS"), runtime.GOMAXPROCS)
+	cfg, err := config.FromEnvFor(cpus)
 	if err != nil {
 		return err
 	}
 
 	start := time.Now()
+	env := probeSpoolEnv()
+	ready := limitStartupMemory(log, env, os.Getenv("GOMEMLIMIT"), debug.SetMemoryLimit)
 	opts := validatorOptions(log, cfg)
+	opts.CPUs = cpus
 	opts.OnSchemaLoaded = func(url string) { log.Info("loaded schema", "url", url) }
 	v, err := bootstrap.NewValidator(opts)
 	if err != nil {
@@ -126,26 +154,38 @@ func run(log *slog.Logger) error {
 	log.Info("validator ready", "qti_versions", qti.SupportedVersions(),
 		"compile_ms", time.Since(start).Milliseconds(), "heap_mib", mem.HeapAlloc>>20)
 
+	ready()
 	hopts := httpOptions(cfg)
-	hopts.MaxSpoolSize = spoolBudget(log, cfg, probeSpoolEnv())
+	sizeToContainer(log, cfg, env, &hopts)
 	srv := httpapi.New(hopts, v, log).HTTPServer()
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	return serve(log, srv, signals, cfg.RequestTimeout)
+}
+
+// serve runs srv until a signal arrives, and then lets the requests in
+// progress finish, for at most grace. It logs how the service ends: the
+// signal and whether the requests finished in time, or the error that made
+// the server stop by itself, which it returns.
+func serve(log *slog.Logger, srv *http.Server, signals <-chan os.Signal, grace time.Duration) error {
 	errc := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", cfg.Addr)
+		log.Info("listening", "addr", srv.Addr)
 		errc <- srv.ListenAndServe()
 	}()
 	select {
 	case err := <-errc:
-		return err
-	case <-ctx.Done():
+		return fmt.Errorf("the HTTP server stopped unexpectedly: %w", err)
+	case sig := <-signals:
+		log.Info("shutting down", "signal", sig.String(), "grace_ms", grace.Milliseconds())
 	}
-	log.Info("shutting down")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout)
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
+	if err := srv.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("shutdown did not complete within %s, requests were still in progress: %w", grace, err)
 	}
+	log.Info("shutdown complete", "duration_ms", time.Since(start).Milliseconds())
 	return nil
 }

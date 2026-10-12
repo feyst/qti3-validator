@@ -39,22 +39,50 @@ func (t valueType) String() string {
 type typeChecker struct {
 	vars     map[string]valueType
 	findings []app.RuleFinding
+	// room is the number of findings to keep, zero for all: the checks
+	// stop once it is used up. Every finding is an error.
+	room int
+	// session is charged a step for every element the checks visit, so
+	// they stop with the budget of the rules and with their context; err
+	// is the error it stopped them with.
+	session *xpath.Session
+	err     error
+	paths   *xpath.Paths
 }
 
-// checkTypes runs the type checks on a QTI document.
-func checkTypes(doc *xpath.Document) []app.RuleFinding {
+// checkTypes runs the type checks on a QTI document and returns the first
+// room findings, all if room is zero. The work is charged to session; when
+// that stops the checks, it returns the findings so far and the session's
+// error. paths gives the findings their locations.
+func checkTypes(session *xpath.Session, doc *xpath.Document, room int, paths *xpath.Paths) ([]app.RuleFinding, error) {
 	root := firstElement(doc.Root)
 	if root == nil || root.Space != qti.NamespaceASI {
-		return nil
+		return nil, nil
 	}
-	c := &typeChecker{vars: builtinTypes()}
+	c := &typeChecker{vars: builtinTypes(), room: room, session: session, paths: paths}
 	for _, n := range root.Children {
 		if n.Kind == xpath.ElementNode && isDeclaration(n.Local) {
 			c.vars[attr(n, "identifier")] = valueType{qti.BaseType(attr(n, "base-type")), qti.Cardinality(attr(n, "cardinality"))}
 		}
 	}
 	c.walk(root)
-	return c.findings
+	return c.findings, c.err
+}
+
+// done reports whether the checks are over: the room for findings is used
+// up, or the session stopped them.
+func (c *typeChecker) done() bool {
+	return c.err != nil || c.room > 0 && len(c.findings) >= c.room
+}
+
+// visit charges the session for an element the checks look at, and reports
+// whether they go on.
+func (c *typeChecker) visit() bool {
+	if c.done() {
+		return false
+	}
+	c.err = c.session.Charge(1)
+	return c.err == nil
 }
 
 func builtinTypes() map[string]valueType {
@@ -74,9 +102,14 @@ func isDeclaration(local string) bool {
 	return false
 }
 
+// report adds a finding, unless the checks are over: the location and the
+// message of a finding that is not kept are not worked out.
 func (c *typeChecker) report(n *xpath.Node, check, format string, args ...any) {
+	if c.done() {
+		return
+	}
 	c.findings = append(c.findings, app.RuleFinding{Finding: qti.Finding{
-		Code: qti.CodeValueType, Rule: check, Line: n.Line, Column: n.Column, Path: n.Path(),
+		Code: qti.CodeValueType, Rule: check, Line: int(n.Line), Column: int(n.Column), Path: c.paths.Path(n),
 		Message: fmt.Sprintf(format, args...),
 	}})
 }
@@ -84,7 +117,13 @@ func (c *typeChecker) report(n *xpath.Node, check, format string, args ...any) {
 // walk visits every element: declarations for their values, conditions and
 // assignments for their expressions.
 func (c *typeChecker) walk(n *xpath.Node) {
-	for _, child := range elements(n) {
+	for _, child := range n.Children {
+		if child.Kind != xpath.ElementNode {
+			continue
+		}
+		if !c.visit() {
+			return
+		}
 		switch child.Local {
 		case "qti-response-declaration", "qti-outcome-declaration", "qti-template-declaration", "qti-context-declaration":
 			c.checkDeclarationValues(child)
@@ -121,9 +160,12 @@ func (c *typeChecker) checkDeclarationValues(decl *xpath.Node) {
 // checkValues checks the qti-value elements of a default or correct value.
 // A field of a record has its own base-type.
 func (c *typeChecker) checkValues(part *xpath.Node, base qti.BaseType, id string) {
-	for _, v := range elements(part) {
-		if v.Local != "qti-value" {
+	for _, v := range part.Children {
+		if v.Kind != xpath.ElementNode || v.Local != "qti-value" {
 			continue
+		}
+		if !c.visit() {
+			return
 		}
 		b := base
 		if own := attr(v, "base-type"); own != "" {
@@ -142,7 +184,13 @@ func (c *typeChecker) checkMapKeys(mapping *xpath.Node, base qti.BaseType, id st
 	if base == "" {
 		return
 	}
-	for _, e := range elements(mapping) {
+	for _, e := range mapping.Children {
+		if e.Kind != xpath.ElementNode {
+			continue
+		}
+		if !c.visit() {
+			return
+		}
 		if e.Local == "qti-map-entry" && !qti.ValidValue(base, attr(e, "map-key")) {
 			c.report(e, CheckValueType, "qti-mapping of %s: map-key %q is not a valid %s value.", id, attr(e, "map-key"), base)
 		}

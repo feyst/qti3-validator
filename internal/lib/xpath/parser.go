@@ -16,6 +16,23 @@ type Expr struct {
 // String returns the source of the expression.
 func (e *Expr) String() string { return e.source }
 
+// UsesNamespaceAxis reports whether the expression has a step on the
+// namespace axis. Evaluating one builds the namespace nodes of the elements
+// it visits, one for every namespace in scope, which a document does not
+// hold otherwise (see Size.NamespaceAxisBytes).
+func (e *Expr) UsesNamespaceAxis() bool { return usesNamespaceAxis(e.root) }
+
+func usesNamespaceAxis(e expr) bool {
+	if p, ok := e.(*pathExpr); ok {
+		for _, s := range p.steps {
+			if s.axis == axisNamespace {
+				return true
+			}
+		}
+	}
+	return slices.ContainsFunc(subexpressions(e), usesNamespaceAxis)
+}
+
 // Options control compilation.
 type Options struct {
 	// Namespaces binds the prefixes the expression may use.
@@ -57,6 +74,10 @@ func markIndependent(e expr) {
 		if optimise {
 			markKeyed(p)
 		}
+	}
+	if p, ok := e.(*pathExpr); ok && len(p.steps) > 0 {
+		last := p.steps[len(p.steps)-1]
+		p.existence = last.byNode && !slices.ContainsFunc(last.preds, mayFail)
 	}
 	for _, sub := range subexpressions(e) {
 		markIndependent(sub)
@@ -494,5 +515,5 @@ func (p *parser) parseCall(t token) (expr, error) {
 	if len(args) < fn.minArgs || fn.maxArgs >= 0 && len(args) > fn.maxArgs {
 		return nil, fmt.Errorf("%s() called with %d arguments", t.text, len(args))
 	}
-	return &callExpr{name: t.text, fn: fn, args: args}, nil
+	return &callExpr{name: t.text, fn: fn, args: args, strings: stringFunctions[t.text]}, nil
 }

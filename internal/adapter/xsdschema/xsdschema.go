@@ -4,10 +4,10 @@ package xsdschema
 
 import (
 	"bytes"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"strings"
 
@@ -17,6 +17,7 @@ import (
 	"qti3-validator/internal/adapter/schemastore"
 	"qti3-validator/internal/app"
 	"qti3-validator/internal/domain/qti"
+	"qti3-validator/internal/lib/xsdelements"
 )
 
 // Resolver resolves schema locations to the schema store. A missing schema
@@ -186,76 +187,84 @@ func classify(diag *xsderrors.Error) (qti.Code, qti.Outcome) {
 // of another error under MaxErrors.
 const unresolvedIDRef = "IDREF does not resolve"
 
-const namespaceXSD = "http://www.w3.org/2001/XMLSchema"
-
 // DeclaredElements reads the names of the elements the schema at schemaURL
 // declares in its target namespace: at the top level, and locally inside
 // its types and groups, and which of them it declares with more than one
 // type. Elements of imported schemas, which are in other namespaces, are not
 // part of it.
+//
+// It reads the whole schema, which takes about as long as compiling it. For
+// the embedded QTI schemas that is done at build time, by cmd/fetchschemas
+// with the same xsdelements.Read: the service loads the result with
+// CompiledElements.
 func DeclaredElements(r Resolver, schemaURL string) (app.SchemaElements, error) {
 	f, err := r.Store.Open(schemaURL)
 	if err != nil {
 		return app.SchemaElements{}, err
 	}
 	defer f.Close()
-	elements := app.SchemaElements{Global: map[string]bool{}, Local: map[string]bool{}, ManyTyped: map[string]bool{}}
-	// The types an element name is declared with. A declaration without a
-	// type attribute has a type of its own.
-	types, anonymous := map[string]map[string]bool{}, 0
-	declare := func(t xml.StartElement) {
-		name, typ := attr(t, "name"), attr(t, "type")
-		if typ == "" {
-			anonymous++
-			typ = fmt.Sprintf("#%d", anonymous)
-		}
-		if types[name] == nil {
-			types[name] = map[string]bool{}
-		}
-		types[name][typ] = true
-		if len(types[name]) > 1 {
-			elements.ManyTyped[name] = true
-		}
+	read, err := xsdelements.Read(f)
+	if err != nil {
+		return app.SchemaElements{}, fmt.Errorf("read the elements of %s: %w", schemaURL, err)
 	}
-	dec := xml.NewDecoder(f)
-	qualified := false // whether local elements are in the target namespace
-	for depth := 0; ; {
-		tok, err := dec.Token()
-		if errors.Is(err, io.EOF) {
-			return elements, nil
-		}
-		if err != nil {
-			return app.SchemaElements{}, fmt.Errorf("read the elements of %s: %w", schemaURL, err)
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			depth++
-			switch {
-			case depth == 1:
-				if t.Name != (xml.Name{Space: namespaceXSD, Local: "schema"}) {
-					return app.SchemaElements{}, fmt.Errorf("%s: root element is not xs:schema", schemaURL)
-				}
-				elements.Namespace = attr(t, "targetNamespace")
-				qualified = attr(t, "elementFormDefault") == "qualified"
-			case t.Name != xml.Name{Space: namespaceXSD, Local: "element"} || attr(t, "name") == "":
-			case depth == 2:
-				elements.Global[attr(t, "name")] = true
-				declare(t)
-			case attr(t, "form") == "qualified" || qualified && attr(t, "form") == "":
-				elements.Local[attr(t, "name")] = true
-				declare(t)
-			}
-		case xml.EndElement:
-			depth--
-		}
-	}
+	return schemaElements(read), nil
 }
 
-func attr(t xml.StartElement, name string) string {
-	for _, a := range t.Attr {
-		if a.Name.Space == "" && a.Name.Local == name {
-			return a.Value
-		}
+// CompiledElements returns the elements of the schema at schemaURL as they
+// were read at build time.
+func CompiledElements(c *xsdelements.Compiled, schemaURL string) (app.SchemaElements, error) {
+	schema, ok := c.Schemas[schemaURL]
+	if !ok {
+		return app.SchemaElements{}, fmt.Errorf(
+			"the elements of %s are not compiled in: run `go run ./cmd/fetchschemas` again", schemaURL)
 	}
-	return ""
+	return schemaElements(schema.Elements), nil
+}
+
+// VerifyElements fails when the elements compiled in at build time are not
+// those of the schema at schemaURL as it is stored: when the checksum they
+// were compiled with is not that of the schema, or when reading the schema
+// gives other elements. They were then read from another schema, or by
+// another version of the code.
+//
+// It reads the schema twice, which takes longer than compiling it: for the
+// check of the image build (qti-validator -check). The service itself
+// starts without it; the checksum alone would add 60 ms to a start, for
+// the two QTI versions.
+func VerifyElements(r Resolver, c *xsdelements.Compiled, schemaURL string) error {
+	compiled, err := CompiledElements(c, schemaURL)
+	if err != nil {
+		return err
+	}
+	sum, err := r.Store.SHA256(schemaURL)
+	if err != nil {
+		return err
+	}
+	if from := c.Schemas[schemaURL].SHA256; from != sum {
+		return fmt.Errorf(
+			"the compiled elements of %s were read from a schema with checksum %q, and the schema has %s: run `go run ./cmd/fetchschemas` again",
+			schemaURL, from, sum)
+	}
+	declared, err := DeclaredElements(r, schemaURL)
+	if err != nil {
+		return err
+	}
+	if compiled.Namespace != declared.Namespace || !maps.Equal(compiled.Global, declared.Global) ||
+		!maps.Equal(compiled.Local, declared.Local) || !maps.Equal(compiled.ManyTyped, declared.ManyTyped) {
+		return fmt.Errorf(
+			"the compiled elements of %s are not those the schema declares: run `go run ./cmd/fetchschemas` again", schemaURL)
+	}
+	return nil
+}
+
+func schemaElements(e xsdelements.Elements) app.SchemaElements {
+	return app.SchemaElements{Namespace: e.Namespace, Global: set(e.Global), Local: set(e.Local), ManyTyped: set(e.ManyTyped)}
+}
+
+func set(names []string) map[string]bool {
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		out[name] = true
+	}
+	return out
 }

@@ -128,3 +128,73 @@ type ArchiveOpener func(r io.ReaderAt, size int64, maxEntries int) (Archive, err
 // ErrTooManyEntries is returned by an ArchiveOpener for an archive with more
 // entries than allowed.
 var ErrTooManyEntries = errors.New("archive has too many entries")
+
+// Memory is the room in memory one validation holds, out of what the
+// service allows all validations together. A validation reserves what it is
+// about to take before it takes it: little while it reads a document and
+// checks it against the schema, and what the document needs in memory for
+// the rules once that is known. The validations in progress then fit in
+// memory whatever the documents are, and a document that cannot fit is
+// refused instead of taking the service down.
+//
+// A Memory belongs to one validation and is not safe for concurrent use.
+// Without one (see WithMemory) nothing is reserved.
+type Memory interface {
+	// TryReserve sets what the validation reserves to n bytes in all, more
+	// or less than before, if there is room for it now. Reserving less
+	// always succeeds.
+	TryReserve(n int64) bool
+	// Reserve sets what the validation reserves to n bytes in all, and
+	// waits for room when there is none. A validation that waits holds
+	// nothing: what it reserved before is given up at once, so the caller
+	// must have let go of what it kept in memory, to take it again
+	// afterwards. That is what keeps the validations in progress within
+	// what the service allows, however many of them wait.
+	//
+	// It returns ErrMemoryExceeded when n is more than Limit, which no
+	// waiting helps; ErrMemoryBusy when no room came free in time; or
+	// ctx.Err(). After an error the validation holds nothing and stops.
+	Reserve(ctx context.Context, n int64) error
+	// Limit is the most one validation may reserve, in bytes.
+	Limit() int64
+}
+
+// Errors of Memory.Reserve.
+var (
+	ErrMemoryExceeded = errors.New("more memory than the service allows a validation")
+	ErrMemoryBusy     = errors.New("no memory came free in time")
+)
+
+// ErrTooLarge reports that a document has more nodes than a RuleChecker can
+// hold: CheckRules returns an error wrapping it, with no findings.
+var ErrTooLarge = errors.New("the document has too many nodes to check")
+
+// MemoryEstimate is what checking a document takes in memory.
+type MemoryEstimate struct {
+	Bytes int64
+	// Nodes is the number of nodes of the document: its elements,
+	// attributes, pieces of text, comments and processing instructions.
+	// They, not the bytes of the document, decide what it takes.
+	Nodes int
+}
+
+// MemoryEstimator is a RuleChecker that can tell what CheckRules will take
+// in memory for a document, before it runs. The estimate must not be less
+// than what it takes, and should not be much more.
+type MemoryEstimator interface {
+	EstimateMemory(data []byte) MemoryEstimate
+}
+
+type memoryKey struct{}
+
+// WithMemory returns a context in which a validation reserves its memory
+// from m.
+func WithMemory(ctx context.Context, m Memory) context.Context {
+	return context.WithValue(ctx, memoryKey{}, m)
+}
+
+// MemoryFrom returns the Memory of the validation in ctx, or nil.
+func MemoryFrom(ctx context.Context) Memory {
+	m, _ := ctx.Value(memoryKey{}).(Memory)
+	return m
+}

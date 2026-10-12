@@ -46,7 +46,17 @@ func TestConfigSpoolAndQueue(t *testing.T) {
 		t.Fatalf("set: %+v, %v", cfg, err)
 	}
 
-	for _, name := range []string{"MAX_SPOOL_SIZE", "MAX_QUEUE"} {
+	// MAX_VALIDATION_MEMORY is 0 by default (derived at startup) and takes an
+	// explicit positive value.
+	if Default().MaxValidationMemory != 0 {
+		t.Fatalf("default MaxValidationMemory %d, want 0", Default().MaxValidationMemory)
+	}
+	t.Setenv("MAX_VALIDATION_MEMORY", "134217728")
+	if cfg, err = FromEnv(); err != nil || cfg.MaxValidationMemory != 134217728 {
+		t.Fatalf("MAX_VALIDATION_MEMORY: %+v, %v", cfg, err)
+	}
+
+	for _, name := range []string{"MAX_SPOOL_SIZE", "MAX_QUEUE", "MAX_VALIDATION_MEMORY"} {
 		for _, bad := range []string{"0", "-1", "x"} {
 			t.Run(name+"="+bad, func(t *testing.T) {
 				t.Setenv(name, bad)
@@ -55,5 +65,26 @@ func TestConfigSpoolAndQueue(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The service counts its CPUs before it gives the runtime a thread more:
+// the defaults follow the number it passes, and the environment overrides
+// them as ever.
+func TestDefaultsForCPUs(t *testing.T) {
+	if d := DefaultFor(3); d.MaxConcurrent != 3 || d.MaxQueue != 12 {
+		t.Fatalf("3 CPUs: MAX_CONCURRENT %d, MAX_QUEUE %d", d.MaxConcurrent, d.MaxQueue)
+	}
+	if d := DefaultFor(0); d.MaxConcurrent != 1 {
+		t.Fatalf("no CPUs: MAX_CONCURRENT %d", d.MaxConcurrent)
+	}
+	t.Setenv("MAX_CONCURRENT", "")
+	t.Setenv("MAX_QUEUE", "")
+	if c, err := FromEnvFor(1); err != nil || c.MaxConcurrent != 1 || c.MaxQueue != 4 {
+		t.Fatalf("1 CPU: MAX_CONCURRENT %d, MAX_QUEUE %d, %v", c.MaxConcurrent, c.MaxQueue, err)
+	}
+	t.Setenv("MAX_CONCURRENT", "5")
+	if c, err := FromEnvFor(1); err != nil || c.MaxConcurrent != 5 || c.MaxQueue != 20 {
+		t.Fatalf("MAX_CONCURRENT=5: %d, MAX_QUEUE %d, %v", c.MaxConcurrent, c.MaxQueue, err)
 	}
 }
