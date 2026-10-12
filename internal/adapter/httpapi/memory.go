@@ -293,6 +293,14 @@ func (h *memoryHold) TryReserve(n int64) bool {
 	return true
 }
 
+// waitsAsLarge reports whether a wait for n bytes counts among the large
+// requests. A waiter counts by the kind of its request, not only of this
+// reservation: an entry of a package that reserves little waits as long as a
+// large document does, and would fill the queue of the typical items.
+func (h *memoryHold) waitsAsLarge(n int64) bool {
+	return h.large || !isSmall(n)
+}
+
 // Reserve implements app.Memory. A reservation that does not fit waits for
 // room like a request waits for a slot: at most MaxQueue requests wait for
 // a large reservation, and as many for a small one, until ctx is done; a
@@ -317,7 +325,7 @@ func (h *memoryHold) Reserve(ctx context.Context, n int64) error {
 	}
 	s := h.s
 	large := !isSmall(n)
-	waiting := s.queue(large)
+	waiting := s.queue(h.waitsAsLarge(n))
 	if waiting.Add(1) > int64(s.opts.MaxQueue) {
 		waiting.Add(-1)
 		h.busy = "too many requests are waiting for memory to validate in (MAX_VALIDATION_MEMORY)"
@@ -326,7 +334,7 @@ func (h *memoryHold) Reserve(ctx context.Context, n int64) error {
 	defer waiting.Add(-1)
 	h.freeSlot()
 	// From here on the request is of the kind of its reservation.
-	h.large = h.large || large
+	h.large = h.waitsAsLarge(n)
 	if h.id == 0 {
 		h.id, h.since = m.enqueue(), time.Now()
 	}

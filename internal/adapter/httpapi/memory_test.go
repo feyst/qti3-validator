@@ -554,7 +554,9 @@ func TestSmallShareIsNotHeldWhileWaitingForASlot(t *testing.T) {
 	// which a large document takes.
 	got := make(chan error, 1)
 	go func() { got <- pkg.Reserve(ctx, 3*mib) }()
-	waitFor(t, "the package waiting for memory without its slot", func() bool { return s.waitingSmall.Load() == 1 && len(s.slots) == 0 })
+	waitFor(t, "the package waiting for memory without its slot", func() bool {
+		return s.waiting.Load() == 1 && s.waitingSmall.Load() == 0 && len(s.slots) == 0
+	})
 	doc := take(true, regularSlot)
 	if !doc.TryReserve(20 * mib) {
 		t.Fatal("the large document got no room")
@@ -581,8 +583,8 @@ func TestSmallShareIsNotHeldWhileWaitingForASlot(t *testing.T) {
 		t.Fatalf("the package went on without room: %v", err)
 	case <-time.After(20 * time.Millisecond):
 	}
-	if s.waitingSmall.Load() != 1 {
-		t.Fatalf("waiting %d: the package counts as waiting all along", s.waitingSmall.Load())
+	if s.waiting.Load() != 1 || s.waitingSmall.Load() != 0 {
+		t.Fatalf("waiting %d large, %d small: the package counts as waiting all along, among the large requests", s.waiting.Load(), s.waitingSmall.Load())
 	}
 	next.release()
 	if err := <-got; err != nil || pkg.slot != regularSlot || pkg.held.n != 3*mib || !pkg.held.small {
@@ -623,6 +625,52 @@ func TestSmallShareIsNotHeldWhileWaitingForASlot(t *testing.T) {
 func memServer(budget int64, concurrent, queue int) *Server {
 	return New(Options{MaxPackageSize: 100 * mib, MaxConcurrent: concurrent, MaxQueue: queue, MaxValidationMemory: budget, RequestTimeout: time.Minute},
 		nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+// Entries of packages that wait for room in the small share are waiters of
+// the large kind: they do not fill the queue of the typical items, which
+// would get 503 for it.
+func TestWaitingPackagesDoNotFillTheQueueOfItems(t *testing.T) {
+	const queue = 2
+	s := memServer(108*mib, 1, queue)
+	if s.mem.small != 4*mib {
+		t.Fatalf("small share %d MiB: this test needs one that holds one 3 MiB reservation", s.mem.small/mib)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// A typical item on the express slot holds the small share.
+	item := s.newMemoryHold(s.tryTakeSlot(false), false)
+	if !item.TryReserve(3 * mib) {
+		t.Fatal("the item got no room")
+	}
+	// As many packages as the queue holds each wait for room for an entry.
+	done := make(chan error, queue)
+	for range queue {
+		pkg := s.newMemoryHold(noSlot, true)
+		go func() { done <- pkg.Reserve(ctx, 3*mib) }()
+	}
+	waitFor(t, "the packages waiting among the large requests", func() bool {
+		return s.waiting.Load() == queue && s.waitingSmall.Load() == 0
+	})
+	// Another item that has to wait still finds a place in its own queue.
+	next := s.newMemoryHold(noSlot, false)
+	got := make(chan error, 1)
+	go func() { got <- next.Reserve(ctx, 3*mib) }()
+	waitFor(t, "the item waiting in the queue of the items", func() bool { return s.waitingSmall.Load() == 1 })
+	select {
+	case err := <-got:
+		t.Fatalf("the item did not wait: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	for range queue {
+		<-done
+	}
+	<-got
+	item.release()
+	if queued(s) != 0 || usedOf(s.mem) != 0 {
+		t.Fatalf("left: %d waiting, %d reserved", queued(s), usedOf(s.mem))
+	}
 }
 
 // peakOf keeps the most of what it is shown.
