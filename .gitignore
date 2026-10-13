@@ -12,3 +12,9 @@
 
 # Fetched by `make corpus`.
 /testdata/corpus/
+
+# The settings and history of the dev container; see .env.example.
+/.env
+/.envrc
+/.direnv/
+/docker/.bash_history

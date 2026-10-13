@@ -1,0 +1,32 @@
+{
+  "name": "qti3-validator",
+  "dockerComposeFile": ["../docker-compose.dev.yml"],
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "host",
+  "postCreateCommand": "make tools schemas",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "golang.go",
+        "ms-vscode.makefile-tools",
+        "editorconfig.editorconfig"
+      ],
+      "settings": {
+        "go.lintTool": "golangci-lint-v2",
+        "go.lintFlags": ["--fast-only"],
+        "gopls": {
+          "formatting.gofumpt": true,
+          "formatting.local": "qti3-validator"
+        },
+        "makefile.configureOnOpen": false
+      }
+    },
+    "jetbrains": {
+      "settings": {
+        "com.intellij:app:GeneralSettings.autoSaveIfInactive": true
+      }
+    }
+  }
+}

@@ -275,6 +275,33 @@ How the engine is checked:
 
 ## Building and running from source
 
+### Dev container
+
+The dev container has everything the `make` targets need: the Go of the
+image build, gopls, the GitHub CLI and Claude Code, so the host needs only
+Docker and make. It is defined in `docker-compose.dev.yml` and
+`docker/Dockerfile.dev`, and runs as a user with your uid and gid, so the
+files it makes in the checkout are yours.
+
+```sh
+cp .env.example .env   # once, and adjust
+make shell             # on the host: builds and starts the container, opens a shell in it
+make tools             # in the container, once: golangci-lint and govulncheck
+make check
+```
+
+VS Code and JetBrains open it from `.devcontainer/devcontainer.json`, which
+runs `make tools schemas` when the container is made. The service is on
+port 8080 of the host, or on `DEV_PORT` from `.env`, after `make run`.
+
+The container mounts the SSH agent, `~/.gitconfig` and the Claude Code login
+in `~/.claude`, so git and `claude` work as on the host. It does not mount
+the host's Docker socket, which would give whatever runs in it control of the
+host: `make image` and the other `docker` commands run on the host. Go's
+modules, the tools and the build cache are in the volumes `go` and `cache`,
+which survive a rebuild of the image;
+`docker compose -f docker-compose.dev.yml down -v` removes them.
+
 ### Locally
 
 ```sh
@@ -290,7 +317,7 @@ Go 1.27 or newer is required.
 ### Docker
 
 ```sh
-make image   # tags feyst/qti3-validator:dev and :latest
+make image   # on the host; tags feyst/qti3-validator:dev and :latest
 docker run --rm -p 8080:8080 feyst/qti3-validator
 ```
 

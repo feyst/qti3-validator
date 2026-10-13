@@ -10,3 +10,10 @@ testdata
 internal/adapter/schemastore/schemas/purl.imsglobal.org
 internal/adapter/schemastore/schemas/schematron.json.gz
 internal/adapter/schemastore/schemas/elements.json.gz
+# The dev container.
+.devcontainer
+docker
+docker-compose.dev.yml
+.env
+.env.example
+.envrc

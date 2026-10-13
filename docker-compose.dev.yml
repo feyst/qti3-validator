@@ -1,0 +1,38 @@
+# The dev container, used by .devcontainer (VS Code, JetBrains) and by
+# `make shell`. It mounts the checkout, the SSH agent for git, and the Claude
+# Code login, but not the host's Docker socket: `make image` runs on the host.
+# Values come from .env, see .env.example.
+name: qti3-validator-dev
+
+services:
+  dev:
+    build:
+      context: docker
+      dockerfile: Dockerfile.dev
+      args:
+        local_user_id: ${UID:-1000}
+        local_user_group_id: ${GID:-1000}
+    user: host
+    init: true
+    working_dir: /workspace
+    environment:
+      - SSH_AUTH_SOCK=/ssh-agent
+      - GH_TOKEN=${GH_TOKEN:-}
+    volumes:
+      - "./:/workspace"
+      - "./docker/.bashrc:/home/host/.bashrc:ro"
+      - "go:/home/host/go"
+      - "cache:/home/host/.cache"
+      - "${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent"
+      - "${HOME}/.gitconfig:/home/host/.gitconfig:ro"
+      # Claude Code keeps its credentials in ~/.claude and the account and
+      # onboarding state in ~/.claude.json beside it; with both it starts
+      # logged in.
+      - "${HOME}/.claude:/home/host/.claude"
+      - "${HOME}/.claude.json:/home/host/.claude.json"
+    ports:
+      - "${DEV_PORT:-8080}:8080"
+
+volumes:
+  go:
+  cache:
