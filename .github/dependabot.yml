@@ -14,11 +14,12 @@ updates:
       go:
         update-types: [minor, patch]
   # The golang image the binary is built with, and with it the standard
-  # library's security fixes. Go is excluded from the default cooldown of 3
+  # library's security fixes, and that of the dev container in docker/,
+  # which keeps the same Go. Go is excluded from the default cooldown of 3
   # days: Go's fixes are not advisories on the image, so security updates,
   # which skip the cooldown, do not cover them.
   - package-ecosystem: docker
-    directory: /
+    directories: [/, /docker]
     schedule:
       interval: daily
     cooldown:

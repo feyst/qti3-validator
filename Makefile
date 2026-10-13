@@ -2,7 +2,7 @@
 
 GOLANGCI_LINT_VERSION := v2.14.0
 GOVULNCHECK_VERSION   := v1.8.0
-GOBIN                 := $(shell go env GOPATH)/bin
+GOBIN                 := $(shell go env GOPATH 2>/dev/null)/bin
 IMAGE                 := feyst/qti3-validator
 # The version a locally built image reports: dev-<commit>, with -dirty when
 # the work tree differs from that commit, or dev without git.
@@ -38,7 +38,7 @@ endif
 # `fetchschemas` writing the same files, and the checks share the Go cache.
 .NOTPARALLEL:
 
-.PHONY: help schemas build test race cover bench lint fmt vuln check image tools corpus FORCE
+.PHONY: help schemas build run test race cover bench lint fmt vuln check image tools corpus shell FORCE
 
 help: ## Show the targets
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -53,6 +53,9 @@ FORCE:
 
 build: $(SCHEMAS) ## Build the service binary
 	CGO_ENABLED=0 go build -trimpath -o bin/qti-validator ./cmd/qti-validator
+
+run: $(SCHEMAS) ## Run the service on :8080, or on ADDR
+	go run ./cmd/qti-validator
 
 test: $(SCHEMAS) ## Run the tests
 	go test ./...
@@ -84,9 +87,15 @@ corpus: $(SCHEMAS) ## Fetch the public 1EdTech QTI examples and validate them al
 	git -C $(CORPUS_DIR) checkout -q --detach $(CORPUS_COMMIT)
 	go test -count=1 -run Corpus ./internal/feature
 
-image: ## Build the Docker image, tagged feyst/qti3-validator:dev and :latest; it reports version dev-<commit>
-	docker build --build-arg VERSION=$(DEV_VERSION) -t $(IMAGE):dev -t $(IMAGE):latest .
-
 tools: ## Install the linters
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+# These two run on the host, the other targets in the dev container, which
+# has no access to the Docker daemon.
+image: ## Build the Docker image, tagged feyst/qti3-validator:dev and :latest; it reports version dev-<commit>
+	docker build --build-arg VERSION=$(DEV_VERSION) -t $(IMAGE):dev -t $(IMAGE):latest .
+
+shell: ## Open a shell in the dev container, started and built when needed
+	docker compose -f docker-compose.dev.yml up -d --build --wait
+	docker compose -f docker-compose.dev.yml exec dev bash
