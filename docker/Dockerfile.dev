@@ -1,0 +1,54 @@
+# The dev container: Go, the linters' toolchain and the GitHub CLI, run as a
+# user with the uid and gid of the host user, so files made in /workspace
+# belong to whoever owns the checkout. See docker-compose.dev.yml and
+# CONTRIBUTING.md.
+#
+# The Go version is that of the image build in ../Dockerfile; Dependabot
+# updates both.
+FROM golang:1.27.2-trixie
+
+ARG local_user_id=1000
+ARG local_user_group_id=1000
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe/Amsterdam
+
+RUN ln -sf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git gnupg jq less make openssh-client sudo unzip \
+ && rm -rf /var/lib/apt/lists/*
+
+# The GitHub CLI is for pull requests and the CI runs. There is no Docker
+# CLI: the container has no access to the host's daemon, so `make image`
+# runs on the host.
+RUN install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update && apt-get install -y --no-install-recommends gh \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid $local_user_group_id host \
+ && useradd --uid $local_user_id --gid $local_user_group_id --shell /bin/bash --create-home host \
+ && echo 'host ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/host && chmod 0440 /etc/sudoers.d/host
+
+USER host
+
+# GOPATH (modules and the tools `make tools` installs) and the build cache
+# are volumes, so they survive a rebuild of this image. The directories are
+# made here, so the volumes start out owned by the host user.
+ENV GOPATH=/home/host/go
+ENV PATH=/home/host/.local/bin:/home/host/go/bin:/usr/local/go/bin:$PATH
+RUN mkdir -p /home/host/go /home/host/.cache /home/host/.local/bin
+
+# gopls goes to ~/.local/bin, not $GOPATH/bin, where the volume would hide it.
+RUN GOBIN=/home/host/.local/bin go install golang.org/x/tools/gopls@latest \
+ && go clean -cache -modcache
+
+# Claude Code; it finds its login in the mounted ~/.claude.
+RUN curl -fsSL https://claude.ai/install.sh | bash || true
+
+WORKDIR /workspace
+COPY entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["bash", "/entrypoint.sh"]
