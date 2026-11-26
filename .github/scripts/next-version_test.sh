@@ -151,12 +151,12 @@ expect "Release: patch alone releases nothing extra" ""
 
 repo unknown-value
 commit cmd/main.go "$(printf 'Add validate\n\nRelease: feature')"
-expect_fail "an unknown Release value fails" "Unknown Release value 'feature'"
+expect_fail "an unknown Release value fails" "Release line not understood: 'Release: feature'"
 expect "a manual bump releases past an unknown Release value" v1.3.0 BUMP=minor
 
 repo empty-value
 commit cmd/main.go "$(printf 'Add validate\n\nRelease:')"
-expect_fail "a Release line without a value fails" "has no value"
+expect_fail "a Release line without a value fails" "Release line not understood"
 
 repo manual
 commit docs/readme.md "Docs"
@@ -176,6 +176,39 @@ git -C "$dir" tag v1.9.0-rc.1
 commit cmd/main.go "Fix"
 expect "counts on from the highest plain release" v1.10.1
 
+repo prose
+commit cmd/main.go "$(printf 'Rework\n\nRelease: major rework of the parser')"
+expect_fail "prose after a Release value fails" "Release line not understood"
+
+repo remark
+commit cmd/main.go "$(printf 'Add validate\n\nRelease: minor (the validate command)')"
+expect "a remark in parentheses after the value is allowed" v1.3.0
+
+repo released
+commit cmd/main.go "Fix"
+git -C "$dir" tag v1.2.2
+expect "a commit with a release tag is not released again" "" BUMP=minor
+
+repo not-tip
+commit cmd/main.go "Fix"
+old=$(git -C "$dir" rev-parse HEAD)
+commit cmd/main.go "Newer"
+git -C "$dir" update-ref refs/remotes/origin/main HEAD
+git -C "$dir" checkout -q --detach "$old"
+expect "an old commit of main is not released" ""
+check "an old commit says why" "$(grep -q 'not the tip of main' <<< "$err" && echo true || echo false)"
+git -C "$dir" checkout -q main
+expect "the tip of main is released" v1.2.2
+
+repo same-commit
+commit cmd/main.go "Fix"
+KNOWN="1.2.2=$(git -C "$dir" rev-parse HEAD)" expect_fail "stops when the image to skip was built from HEAD" "built from this commit"
+
+repo describe-glob
+git -C "$dir" tag v1.2.1.4
+commit cmd/main.go "Fix"
+expect "a tag that is not vX.Y.Z is no base" v1.2.2
+
 dir=$tmp/first
 git init -q -b main "$dir"
 git -C "$dir" -c commit.gpgsign=false -c user.email=t@e -c user.name=t commit -q --allow-empty -m first
@@ -189,12 +222,18 @@ echo "# registries (stub curl)"
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
-url=${!#}
-lookup() { local tag=$1 list=$2 pair; for pair in $list; do [ "${pair%%:*}" = "$tag" ] && { echo "${pair#*:}"; return; }; done; echo 404; }
+# STUB_REV lists tag:commit pairs: the revision annotation of a ghcr.io tag.
+url=${!#} out=/dev/stdout
+while [ $# -gt 1 ]; do [ "$1" = -o ] && out=$2; shift; done
+lookup() { local tag=$1 list=$2 fallback=$3 pair; for pair in $list; do [ "${pair%%:*}" = "$tag" ] && { echo "${pair#*:}"; return; }; done; echo "$fallback"; }
+default='{"token":"t"}'
 case $url in
-  https://ghcr.io/token*) printf '%s' "${STUB_TOKEN-{\"token\":\"t\"}}" ;;
-  https://ghcr.io/v2/*) printf '%s' "$(lookup "${url##*/}" "${STUB_GHCR:-}")" ;;
-  https://hub.docker.com/*) printf '%s' "$(lookup "${url##*/}" "${STUB_HUB:-}")" ;;
+  https://ghcr.io/token*) printf '%s' "${STUB_TOKEN-$default}" ;;
+  https://ghcr.io/v2/*)
+    tag=${url##*/}
+    printf '{"annotations":{"org.opencontainers.image.revision":"%s"}}' "$(lookup "$tag" "${STUB_REV:-}" "")" > "$out"
+    printf '%s' "$(lookup "$tag" "${STUB_GHCR:-}" 404)" ;;
+  https://hub.docker.com/*) printf '%s' "$(lookup "${url##*/}" "${STUB_HUB:-}" 404)" ;;
   *) exit 6 ;;
 esac
 EOF
@@ -213,11 +252,17 @@ check "exists: a 429 from ghcr.io is no answer" "$([ "$status" = 2 ] && grep -q 
 run "$stub" STUB_HUB="1.2.2:503" -- exists 1.2.2
 check "exists: a 503 from Docker Hub is no answer" "$([ "$status" = 2 ] && grep -q 'Docker Hub answered 503' <<< "$err" && echo true || echo false)"
 run "$stub" STUB_TOKEN='{"errors":[]}' -- exists 1.2.2
-check "exists: no ghcr.io token is no answer" "$([ "$status" = 2 ] && grep -q 'no token' <<< "$err" && echo true || echo false)"
+check "exists: JSON without a token is no answer" "$([ "$status" = 2 ] && grep -q 'no token' <<< "$err" && echo true || echo false)"
+run "$stub" STUB_TOKEN='<html>' -- exists 1.2.2
+check "exists: a body that is no JSON is no answer" "$([ "$status" = 2 ] && grep -q 'no token' <<< "$err" && echo true || echo false)"
 run "$stub" STUB_GHCR="1.2.2:200" STUB_HUB="1.2.3:200"
 check "next: skips images on either registry" "$([ "$status" = 0 ] && [ "$out" = v1.2.4 ] && echo true || echo false)"
 run "$stub" STUB_HUB="1.2.2:500"
 check "next: fails when a registry gives no answer" "$([ "$status" = 2 ] && [ -z "$out" ] && echo true || echo false)"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_REV="1.2.2:$(git -C "$dir" rev-parse HEAD)"
+check "next: stops when the ghcr.io image to skip was built from HEAD" "$([ "$status" = 2 ] && [ -z "$out" ] && grep -q 'built from this commit' <<< "$err" && echo true || echo false)"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_REV="1.2.2:0123456789abcdef0123456789abcdef01234567"
+check "next: skips an image built from another commit" "$([ "$status" = 0 ] && [ "$out" = v1.2.3 ] && echo true || echo false)"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failed"

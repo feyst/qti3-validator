@@ -256,12 +256,19 @@ jobs:
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           # A re-run after a failure further down finds the tag, and the
           # release, it made before; a tag on another commit is an error.
-          if tagged=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha 2>/dev/null); then
+          if ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" 2> "$RUNNER_TEMP/ref.err"); then
+            tagged=$(jq -r .object.sha <<< "$ref")
+            if [ "$(jq -r .object.type <<< "$ref")" = tag ]; then
+              tagged=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tagged" --jq .object.sha)
+            fi
             if [ "$tagged" != "$GITHUB_SHA" ]; then
               echo "::error::$TAG already tags $tagged, not $GITHUB_SHA"
               exit 1
             fi
             echo "$TAG already tags this commit"
+          elif ! grep -q 'HTTP 404' "$RUNNER_TEMP/ref.err"; then
+            cat "$RUNNER_TEMP/ref.err"
+            exit 1
           else
             object=$(gh api "repos/$GITHUB_REPOSITORY/git/tags" \
               -f tag="$TAG" -f object="$GITHUB_SHA" -f type=commit \
@@ -306,7 +313,7 @@ jobs:
       SUCCEEDED: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.image.result == 'success' }}
     steps:
       - run: |
-          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
           open=$(gh issue list --label release-failure --state open --json number --jq '.[0].number // empty')
           if [ "$FAILED" = true ]; then
             body="The $GITHUB_EVENT_NAME build of main failed: $run_url"

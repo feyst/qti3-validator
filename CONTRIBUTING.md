@@ -383,11 +383,20 @@ and on ghcr.io it would overwrite an image users may have pulled. `latest`,
 When a release run fails:
 
 - in the job `release`, after the image was pushed: **Re-run failed jobs**.
-  It finishes the tag and the release the failed run left half made.
-- earlier, in `check`, `version` or `image`: **Re-run all jobs**, or start a
-  new run. Only a new pass of `version` sees what the failed run already
-  pushed; the job `image` stops a re-run of failed jobs that would push a
-  version a second time.
+  It finishes the tag and the release the failed run left half made. A
+  later run does not finish them: it stops with an error when the image of
+  this commit is there without a tag, and releases nothing when the tag is
+  there. Past the 30 days in which GitHub allows a re-run,
+  finish it by hand, for example for v1.2.3:
+  `gh release create v1.2.3 --target <commit> --generate-notes`.
+- earlier, in `check`, `version` or `image`: start a new run (Actions → CI →
+  Run workflow, `auto`). Only a new pass of `version` sees what the failed
+  run already pushed; the job `image` stops a re-run of failed jobs that
+  would push a version a second time.
+
+A run releases only the tip of main and only a commit that has no release
+tag yet, so re-running an old run, or a manual run that already released,
+releases nothing.
 
 Release tags are made by the workflow and are not signed; the build
 attestation on ghcr.io (`gh attestation verify oci://ghcr.io/feyst/qti3-validator:X.Y.Z -R feyst/qti3-validator`)
