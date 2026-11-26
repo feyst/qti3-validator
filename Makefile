@@ -38,7 +38,7 @@ endif
 # `fetchschemas` writing the same files, and the checks share the Go cache.
 .NOTPARALLEL:
 
-.PHONY: help schemas build run test race cover bench lint fmt vuln check image tools corpus shell FORCE
+.PHONY: help schemas build run test race cover bench lint fmt vuln release-test check image tools corpus shell FORCE
 
 help: ## Show the targets
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -79,7 +79,10 @@ fmt: ## Format the code
 vuln: $(SCHEMAS) ## Check dependencies for known vulnerabilities
 	$(GOBIN)/govulncheck ./...
 
-check: lint race vuln ## Everything CI runs
+release-test: ## Test the script that picks the next release version
+	.github/scripts/next-version_test.sh
+
+check: lint race vuln release-test ## Everything CI runs
 
 corpus: $(SCHEMAS) ## Fetch the public 1EdTech QTI examples and validate them all (go test -run Corpus)
 	@if [ ! -d $(CORPUS_DIR)/.git ]; then git init -q $(CORPUS_DIR) && git -C $(CORPUS_DIR) remote add origin $(CORPUS_REPO); fi

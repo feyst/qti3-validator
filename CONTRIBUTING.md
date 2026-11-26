@@ -346,11 +346,40 @@ into the image changed since the last tag `vX.Y.Z` (`go.mod`, `go.sum`, the
 Dockerfile, the rules, `third_party` and the code in `cmd` and `internal`,
 without tests, `testdata` directories and `internal/testutil`), it releases
 the next patch version: the image gets the tags `X.Y.Z` and `X.Y`, the binary
-reports that version, and the commit gets the tag and a GitHub release with
-notes.
+reports that version, and the commit gets an annotated tag and a GitHub
+release with notes. `.github/scripts/next-version.sh` picks the version;
+`make release-test` tests it.
 
-For a minor or major release, start the workflow by hand: Actions → CI → Run
+For a minor or major release, put a trailer in a commit of the pull request,
+or in the merge commit, on a line of its own at the end of the message:
+
+```text
+Add the validate command
+
+Release: minor
+```
+
+`Release: major` and `Release: minor` count from the last release on; the
+highest one wins, and it releases also when nothing in the image changed.
+Without a trailer it is a patch, so Dependabot's updates go out as they did.
+To release without a commit, start the workflow by hand: Actions → CI → Run
 workflow, and pick the bump.
+
+A version whose image is already on ghcr.io or Docker Hub is skipped, on to
+the next patch number, and the release notes name it. That happens when a
+release pushed its image but failed before it was tagged, as v1.2.2 did:
+Docker Hub keeps exact versions immutable (the rule `^[0-9]+\.[0-9]+\.[0-9]+$`
+under Settings → General → Tag mutability), so it refuses the version again,
+and on ghcr.io it would overwrite an image users may have pulled. `latest`,
+`main`, `X.Y` and `sha-<commit>` stay mutable.
+
+Release tags are made by the workflow and are not signed; the build
+attestation on ghcr.io (`gh attestation verify oci://ghcr.io/feyst/qti3-validator:X.Y.Z -R feyst/qti3-validator`)
+ties an image to its commit and run. Commits are signed by their authors.
+
+While builds of main fail, an open issue with the label `release-failure`
+gets a comment per failed run; the next build of main that succeeds closes
+it.
 
 Runs of main and of tags are never cancelled while running and run one after
 the other, so two releases never pick the same version. GitHub keeps only one

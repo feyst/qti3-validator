@@ -55,53 +55,37 @@ jobs:
       - name: Vulnerabilities
         run: make vuln
 
-  # Picks the next version for a build of main: a patch release when anything
-  # that goes into the image changed since the last tag vX.Y.Z, so code,
-  # dependencies, rules or the Go version; the chosen bump when started by
-  # hand. The first release is v0.1.0. Empty when there is nothing to release.
+  # Picks the next version for a build of main with
+  # .github/scripts/next-version.sh: a patch release when anything that goes
+  # into the image changed since the last tag vX.Y.Z, so code, dependencies,
+  # rules or the Go version; a minor or major one for a trailer
+  # `Release: minor` or `Release: major` in a commit since then; the chosen
+  # bump when started by hand. A version whose image is already in a
+  # registry is skipped. Empty when there is nothing to release. On a pull
+  # request it tests the script instead.
   version:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.next.outputs.tag }}
+      skipped: ${{ steps.next.outputs.skipped }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Test the version script
+        if: github.event_name == 'pull_request'
+        run: .github/scripts/next-version_test.sh
       - id: next
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           BUMP: ${{ inputs.bump }}
         run: |
-          # Only plain vX.Y.Z tags count; a prerelease such as v1.1.0-rc.1
-          # is neither a base to compare with nor one to count on from.
-          releases() { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; }
-          # The next number counts on from the highest release of all, so it
-          # never repeats one, also when two tags share a commit or a tag
-          # sits outside main.
-          last=$(git tag --list 'v*' | releases | sort -V | tail -n 1)
-          # Whether anything changed is asked of the nearest release in
-          # main's history. Tests, their data and their helpers are not in
-          # the image.
-          base=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' 2>/dev/null || true)
-          if [ -z "$last" ]; then
-            next=v0.1.0
-          else
-            if [ -z "$BUMP" ] && [ -n "$base" ] && git diff --quiet "$base" HEAD -- \
-                go.mod go.sum Dockerfile cmd internal rules third_party \
-                ':(exclude)*_test.go' ':(exclude)internal/testutil' \
-                ':(exclude,glob)internal/**/testdata/**' ':(exclude,glob)cmd/**/testdata/**'; then
-              echo "Nothing in the image changed since $base"
-              exit 0
-            fi
-            IFS=. read -r major minor patch <<< "${last#v}"
-            case "${BUMP:-patch}" in
-              major) next="v$((10#$major + 1)).0.0" ;;
-              minor) next="v$((10#$major)).$((10#$minor + 1)).0" ;;
-              *)     next="v$((10#$major)).$((10#$minor)).$((10#$patch + 1))" ;;
-            esac
-          fi
-          echo "Releasing $next"
-          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          next=$(.github/scripts/next-version.sh 2> "$RUNNER_TEMP/next.log") || { cat "$RUNNER_TEMP/next.log"; exit 1; }
+          cat "$RUNNER_TEMP/next.log"
+          if [ -n "$next" ]; then echo "Releasing $next"; fi
+          # The versions passed over, for the release notes: "v1.2.2 v1.2.3".
+          skipped=$(sed -n 's/^Skipping \(v[0-9.]*\):.*/\1/p' "$RUNNER_TEMP/next.log" | xargs)
+          { echo "tag=$next"; echo "skipped=$skipped"; } >> "$GITHUB_OUTPUT"
 
   # Builds the image for amd64 and arm64 and pushes it as
   # ghcr.io/feyst/qti3-validator, and as feyst/qti3-validator on Docker Hub
@@ -236,7 +220,9 @@ jobs:
           readme-filepath: README.md
           enable-url-completion: true
 
-  # Tags the commit and publishes a GitHub release once its image is pushed.
+  # Tags the commit with an annotated tag and publishes a GitHub release once
+  # its image is pushed. The tag is made by the workflow and not signed; the
+  # build attestation on ghcr.io ties the image to the commit and the run.
   # A tag made with the workflow's own token starts no new run.
   release:
     needs: [version, image]
@@ -247,16 +233,60 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.version.outputs.tag }}
+      SKIPPED: ${{ needs.version.outputs.skipped }}
       IMAGE: feyst/qti3-validator
       DOCKERHUB: ${{ needs.image.outputs.dockerhub }}
     steps:
       - run: |
           v=${TAG#v}
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          object=$(gh api "repos/$GITHUB_REPOSITORY/git/tags" \
+            -f tag="$TAG" -f object="$GITHUB_SHA" -f type=commit \
+            -f message="$TAG"$'\n\n'"Released by $run_url" --jq .sha)
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$object" > /dev/null
           # Indented: a code block in the notes. Docker Hub is named only
           # when the image was pushed there.
           notes="    docker pull ghcr.io/$IMAGE:$v"
           if [ "$DOCKERHUB" = true ]; then
             notes=$(printf '%s\n    docker pull %s:%s' "$notes" "$IMAGE" "$v")
           fi
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+          # A skipped version has an image from a release that failed before
+          # it was tagged; it is not a release.
+          if [ -n "$SKIPPED" ]; then
+            notes=$(printf '%s\n\nSkipped: %s. An image with that version exists from a release that did not finish; it is not a release, use %s.' \
+              "$notes" "${SKIPPED// /, }" "$TAG")
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "$TAG" --generate-notes --notes "$notes"
+
+  # Keeps one open issue labelled release-failure while builds of main fail,
+  # with a comment per failed run, and closes it after the next build of main
+  # that succeeds. The nightly run released nothing for two weeks before
+  # anyone noticed; this makes it noticed.
+  report:
+    needs: [check, version, image, dockerhub-readme, release]
+    if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      FAILED: ${{ contains(needs.*.result, 'failure') }}
+    steps:
+      - run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          open=$(gh issue list --label release-failure --state open --json number --jq '.[0].number // empty')
+          if [ "$FAILED" = true ]; then
+            body="The $GITHUB_EVENT_NAME build of main failed: $run_url"
+            if [ -n "$open" ]; then
+              gh issue comment "$open" --body "$body"
+            else
+              gh label create release-failure --color B60205 \
+                --description 'A build of main failed; closed by the next one that succeeds' 2>/dev/null || true
+              gh issue create --label release-failure --title 'Builds of main fail' \
+                --body "$body"$'\n\n'"A failed build of main releases nothing. This issue gets a comment for every further failure and is closed by the next build of main that succeeds."
+            fi
+          elif [ -n "$open" ]; then
+            gh issue close "$open" --comment "The $GITHUB_EVENT_NAME build of main succeeded again: $run_url"
+          fi
