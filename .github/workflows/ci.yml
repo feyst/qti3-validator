@@ -9,15 +9,16 @@ on:
   # a merge by a workflow's own token starts no new run.
   schedule:
     - cron: '17 3 * * *'
-  # Actions → CI → Run workflow releases main with the chosen version bump,
-  # also when nothing in the image changed.
+  # Actions → CI → Run workflow builds main. With auto it releases as a push
+  # would, following the Release lines; patch, minor or major release with
+  # that bump, also when nothing in the image changed.
   workflow_dispatch:
     inputs:
       bump:
-        description: Version bump
+        description: Version bump (auto follows the Release lines of the commits)
         type: choice
-        options: [patch, minor, major]
-        default: patch
+        options: [auto, patch, minor, major]
+        default: auto
 
 # A new push to a pull request cancels its running build. Runs of main and of
 # tags are never cancelled while running and run one after the other, so two
@@ -58,7 +59,7 @@ jobs:
   # Picks the next version for a build of main with
   # .github/scripts/next-version.sh: a patch release when anything that goes
   # into the image changed since the last tag vX.Y.Z, so code, dependencies,
-  # rules or the Go version; a minor or major one for a trailer
+  # rules or the Go version; a minor or major one for a line
   # `Release: minor` or `Release: major` in a commit since then; the chosen
   # bump when started by hand. A version whose image is already in a
   # registry is skipped. Empty when there is nothing to release. On a pull
@@ -119,6 +120,19 @@ jobs:
       DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # "Re-run failed jobs" does not run `version` again, so a run whose
+      # image job failed after pushing the release would push it a second
+      # time: Docker Hub refuses that, and ghcr.io would overwrite it.
+      - name: Check that the release is not pushed yet
+        if: env.RELEASE != ''
+        run: |
+          if .github/scripts/next-version.sh exists "${RELEASE#v}"; then
+            echo "::error::The image ${RELEASE#v} is already in a registry. Use Re-run all jobs or start a new run, which picks the next version."
+            exit 1
+          elif [ $? -ne 1 ]; then
+            exit 1
+          fi
 
       - name: Image names and release tags
         id: names
@@ -240,10 +254,24 @@ jobs:
       - run: |
           v=${TAG#v}
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          object=$(gh api "repos/$GITHUB_REPOSITORY/git/tags" \
-            -f tag="$TAG" -f object="$GITHUB_SHA" -f type=commit \
-            -f message="$TAG"$'\n\n'"Released by $run_url" --jq .sha)
-          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$object" > /dev/null
+          # A re-run after a failure further down finds the tag, and the
+          # release, it made before; a tag on another commit is an error.
+          if tagged=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha 2>/dev/null); then
+            if [ "$tagged" != "$GITHUB_SHA" ]; then
+              echo "::error::$TAG already tags $tagged, not $GITHUB_SHA"
+              exit 1
+            fi
+            echo "$TAG already tags this commit"
+          else
+            object=$(gh api "repos/$GITHUB_REPOSITORY/git/tags" \
+              -f tag="$TAG" -f object="$GITHUB_SHA" -f type=commit \
+              -f message="$TAG"$'\n\n'"Released by $run_url" --jq .sha)
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$object" > /dev/null
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "The release $TAG exists"
+            exit 0
+          fi
           # Indented: a code block in the notes. Docker Hub is named only
           # when the image was pushed there.
           notes="    docker pull ghcr.io/$IMAGE:$v"
@@ -261,8 +289,10 @@ jobs:
 
   # Keeps one open issue labelled release-failure while builds of main fail,
   # with a comment per failed run, and closes it after the next build of main
-  # that succeeds. The nightly run released nothing for two weeks before
-  # anyone noticed; this makes it noticed.
+  # that built and pushed the image without a failure. A cancelled run, or a
+  # nightly run with nothing to release, leaves the issue as it is. The
+  # nightly run released nothing for two weeks before anyone noticed; this
+  # makes it noticed.
   report:
     needs: [check, version, image, dockerhub-readme, release]
     if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -273,6 +303,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       FAILED: ${{ contains(needs.*.result, 'failure') }}
+      SUCCEEDED: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.image.result == 'success' }}
     steps:
       - run: |
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
@@ -287,6 +318,6 @@ jobs:
               gh issue create --label release-failure --title 'Builds of main fail' \
                 --body "$body"$'\n\n'"A failed build of main releases nothing. This issue gets a comment for every further failure and is closed by the next build of main that succeeds."
             fi
-          elif [ -n "$open" ]; then
+          elif [ "$SUCCEEDED" = true ] && [ -n "$open" ]; then
             gh issue close "$open" --comment "The $GITHUB_EVENT_NAME build of main succeeded again: $run_url"
           fi

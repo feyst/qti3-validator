@@ -350,8 +350,9 @@ reports that version, and the commit gets an annotated tag and a GitHub
 release with notes. `.github/scripts/next-version.sh` picks the version;
 `make release-test` tests it.
 
-For a minor or major release, put a trailer in a commit of the pull request,
-or in the merge commit, on a line of its own at the end of the message:
+For a minor or major release, put a line `Release: minor` or
+`Release: major` in the body of a commit: in the pull request's description
+as well, as a squash merge may take its message from there.
 
 ```text
 Add the validate command
@@ -359,11 +360,17 @@ Add the validate command
 Release: minor
 ```
 
-`Release: major` and `Release: minor` count from the last release on; the
-highest one wins, and it releases also when nothing in the image changed.
-Without a trailer it is a patch, so Dependabot's updates go out as they did.
-To release without a commit, start the workflow by hand: Actions → CI → Run
-workflow, and pick the bump.
+Every such line since the last release counts, anywhere in a commit's body,
+also in a squash message that lists several commits; the highest one wins,
+and it releases also when nothing in the image changed. `Release: patch` is
+allowed and changes nothing. Without one it is a patch, so Dependabot's
+updates go out as they did. A `Release:` line with another value stops the
+release with an error rather than guess; start the workflow by hand with a
+bump to release past it.
+
+To build main by hand, start the workflow: Actions → CI → Run workflow.
+`auto` releases as a push would; `patch`, `minor` or `major` release with that
+bump whatever the commits say.
 
 A version whose image is already on ghcr.io or Docker Hub is skipped, on to
 the next patch number, and the release notes name it. That happens when a
@@ -373,13 +380,22 @@ under Settings → General → Tag mutability), so it refuses the version again,
 and on ghcr.io it would overwrite an image users may have pulled. `latest`,
 `main`, `X.Y` and `sha-<commit>` stay mutable.
 
+When a release run fails:
+
+- in the job `release`, after the image was pushed: **Re-run failed jobs**.
+  It finishes the tag and the release the failed run left half made.
+- earlier, in `check`, `version` or `image`: **Re-run all jobs**, or start a
+  new run. Only a new pass of `version` sees what the failed run already
+  pushed; the job `image` stops a re-run of failed jobs that would push a
+  version a second time.
+
 Release tags are made by the workflow and are not signed; the build
 attestation on ghcr.io (`gh attestation verify oci://ghcr.io/feyst/qti3-validator:X.Y.Z -R feyst/qti3-validator`)
 ties an image to its commit and run. Commits are signed by their authors.
 
 While builds of main fail, an open issue with the label `release-failure`
-gets a comment per failed run; the next build of main that succeeds closes
-it.
+gets a comment per failed run; the next build of main that pushes the image
+without a failure closes it.
 
 Runs of main and of tags are never cancelled while running and run one after
 the other, so two releases never pick the same version. GitHub keeps only one

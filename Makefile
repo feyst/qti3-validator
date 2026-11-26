@@ -41,7 +41,7 @@ endif
 .PHONY: help schemas build run test race cover bench lint fmt vuln release-test check image tools corpus shell FORCE
 
 help: ## Show the targets
-	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-13s %s\n", $$1, $$2}'
 
 schemas: ## Fetch the pinned schemas, compile the Schematron rules and read the element names, also when they are up to date
 	go run ./cmd/fetchschemas
