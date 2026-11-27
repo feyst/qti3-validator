@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests next-version.sh against throwaway repositories, and its registry
 # lookups against a stub curl. Run with `make release-test`; CI runs it in
-# the job `version` of pull requests.
+# the job `version` of pull requests. Needs bash, git and jq.
 set -euo pipefail
 
 script=$(cd "$(dirname "$0")" && pwd)/next-version.sh
@@ -32,14 +32,17 @@ commit() {
 }
 
 # run [ENV...] [-- ARGS...]: runs the script in the current repository with
-# a clean environment plus ENV; sets out, err and status.
+# a clean environment plus ENV, where main's tip is HEAD unless ENV sets
+# MAIN_TIP and every tag has its GitHub release unless ENV sets
+# KNOWN_RELEASES; sets out, err and status.
 run() {
   local envs=() args=()
+  envs+=("MAIN_TIP=$(git -C "$dir" rev-parse HEAD)" "KNOWN_RELEASES=$(git -C "$dir" tag | xargs)")
   while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done
   [ $# -gt 0 ] && shift
   args=("$@")
   status=0
-  out=$(cd "$dir" && env -u BUMP -u IMAGE -u KNOWN_IMAGE_TAGS "${envs[@]}" "$script" "${args[@]}" 2> "$tmp/err") || status=$?
+  out=$(cd "$dir" && env -u BUMP -u IMAGE -u KNOWN_IMAGE_TAGS "${envs[@]}" "$script" ${args[@]+"${args[@]}"} 2> "$tmp/err") || status=$?
   err=$(cat "$tmp/err")
 }
 
@@ -52,6 +55,7 @@ check() {
     failures=$((failures + 1))
   fi
 }
+is() { if "$@"; then echo true; else echo false; fi; }
 
 # expect NAME WANT [ENV...]: the script prints WANT and exits 0.
 expect() {
@@ -89,10 +93,19 @@ KNOWN="1.2.2 1.2.3" expect "versions with an image are skipped" v1.2.4
 check "a skipped version is named on stderr" \
   "$([ "$(grep -c '^Skipping v1\.2\.[23]: ' <<< "$err")" = 2 ] && echo true || echo false)"
 
+repo same-commit
+commit cmd/main.go "Fix"
+KNOWN="1.2.2=$(git -C "$dir" rev-parse HEAD)" expect "an image of HEAD is picked again to finish its release" v1.2.2
+check "finishing is named on stderr" "$(grep -q 'built from HEAD' <<< "$err" && echo true || echo false)"
+
+repo other-commit
+commit cmd/main.go "Fix"
+KNOWN="1.2.2=0123456789abcdef0123456789abcdef01234567" expect "an image of another commit is skipped" v1.2.3
+
 repo minor
 commit cmd/main.go "$(printf 'Add a flag\n\nRelease: minor')"
 commit cmd/main.go "Fix"
-expect "a minor trailer since the release" v1.3.0
+expect "a minor Release line since the release" v1.3.0
 
 repo major
 commit cmd/main.go "$(printf 'Feature\n\nRelease: minor')"
@@ -141,22 +154,24 @@ repo bullet
 commit cmd/main.go "$(printf 'Add validate\n\n- Release: minor')"
 expect "a Release line in a bullet counts" v1.3.0
 
-repo words-after
-commit cmd/main.go "$(printf 'Add validate\n\nRelease: minor (new flag)')"
-expect "words after the value are not read" v1.3.0
+repo remark
+commit cmd/main.go "$(printf 'Add validate\n\nRelease: minor (the validate command)')"
+expect "a remark in parentheses after the value is allowed" v1.3.0
+
+repo code-block
+commit cmd/main.go "$(printf 'Docs of the bump\n\nFor example:\n\n    Release: major\n')"
+expect "an indented example is not a Release line" v1.2.2
 
 repo release-patch
 commit docs/readme.md "$(printf 'Docs\n\nRelease: patch')"
 expect "Release: patch alone releases nothing extra" ""
 
-repo unknown-value
-commit cmd/main.go "$(printf 'Add validate\n\nRelease: feature')"
-expect_fail "an unknown Release value fails" "Release line not understood: 'Release: feature'"
-expect "a manual bump releases past an unknown Release value" v1.3.0 BUMP=minor
-
-repo empty-value
-commit cmd/main.go "$(printf 'Add validate\n\nRelease:')"
-expect_fail "a Release line without a value fails" "Release line not understood"
+for case in "feature" "major rework of the parser" "4.8.0" "minor." ""; do
+  repo "unknown-$RANDOM"
+  commit cmd/main.go "$(printf 'Change\n\nRelease: %s' "$case")"
+  expect "an unknown Release value ('$case') is ignored" v1.2.2
+  check "  with a warning" "$(grep -q '^warning: ignored the line' <<< "$err" && echo true || echo false)"
+done
 
 repo manual
 commit docs/readme.md "Docs"
@@ -176,38 +191,22 @@ git -C "$dir" tag v1.9.0-rc.1
 commit cmd/main.go "Fix"
 expect "counts on from the highest plain release" v1.10.1
 
-repo prose
-commit cmd/main.go "$(printf 'Rework\n\nRelease: major rework of the parser')"
-expect_fail "prose after a Release value fails" "Release line not understood"
-
-repo remark
-commit cmd/main.go "$(printf 'Add validate\n\nRelease: minor (the validate command)')"
-expect "a remark in parentheses after the value is allowed" v1.3.0
-
-repo released
-commit cmd/main.go "Fix"
-git -C "$dir" tag v1.2.2
-expect "a commit with a release tag is not released again" "" BUMP=minor
-
-repo not-tip
-commit cmd/main.go "Fix"
-old=$(git -C "$dir" rev-parse HEAD)
-commit cmd/main.go "Newer"
-git -C "$dir" update-ref refs/remotes/origin/main HEAD
-git -C "$dir" checkout -q --detach "$old"
-expect "an old commit of main is not released" ""
-check "an old commit says why" "$(grep -q 'not the tip of main' <<< "$err" && echo true || echo false)"
-git -C "$dir" checkout -q main
-expect "the tip of main is released" v1.2.2
-
-repo same-commit
-commit cmd/main.go "Fix"
-KNOWN="1.2.2=$(git -C "$dir" rev-parse HEAD)" expect_fail "stops when the image to skip was built from HEAD" "built from this commit"
-
 repo describe-glob
 git -C "$dir" tag v1.2.1.4
 commit cmd/main.go "Fix"
 expect "a tag that is not vX.Y.Z is no base" v1.2.2
+
+repo released
+commit cmd/main.go "Fix"
+git -C "$dir" tag v1.2.2
+expect "a commit with a release is not released again" "" BUMP=minor
+expect "a commit tagged without a release is picked again to finish it" v1.2.2 KNOWN_RELEASES=v1.2.1
+
+repo not-tip
+commit cmd/main.go "Fix"
+expect "an old commit of main is not released" "" MAIN_TIP=0123456789abcdef0123456789abcdef01234567
+check "  and says why" "$(grep -q 'not the tip of main' <<< "$err" && echo true || echo false)"
+expect_fail "an unknown tip of main fails" "tip of main" MAIN_TIP=
 
 dir=$tmp/first
 git init -q -b main "$dir"
@@ -217,52 +216,65 @@ KNOWN="0.1.0" expect "the first release skips an existing image too" v0.1.1
 
 echo "# registries (stub curl)"
 
-# A curl that answers from STUB_TOKEN, STUB_GHCR and STUB_HUB, each a list
-# of tag:code pairs; tags not listed answer 404.
+# A curl that answers from STUB_GHCR and STUB_HUB, lists of tag:code (a tag
+# not listed answers 404), STUB_GHCR_REV and STUB_HUB_REV, lists of
+# tag:commit, and STUB_GHCR_TOKEN and STUB_HUB_TOKEN, the token bodies.
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
-# STUB_REV lists tag:commit pairs: the revision annotation of a ghcr.io tag.
-url=${!#} out=/dev/stdout
-while [ $# -gt 1 ]; do [ "$1" = -o ] && out=$2; shift; done
-lookup() { local tag=$1 list=$2 fallback=$3 pair; for pair in $list; do [ "${pair%%:*}" = "$tag" ] && { echo "${pair#*:}"; return; }; done; echo "$fallback"; }
-default='{"token":"t"}'
+url=${!#} out=/dev/stdout headers=/dev/null head=false
+while [ $# -gt 1 ]; do
+  case $1 in -o) out=$2 ;; -D) headers=$2 ;; -I) head=true ;; esac
+  shift
+done
+lookup() { local key=$1 list=$2 fallback=$3 pair; for pair in $list; do [ "${pair%%:*}" = "$key" ] && { echo "${pair#*:}"; return; }; done; echo "$fallback"; }
+token='{"token":"t"}'
+manifest() {
+  local tag=${url##*/} code rev
+  code=$(lookup "$tag" "$1" 404) rev=$(lookup "$tag" "$2" "")
+  if [ "$head" = false ]; then
+    printf '{"annotations":{"org.opencontainers.image.revision":"%s"}}' "$rev" > "$out"
+    printf 'HTTP/1.1 %s\r\nDocker-Content-Digest: sha256:%s\r\n\r\n' "$code" "$3" > "$headers"
+  fi
+  printf '%s' "$code"
+}
 case $url in
-  https://ghcr.io/token*) printf '%s' "${STUB_TOKEN-$default}" ;;
-  https://ghcr.io/v2/*)
-    tag=${url##*/}
-    printf '{"annotations":{"org.opencontainers.image.revision":"%s"}}' "$(lookup "$tag" "${STUB_REV:-}" "")" > "$out"
-    printf '%s' "$(lookup "$tag" "${STUB_GHCR:-}" 404)" ;;
-  https://hub.docker.com/*) printf '%s' "$(lookup "${url##*/}" "${STUB_HUB:-}" 404)" ;;
+  https://ghcr.io/token*) printf '%s' "${STUB_GHCR_TOKEN-$token}" ;;
+  https://auth.docker.io/token*) printf '%s' "${STUB_HUB_TOKEN-$token}" ;;
+  https://ghcr.io/v2/*) manifest "${STUB_GHCR:-}" "${STUB_GHCR_REV:-}" ghcr ;;
+  https://registry-1.docker.io/v2/*) manifest "${STUB_HUB:-}" "${STUB_HUB_REV:-}" hub ;;
   *) exit 6 ;;
 esac
 EOF
 chmod +x "$tmp/bin/curl"
 stub="PATH=$tmp/bin:$PATH"
 dir=$tmp/patch
+headsha=$(git -C "$dir" rev-parse HEAD)
 
-run "$stub" STUB_GHCR="1.2.2:200" -- exists 1.2.2
-check "exists: on ghcr.io" "$([ "$status" = 0 ] && echo true || echo false)"
-run "$stub" STUB_HUB="1.2.2:200" -- exists 1.2.2
-check "exists: on Docker Hub only" "$([ "$status" = 0 ] && echo true || echo false)"
-run "$stub" -- exists 1.2.2
-check "exists: on neither" "$([ "$status" = 1 ] && echo true || echo false)"
-run "$stub" STUB_GHCR="1.2.2:429" -- exists 1.2.2
-check "exists: a 429 from ghcr.io is no answer" "$([ "$status" = 2 ] && grep -q 'ghcr.io answered 429' <<< "$err" && echo true || echo false)"
-run "$stub" STUB_HUB="1.2.2:503" -- exists 1.2.2
-check "exists: a 503 from Docker Hub is no answer" "$([ "$status" = 2 ] && grep -q 'Docker Hub answered 503' <<< "$err" && echo true || echo false)"
-run "$stub" STUB_TOKEN='{"errors":[]}' -- exists 1.2.2
-check "exists: JSON without a token is no answer" "$([ "$status" = 2 ] && grep -q 'no token' <<< "$err" && echo true || echo false)"
-run "$stub" STUB_TOKEN='<html>' -- exists 1.2.2
-check "exists: a body that is no JSON is no answer" "$([ "$status" = 2 ] && grep -q 'no token' <<< "$err" && echo true || echo false)"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_GHCR_REV="1.2.2:abc" -- state 1.2.2
+check "state: on ghcr.io" "$(is [ "$out" = "$(printf 'ghcr=true\ndockerhub=false\nrevision=abc\ndigest=sha256:ghcr')" ])"
+run "$stub" STUB_HUB="1.2.2:200" STUB_HUB_REV="1.2.2:def" -- state 1.2.2
+check "state: on Docker Hub only, with its revision and digest" "$(is [ "$out" = "$(printf 'ghcr=false\ndockerhub=true\nrevision=def\ndigest=sha256:hub')" ])"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_HUB="1.2.2:200" STUB_GHCR_REV="1.2.2:abc" STUB_HUB_REV="1.2.2:def" -- state 1.2.2
+check "state: on both, ghcr.io's revision" "$(is [ "$out" = "$(printf 'ghcr=true\ndockerhub=true\nrevision=abc\ndigest=sha256:ghcr')" ])"
+run "$stub" -- state 1.2.2
+check "state: on neither" "$(is [ "$out" = "$(printf 'ghcr=false\ndockerhub=false\nrevision=\ndigest=')" ])"
+run "$stub" STUB_GHCR="1.2.2:429" -- state 1.2.2
+check "state: a 429 from ghcr.io is no answer" "$([ "$status" = 2 ] && grep -q 'ghcr.io answered 429' <<< "$err" && echo true || echo false)"
+run "$stub" STUB_HUB="1.2.2:503" -- state 1.2.2
+check "state: a 503 from Docker Hub is no answer" "$([ "$status" = 2 ] && grep -q 'Docker Hub answered 503' <<< "$err" && echo true || echo false)"
+run "$stub" STUB_GHCR_TOKEN='{"errors":[]}' -- state 1.2.2
+check "state: JSON without a token is no answer" "$([ "$status" = 2 ] && grep -q 'ghcr.io gave no token' <<< "$err" && echo true || echo false)"
+run "$stub" STUB_HUB_TOKEN='<html>' -- state 1.2.2
+check "state: a token body that is no JSON is no answer" "$([ "$status" = 2 ] && grep -q 'Docker Hub gave no token' <<< "$err" && echo true || echo false)"
 run "$stub" STUB_GHCR="1.2.2:200" STUB_HUB="1.2.3:200"
 check "next: skips images on either registry" "$([ "$status" = 0 ] && [ "$out" = v1.2.4 ] && echo true || echo false)"
 run "$stub" STUB_HUB="1.2.2:500"
 check "next: fails when a registry gives no answer" "$([ "$status" = 2 ] && [ -z "$out" ] && echo true || echo false)"
-run "$stub" STUB_GHCR="1.2.2:200" STUB_REV="1.2.2:$(git -C "$dir" rev-parse HEAD)"
-check "next: stops when the ghcr.io image to skip was built from HEAD" "$([ "$status" = 2 ] && [ -z "$out" ] && grep -q 'built from this commit' <<< "$err" && echo true || echo false)"
-run "$stub" STUB_GHCR="1.2.2:200" STUB_REV="1.2.2:0123456789abcdef0123456789abcdef01234567"
-check "next: skips an image built from another commit" "$([ "$status" = 0 ] && [ "$out" = v1.2.3 ] && echo true || echo false)"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_GHCR_REV="1.2.2:$headsha"
+check "next: picks an image of HEAD on ghcr.io again" "$([ "$status" = 0 ] && [ "$out" = v1.2.2 ] && echo true || echo false)"
+run "$stub" STUB_HUB="1.2.2:200" STUB_HUB_REV="1.2.2:$headsha"
+check "next: picks an image of HEAD on Docker Hub only again" "$([ "$status" = 0 ] && [ "$out" = v1.2.2 ] && echo true || echo false)"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failed"

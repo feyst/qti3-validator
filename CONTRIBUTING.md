@@ -362,11 +362,12 @@ Release: minor
 
 Every such line since the last release counts, anywhere in a commit's body,
 also in a squash message that lists several commits; the highest one wins,
-and it releases also when nothing in the image changed. `Release: patch` is
-allowed and changes nothing. Without one it is a patch, so Dependabot's
-updates go out as they did. A `Release:` line with another value stops the
-release with an error rather than guess; start the workflow by hand with a
-bump to release past it.
+and it releases also when nothing in the image changed. The line starts at
+the margin or after a bullet; an indented example does not count, nor does
+the subject. A remark in parentheses may follow the value. `Release: patch`
+is allowed and changes nothing. Without one it is a patch, so Dependabot's
+updates go out as they did. A `Release:` line with another value is ignored,
+with a warning in the run.
 
 To build main by hand, start the workflow: Actions → CI → Run workflow.
 `auto` releases as a push would; `patch`, `minor` or `major` release with that
@@ -380,23 +381,22 @@ under Settings → General → Tag mutability), so it refuses the version again,
 and on ghcr.io it would overwrite an image users may have pulled. `latest`,
 `main`, `X.Y` and `sha-<commit>` stay mutable.
 
-When a release run fails:
+A release that failed after its image was pushed is finished, not repeated.
+When the image of the version is already there and was built from the
+commit of the run (its `org.opencontainers.image.revision`), the job
+`version` picks that version again, the job `image` builds nothing and only
+points the run's tags at that image (copying it to the registry that lacks
+it, except the version itself where it is already immutable), and the job
+`release` makes the tag and the release where they are missing. A release
+tag on the tip of main without its GitHub release is finished the same way.
+So after any failure, re-run the failed jobs, re-run all jobs, start a new
+run (Actions → CI → Run workflow, `auto`), or wait for the nightly run: each
+finishes the release. An image of the version built from another commit
+stops the job `image` with an error.
 
-- in the job `release`, after the image was pushed: **Re-run failed jobs**.
-  It finishes the tag and the release the failed run left half made. A
-  later run does not finish them: it stops with an error when the image of
-  this commit is there without a tag, and releases nothing when the tag is
-  there. Past the 30 days in which GitHub allows a re-run,
-  finish it by hand, for example for v1.2.3:
-  `gh release create v1.2.3 --target <commit> --generate-notes`.
-- earlier, in `check`, `version` or `image`: start a new run (Actions → CI →
-  Run workflow, `auto`). Only a new pass of `version` sees what the failed
-  run already pushed; the job `image` stops a re-run of failed jobs that
-  would push a version a second time.
-
-A run releases only the tip of main and only a commit that has no release
-tag yet, so re-running an old run, or a manual run that already released,
-releases nothing.
+A run releases only the tip of main as the remote has it, so re-running an
+old run releases nothing, and a commit that already has its release is not
+released again.
 
 Release tags are made by the workflow and are not signed; the build
 attestation on ghcr.io (`gh attestation verify oci://ghcr.io/feyst/qti3-validator:X.Y.Z -R feyst/qti3-validator`)

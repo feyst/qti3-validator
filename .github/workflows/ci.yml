@@ -80,9 +80,11 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           BUMP: ${{ inputs.bump }}
+          # To ask whether a tag on HEAD has its GitHub release.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           next=$(.github/scripts/next-version.sh 2> "$RUNNER_TEMP/next.log") || { cat "$RUNNER_TEMP/next.log"; exit 1; }
-          cat "$RUNNER_TEMP/next.log"
+          sed 's/^warning: /::warning::/' "$RUNNER_TEMP/next.log"
           if [ -n "$next" ]; then echo "Releasing $next"; fi
           # The versions passed over, for the release notes: "v1.2.2 v1.2.3".
           skipped=$(sed -n 's/^Skipping \(v[0-9.]*\):.*/\1/p' "$RUNNER_TEMP/next.log" | xargs)
@@ -121,18 +123,32 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # "Re-run failed jobs" does not run `version` again, so a run whose
-      # image job failed after pushing the release would push it a second
-      # time: Docker Hub refuses that, and ghcr.io would overwrite it.
-      - name: Check that the release is not pushed yet
-        if: env.RELEASE != ''
+      # A release, or a tag v1.2.3, whose image is already in a registry was
+      # pushed by an earlier attempt that failed later on: by a re-run of
+      # failed jobs, or by a new run that picked the version again because
+      # the image was built from this commit. Then nothing is built; the
+      # step "Complete the release" adds what that attempt did not push.
+      # An image of the version built from another commit is an error.
+      - name: What the registries have
+        id: state
+        if: env.RELEASE != '' || github.ref_type == 'tag'
         run: |
-          if .github/scripts/next-version.sh exists "${RELEASE#v}"; then
-            echo "::error::The image ${RELEASE#v} is already in a registry. Use Re-run all jobs or start a new run, which picks the next version."
-            exit 1
-          elif [ $? -ne 1 ]; then
-            exit 1
+          v=${RELEASE:-$GITHUB_REF_NAME}
+          v=${v#v}
+          .github/scripts/next-version.sh state "$v" > "$RUNNER_TEMP/state"
+          cat "$RUNNER_TEMP/state"
+          # shellcheck disable=SC1091
+          . "$RUNNER_TEMP/state"
+          resume=false
+          if [ "$ghcr" = true ] || [ "$dockerhub" = true ]; then
+            if [ "$revision" != "$GITHUB_SHA" ]; then
+              echo "::error::The image $v is already in a registry, built from ${revision:-an unknown commit}, not from $GITHUB_SHA."
+              exit 1
+            fi
+            resume=true
+            echo "The image $v of this commit is already pushed: completing the release without building"
           fi
+          { cat "$RUNNER_TEMP/state"; echo "version=$v"; echo "resume=$resume"; } >> "$GITHUB_OUTPUT"
 
       - name: Image names and release tags
         id: names
@@ -187,6 +203,7 @@ jobs:
 
       # The Dockerfile cross-compiles, so arm64 needs no emulation.
       - id: build
+        if: steps.state.outputs.resume != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -201,6 +218,34 @@ jobs:
           provenance: mode=max
           sbom: true
 
+      # Points every tag of this run at the image an earlier attempt pushed,
+      # copied from the registry that has it, except the version itself on a
+      # registry that already has it: Docker Hub keeps that immutable.
+      - name: Complete the release
+        id: complete
+        if: steps.state.outputs.resume == 'true' && env.PUSH == 'true'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          V: ${{ steps.state.outputs.version }}
+          ON_GHCR: ${{ steps.state.outputs.ghcr }}
+          ON_HUB: ${{ steps.state.outputs.dockerhub }}
+          DIGEST: ${{ steps.state.outputs.digest }}
+        run: |
+          if [ "$ON_GHCR" = true ]; then source="ghcr.io/$IMAGE@$DIGEST"; else source="docker.io/$IMAGE@$DIGEST"; fi
+          args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            case $tag in
+              "ghcr.io/$IMAGE:$V") [ "$ON_GHCR" = true ] && continue ;;
+              "docker.io/$IMAGE:$V") [ "$ON_HUB" = true ] && continue ;;
+            esac
+            args+=(-t "$tag")
+          done <<< "$TAGS"
+          if [ ${#args[@]} -gt 0 ]; then
+            docker buildx imagetools create "${args[@]}" "$source"
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
       # A signed statement of which workflow built the image from which
       # commit; check it with `gh attestation verify oci://<image> -R <repo>`.
       # Attestations need a public repository, or GitHub Enterprise.
@@ -209,7 +254,7 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.names.outputs.ghcr }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.build.outputs.digest || steps.complete.outputs.digest }}
           push-to-registry: true
 
   # Docker Hub does not read the README from the repository or the image:
@@ -296,8 +341,8 @@ jobs:
 
   # Keeps one open issue labelled release-failure while builds of main fail,
   # with a comment per failed run, and closes it after the next build of main
-  # that built and pushed the image without a failure. A cancelled run, or a
-  # nightly run with nothing to release, leaves the issue as it is. The
+  # whose checks passed and whose jobs had no failure, also a nightly run
+  # with nothing to release. A cancelled run leaves the issue as it is. The
   # nightly run released nothing for two weeks before anyone noticed; this
   # makes it noticed.
   report:
@@ -310,7 +355,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       FAILED: ${{ contains(needs.*.result, 'failure') }}
-      SUCCEEDED: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.image.result == 'success' }}
+      SUCCEEDED: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.check.result == 'success' }}
     steps:
       - run: |
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
