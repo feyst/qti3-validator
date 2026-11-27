@@ -78,6 +78,10 @@ registry_lookup() {
   found=true
   revision=$(jq -r '.annotations["org.opencontainers.image.revision"] // empty' "$TMP/manifest" 2>/dev/null) || revision=
   digest=$(tr -d '\r' < "$TMP/headers" | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: *//p' | tail -n 1)
+  # What the registry says goes to $GITHUB_OUTPUT and into a shell: only a
+  # commit hash and a digest are taken.
+  [[ $revision =~ ^[0-9a-f]{40}$ ]] || revision=''
+  [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || fail "$name gave no digest for $url"
 }
 
 # lookup 1.2.3 sets ghcr and dockerhub to true or false, and revision and
@@ -102,7 +106,14 @@ lookup() {
   registry_lookup "Docker Hub" "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$IMAGE:pull" \
     "https://registry-1.docker.io/v2/$IMAGE/manifests/$tag"
   dockerhub=$found
-  if [ "$ghcr" = true ]; then revision=$r digest=$d; fi
+  if [ "$ghcr" = true ]; then
+    # Two different images under one version are of no single commit.
+    if [ "$dockerhub" = true ] && [ "$digest" != "$d" ]; then
+      echo "ghcr.io and Docker Hub hold different images as $tag" >&2
+      r=''
+    fi
+    revision=$r digest=$d
+  fi
 }
 
 if [ "${1:-}" = state ]; then
@@ -137,7 +148,11 @@ has_release() {
   if [ -n "${KNOWN_RELEASES+set}" ]; then
     case " $KNOWN_RELEASES " in *" $1 "*) return 0 ;; *) return 1 ;; esac
   fi
-  gh release view "$1" > /dev/null 2>&1
+  if gh api "repos/${GITHUB_REPOSITORY:-feyst/qti3-validator}/releases/tags/$1" > /dev/null 2> "$TMP/release.err"; then
+    return 0
+  fi
+  grep -q 'HTTP 404' "$TMP/release.err" || fail "Could not ask GitHub for the release $1: $(cat "$TMP/release.err")"
+  return 1
 }
 
 released=$(git tag --points-at HEAD | releases | sort -V | tail -n 1)

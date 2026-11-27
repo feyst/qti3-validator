@@ -150,6 +150,10 @@ repo no-blank
 commit cmd/main.go "$(printf 'Add validate\n\nBody text\nRelease: minor')"
 expect "a Release line without a blank line before it counts" v1.3.0
 
+repo crlf
+commit cmd/main.go "$(printf 'Add validate\r\n\r\nRelease: minor\r\n')"
+expect "a Release line with CRLF line ends counts" v1.3.0
+
 repo bullet
 commit cmd/main.go "$(printf 'Add validate\n\n- Release: minor')"
 expect "a Release line in a bullet counts" v1.3.0
@@ -166,8 +170,10 @@ repo release-patch
 commit docs/readme.md "$(printf 'Docs\n\nRelease: patch')"
 expect "Release: patch alone releases nothing extra" ""
 
+n=0
 for case in "feature" "major rework of the parser" "4.8.0" "minor." ""; do
-  repo "unknown-$RANDOM"
+  n=$((n + 1))
+  repo "unknown-$n"
   commit cmd/main.go "$(printf 'Change\n\nRelease: %s' "$case")"
   expect "an unknown Release value ('$case') is ignored" v1.2.2
   check "  with a warning" "$(grep -q '^warning: ignored the line' <<< "$err" && echo true || echo false)"
@@ -218,7 +224,8 @@ echo "# registries (stub curl)"
 
 # A curl that answers from STUB_GHCR and STUB_HUB, lists of tag:code (a tag
 # not listed answers 404), STUB_GHCR_REV and STUB_HUB_REV, lists of
-# tag:commit, and STUB_GHCR_TOKEN and STUB_HUB_TOKEN, the token bodies.
+# tag:commit, STUB_GHCR_DIGEST and STUB_HUB_DIGEST, the digests' hex, and
+# STUB_GHCR_TOKEN and STUB_HUB_TOKEN, the token bodies.
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -234,15 +241,15 @@ manifest() {
   code=$(lookup "$tag" "$1" 404) rev=$(lookup "$tag" "$2" "")
   if [ "$head" = false ]; then
     printf '{"annotations":{"org.opencontainers.image.revision":"%s"}}' "$rev" > "$out"
-    printf 'HTTP/1.1 %s\r\nDocker-Content-Digest: sha256:%s\r\n\r\n' "$code" "$3" > "$headers"
+    printf 'HTTP/2 %s\r\ndocker-content-digest: sha256:%s\r\n\r\n' "$code" "$3" > "$headers"
   fi
   printf '%s' "$code"
 }
 case $url in
   https://ghcr.io/token*) printf '%s' "${STUB_GHCR_TOKEN-$token}" ;;
   https://auth.docker.io/token*) printf '%s' "${STUB_HUB_TOKEN-$token}" ;;
-  https://ghcr.io/v2/*) manifest "${STUB_GHCR:-}" "${STUB_GHCR_REV:-}" ghcr ;;
-  https://registry-1.docker.io/v2/*) manifest "${STUB_HUB:-}" "${STUB_HUB_REV:-}" hub ;;
+  https://ghcr.io/v2/*) manifest "${STUB_GHCR:-}" "${STUB_GHCR_REV:-}" "${STUB_GHCR_DIGEST:-1111111111111111111111111111111111111111111111111111111111111111}" ;;
+  https://registry-1.docker.io/v2/*) manifest "${STUB_HUB:-}" "${STUB_HUB_REV:-}" "${STUB_HUB_DIGEST:-2222222222222222222222222222222222222222222222222222222222222222}" ;;
   *) exit 6 ;;
 esac
 EOF
@@ -251,12 +258,18 @@ stub="PATH=$tmp/bin:$PATH"
 dir=$tmp/patch
 headsha=$(git -C "$dir" rev-parse HEAD)
 
-run "$stub" STUB_GHCR="1.2.2:200" STUB_GHCR_REV="1.2.2:abc" -- state 1.2.2
-check "state: on ghcr.io" "$(is [ "$out" = "$(printf 'ghcr=true\ndockerhub=false\nrevision=abc\ndigest=sha256:ghcr')" ])"
-run "$stub" STUB_HUB="1.2.2:200" STUB_HUB_REV="1.2.2:def" -- state 1.2.2
-check "state: on Docker Hub only, with its revision and digest" "$(is [ "$out" = "$(printf 'ghcr=false\ndockerhub=true\nrevision=def\ndigest=sha256:hub')" ])"
-run "$stub" STUB_GHCR="1.2.2:200" STUB_HUB="1.2.2:200" STUB_GHCR_REV="1.2.2:abc" STUB_HUB_REV="1.2.2:def" -- state 1.2.2
-check "state: on both, ghcr.io's revision" "$(is [ "$out" = "$(printf 'ghcr=true\ndockerhub=true\nrevision=abc\ndigest=sha256:ghcr')" ])"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_GHCR_REV="1.2.2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" -- state 1.2.2
+check "state: on ghcr.io" "$(is [ "$out" = "$(printf 'ghcr=true\ndockerhub=false\nrevision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ndigest=sha256:1111111111111111111111111111111111111111111111111111111111111111')" ])"
+run "$stub" STUB_HUB="1.2.2:200" STUB_HUB_REV="1.2.2:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" -- state 1.2.2
+check "state: on Docker Hub only, with its revision and digest" "$(is [ "$out" = "$(printf 'ghcr=false\ndockerhub=true\nrevision=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndigest=sha256:2222222222222222222222222222222222222222222222222222222222222222')" ])"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_HUB="1.2.2:200" STUB_GHCR_REV="1.2.2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" STUB_HUB_REV="1.2.2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" STUB_HUB_DIGEST=1111111111111111111111111111111111111111111111111111111111111111 -- state 1.2.2
+check "state: the same image on both" "$(is [ "$out" = "$(printf 'ghcr=true\ndockerhub=true\nrevision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ndigest=sha256:1111111111111111111111111111111111111111111111111111111111111111')" ])"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_HUB="1.2.2:200" STUB_GHCR_REV="1.2.2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" STUB_HUB_REV="1.2.2:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" -- state 1.2.2
+check "state: different images on the two have no revision" "$(is [ "$out" = "$(printf 'ghcr=true\ndockerhub=true\nrevision=\ndigest=sha256:1111111111111111111111111111111111111111111111111111111111111111')" ])"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_GHCR_REV="1.2.2:not-a-commit" -- state 1.2.2
+check "state: a revision that is no commit hash is dropped" "$(is [ "$out" = "$(printf 'ghcr=true\ndockerhub=false\nrevision=\ndigest=sha256:1111111111111111111111111111111111111111111111111111111111111111')" ])"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_GHCR_DIGEST="x; rm -rf /" -- state 1.2.2
+check "state: a digest that is no digest fails" "$([ "$status" = 2 ] && grep -q 'gave no digest' <<< "$err" && echo true || echo false)"
 run "$stub" -- state 1.2.2
 check "state: on neither" "$(is [ "$out" = "$(printf 'ghcr=false\ndockerhub=false\nrevision=\ndigest=')" ])"
 run "$stub" STUB_GHCR="1.2.2:429" -- state 1.2.2
@@ -273,6 +286,8 @@ run "$stub" STUB_HUB="1.2.2:500"
 check "next: fails when a registry gives no answer" "$([ "$status" = 2 ] && [ -z "$out" ] && echo true || echo false)"
 run "$stub" STUB_GHCR="1.2.2:200" STUB_GHCR_REV="1.2.2:$headsha"
 check "next: picks an image of HEAD on ghcr.io again" "$([ "$status" = 0 ] && [ "$out" = v1.2.2 ] && echo true || echo false)"
+run "$stub" STUB_GHCR="1.2.2:200" STUB_HUB="1.2.2:200" STUB_GHCR_REV="1.2.2:$headsha" STUB_HUB_REV="1.2.2:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+check "next: skips a version whose registries hold different images" "$([ "$status" = 0 ] && [ "$out" = v1.2.3 ] && echo true || echo false)"
 run "$stub" STUB_HUB="1.2.2:200" STUB_HUB_REV="1.2.2:$headsha"
 check "next: picks an image of HEAD on Docker Hub only again" "$([ "$status" = 0 ] && [ "$out" = v1.2.2 ] && echo true || echo false)"
 

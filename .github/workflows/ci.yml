@@ -112,6 +112,8 @@ jobs:
     outputs:
       # Whether the image went to Docker Hub too, for the release notes.
       dockerhub: ${{ steps.names.outputs.dockerhub }}
+      # Whether this run of main is still main's tip; see the step "tip".
+      tip: ${{ steps.tip.outputs.tip }}
     env:
       PUSH: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]') }}
       DOCKERHUB: ${{ github.event_name != 'pull_request' && secrets.DOCKERHUB_TOKEN != '' }}
@@ -123,6 +125,29 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # A run of main pushes only while its commit is main's tip on the
+      # remote. Otherwise it is an old run, re-run, or overtaken by a newer
+      # push: it would move latest, main and X.Y back to an older commit, or
+      # release one. Then it builds without pushing, and releases nothing.
+      # "Re-run failed jobs" does not run `version` again, so this is asked
+      # here, where the writes happen, and again in `release`.
+      - name: Whether this run of main is main's tip
+        id: tip
+        run: |
+          may_push=${PUSH:?} tip=true
+          if [ "$GITHUB_REF" = refs/heads/main ] && [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            main=$(git ls-remote origin refs/heads/main | cut -f1)
+            if [ -z "$main" ]; then
+              echo "::error::Could not read the tip of main from origin"
+              exit 1
+            fi
+            if [ "$main" != "$GITHUB_SHA" ]; then
+              may_push=false tip=false
+              echo "::notice::$GITHUB_SHA is no longer the tip of main ($main): building without pushing. Start a new run to release."
+            fi
+          fi
+          { echo "push=$may_push"; echo "tip=$tip"; } >> "$GITHUB_OUTPUT"
+
       # A release, or a tag v1.2.3, whose image is already in a registry was
       # pushed by an earlier attempt that failed later on: by a re-run of
       # failed jobs, or by a new run that picked the version again because
@@ -131,7 +156,7 @@ jobs:
       # An image of the version built from another commit is an error.
       - name: What the registries have
         id: state
-        if: env.RELEASE != '' || github.ref_type == 'tag'
+        if: steps.tip.outputs.push == 'true' && (env.RELEASE != '' || github.ref_type == 'tag')
         run: |
           v=${RELEASE:-$GITHUB_REF_NAME}
           v=${v#v}
@@ -187,7 +212,7 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to ghcr.io
-        if: env.PUSH == 'true'
+        if: steps.tip.outputs.push == 'true'
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
@@ -208,7 +233,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ env.PUSH == 'true' }}
+          push: ${{ steps.tip.outputs.push == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
@@ -223,7 +248,7 @@ jobs:
       # registry that already has it: Docker Hub keeps that immutable.
       - name: Complete the release
         id: complete
-        if: steps.state.outputs.resume == 'true' && env.PUSH == 'true'
+        if: steps.state.outputs.resume == 'true' && steps.tip.outputs.push == 'true'
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           V: ${{ steps.state.outputs.version }}
@@ -250,7 +275,7 @@ jobs:
       # commit; check it with `gh attestation verify oci://<image> -R <repo>`.
       # Attestations need a public repository, or GitHub Enterprise.
       - name: Attest
-        if: env.PUSH == 'true' && github.event_name != 'pull_request' && !github.event.repository.private
+        if: steps.tip.outputs.push == 'true' && github.event_name != 'pull_request' && !github.event.repository.private
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.names.outputs.ghcr }}
@@ -285,7 +310,7 @@ jobs:
   # A tag made with the workflow's own token starts no new run.
   release:
     needs: [version, image]
-    if: needs.version.outputs.tag != ''
+    if: needs.version.outputs.tag != '' && needs.image.outputs.tip == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -296,8 +321,16 @@ jobs:
       IMAGE: feyst/qti3-validator
       DOCKERHUB: ${{ needs.image.outputs.dockerhub }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
           v=${TAG#v}
+          # Asked again: "Re-run failed jobs" may run this job alone, long
+          # after main moved on.
+          main=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$main" != "$GITHUB_SHA" ]; then
+            echo "::error::$GITHUB_SHA is no longer the tip of main (${main:-unknown}): not releasing it. Start a new run."
+            exit 1
+          fi
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           # A re-run after a failure further down finds the tag, and the
           # release, it made before; a tag on another commit is an error.
@@ -320,9 +353,12 @@ jobs:
               -f message="$TAG"$'\n\n'"Released by $run_url" --jq .sha)
             gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$object" > /dev/null
           fi
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > /dev/null 2> "$RUNNER_TEMP/release.err"; then
             echo "The release $TAG exists"
             exit 0
+          elif ! grep -q 'HTTP 404' "$RUNNER_TEMP/release.err"; then
+            cat "$RUNNER_TEMP/release.err"
+            exit 1
           fi
           # Indented: a code block in the notes. Docker Hub is named only
           # when the image was pushed there.

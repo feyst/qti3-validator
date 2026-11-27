@@ -391,20 +391,25 @@ it, except the version itself where it is already immutable), and the job
 tag on the tip of main without its GitHub release is finished the same way.
 So after any failure, re-run the failed jobs, re-run all jobs, start a new
 run (Actions → CI → Run workflow, `auto`), or wait for the nightly run: each
-finishes the release. An image of the version built from another commit
-stops the job `image` with an error.
+finishes the release. A release started by hand with a bump is the
+exception: finish it by re-running that run, or by a new run with the same
+bump, as an `auto` run may pick another version. An image of the version
+built from another commit, or different images under the version on the two
+registries, stop the job `image` with an error.
 
-A run releases only the tip of main as the remote has it, so re-running an
-old run releases nothing, and a commit that already has its release is not
-released again.
+A run of main pushes and releases only while its commit is the tip of main
+as the remote has it; the jobs `image` and `release` ask again before they
+write. So re-running an old run, or a run overtaken by a newer push, builds
+without pushing and releases nothing, and a commit that already has its
+release is not released again.
 
 Release tags are made by the workflow and are not signed; the build
 attestation on ghcr.io (`gh attestation verify oci://ghcr.io/feyst/qti3-validator:X.Y.Z -R feyst/qti3-validator`)
 ties an image to its commit and run. Commits are signed by their authors.
 
 While builds of main fail, an open issue with the label `release-failure`
-gets a comment per failed run; the next build of main that pushes the image
-without a failure closes it.
+gets a comment per failed run; the next build of main whose checks pass and
+whose jobs do not fail closes it, also a nightly run with nothing to release.
 
 Runs of main and of tags are never cancelled while running and run one after
 the other, so two releases never pick the same version. GitHub keeps only one
