@@ -133,7 +133,7 @@ esac
 # The remote, not refs/remotes/origin/main: actions/checkout points that at
 # the commit of the run, also when main has moved on since.
 head=$(git rev-parse HEAD)
-tip=${MAIN_TIP-$(git ls-remote origin refs/heads/main | cut -f1)}
+tip=${MAIN_TIP-$(git ls-remote origin refs/heads/main | cut -f1 || true)}
 [ -n "$tip" ] || fail "Could not read the tip of main from origin"
 if [ "$tip" != "$head" ]; then
   echo "HEAD $head is not the tip of main ($tip): start a new run to release" >&2

@@ -403,6 +403,14 @@ write. So re-running an old run, or a run overtaken by a newer push, builds
 without pushing and releases nothing, and a commit that already has its
 release is not released again.
 
+Two known costs, both loud and self-healing: a push to main during a
+release build leaves that build's version pushed but unreleased (the job
+`release` refuses a commit that is no longer the tip, and the next run
+skips the version); and while a step after the push keeps failing, each new
+commit on main pushes one more version without a release. The
+`release-failure` issue below shows both; fix the cause before more
+commits pile up.
+
 Release tags are made by the workflow and are not signed; the build
 attestation on ghcr.io (`gh attestation verify oci://ghcr.io/feyst/qti3-validator:X.Y.Z -R feyst/qti3-validator`)
 ties an image to its commit and run. Commits are signed by their authors.
