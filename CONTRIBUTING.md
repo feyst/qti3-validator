@@ -346,11 +346,78 @@ into the image changed since the last tag `vX.Y.Z` (`go.mod`, `go.sum`, the
 Dockerfile, the rules, `third_party` and the code in `cmd` and `internal`,
 without tests, `testdata` directories and `internal/testutil`), it releases
 the next patch version: the image gets the tags `X.Y.Z` and `X.Y`, the binary
-reports that version, and the commit gets the tag and a GitHub release with
-notes.
+reports that version, and the commit gets an annotated tag and a GitHub
+release with notes. `.github/scripts/next-version.sh` picks the version;
+`make release-test` tests it.
 
-For a minor or major release, start the workflow by hand: Actions → CI → Run
-workflow, and pick the bump.
+For a minor or major release, put a line `Release: minor` or
+`Release: major` in the body of a commit: in the pull request's description
+as well, as a squash merge may take its message from there.
+
+```text
+Add the validate command
+
+Release: minor
+```
+
+Every such line since the last release counts, anywhere in a commit's body,
+also in a squash message that lists several commits; the highest one wins,
+and it releases also when nothing in the image changed. The line starts at
+the margin or after a bullet; an indented example does not count, nor does
+the subject. A remark in parentheses may follow the value. `Release: patch`
+is allowed and changes nothing. Without one it is a patch, so Dependabot's
+updates go out as they did. A `Release:` line with another value is ignored,
+with a warning in the run.
+
+To build main by hand, start the workflow: Actions → CI → Run workflow.
+`auto` releases as a push would; `patch`, `minor` or `major` release with that
+bump whatever the commits say.
+
+A version whose image is already on ghcr.io or Docker Hub is skipped, on to
+the next patch number, and the release notes name it. That happens when a
+release pushed its image but failed before it was tagged, as v1.2.2 did:
+Docker Hub keeps exact versions immutable (the rule `^[0-9]+\.[0-9]+\.[0-9]+$`
+under Settings → General → Tag mutability), so it refuses the version again,
+and on ghcr.io it would overwrite an image users may have pulled. `latest`,
+`main`, `X.Y` and `sha-<commit>` stay mutable.
+
+A release that failed after its image was pushed is finished, not repeated.
+When the image of the version is already there and was built from the
+commit of the run (its `org.opencontainers.image.revision`), the job
+`version` picks that version again, the job `image` builds nothing and only
+points the run's tags at that image (copying it to the registry that lacks
+it, except the version itself where it is already immutable), and the job
+`release` makes the tag and the release where they are missing. A release
+tag on the tip of main without its GitHub release is finished the same way.
+So after any failure, re-run the failed jobs, re-run all jobs, start a new
+run (Actions → CI → Run workflow, `auto`), or wait for the nightly run: each
+finishes the release. A release started by hand with a bump is the
+exception: finish it by re-running that run, or by a new run with the same
+bump, as an `auto` run may pick another version. An image of the version
+built from another commit, or different images under the version on the two
+registries, stop the job `image` with an error.
+
+A run of main pushes and releases only while its commit is the tip of main
+as the remote has it; the jobs `image` and `release` ask again before they
+write. So re-running an old run, or a run overtaken by a newer push, builds
+without pushing and releases nothing, and a commit that already has its
+release is not released again.
+
+Two known costs, both loud and self-healing: a push to main during a
+release build leaves that build's version pushed but unreleased (the job
+`release` refuses a commit that is no longer the tip, and the next run
+skips the version); and while a step after the push keeps failing, each new
+commit on main pushes one more version without a release. The
+`release-failure` issue below shows both; fix the cause before more
+commits pile up.
+
+Release tags are made by the workflow and are not signed; the build
+attestation on ghcr.io (`gh attestation verify oci://ghcr.io/feyst/qti3-validator:X.Y.Z -R feyst/qti3-validator`)
+ties an image to its commit and run. Commits are signed by their authors.
+
+While builds of main fail, an open issue with the label `release-failure`
+gets a comment per failed run; the next build of main whose checks pass and
+whose jobs do not fail closes it, also a nightly run with nothing to release.
 
 Runs of main and of tags are never cancelled while running and run one after
 the other, so two releases never pick the same version. GitHub keeps only one
